@@ -1,2 +1,2 @@
 # cosmic-calc
-Calculator for the COSMIC desktop
+Calculator for the COSMIC desktop written in Rust
