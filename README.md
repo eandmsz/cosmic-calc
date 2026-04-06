@@ -8,7 +8,7 @@ Calculator for the COSMIC desktop
 # Features:
 - Repeat last operation using =
 - Predictable operation: only the = sign evaluates the expressions
-- Automatic extension with scientific buttons when the window is n landscape mode
+- Automatic extension with scientific buttons when the window is in landscape mode
 - Logical button layout
 - Expressions are more readable, by using superscript, subscript and custom svg radical sign
 - Copy/Paste expressions or results
