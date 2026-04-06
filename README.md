@@ -16,6 +16,6 @@ Calculator for the COSMIC desktop
 - Customizable random function
 - Intuitive Backspace and AC/C functions
 - Native f64 Rust variables used to get the highest performance and lowest memory footprint:
-		* 1 bit: sign
-		* 11 bits: exponent
-		* 52 bits: mantissa (fraction) which should give us 15-16 digits precision (we round it to 15 digits)
+	- 1 bit: sign
+	- 11 bits: exponent
+	- 52 bits: mantissa (fraction) which should give us 15-16 digits precision (we round it to 15 digits)
