@@ -24,6 +24,6 @@ Calculator for the COSMIC desktop
 - Complex numbers and their imaginary units (therefore negative number under sqrt should give an error)
 - Programmer's operations: bitshift, binary, hexadecimal calcualtions
 - Economic and Graphing calculations (use a spreadsheet for that)
-- Date, Currency, Unit conversions (not a calculator's job and currency would need a data provider and we want to keep this tool to be 100% offline)
+- Date, Currency, Unit conversions (currency would need a data provider and we want to keep this tool to be 100% offline)
 - Area, perimeter, volume, surface formulas
 - Physics, chemistry formulas/constants
