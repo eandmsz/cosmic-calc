@@ -19,3 +19,11 @@ Calculator for the COSMIC desktop
 	- 1 bit: sign
 	- 11 bits: exponent
 	- 52 bits: mantissa (fraction) which should give us 15-16 digits precision (we round it to 15 digits)
+
+# Will not be suppored:
+- Complex numbers and their imaginary units (therefore negative number under sqrt should give an error)
+- Programmer's operations: bitshift, binary, hexadecimal calcualtions
+- Economic and Graphing calculations (use a spreadsheet for that)
+- Date, Currency, Unit conversions (not a calculator's job and currency would need a data provider and we want to keep this tool to be 100% offline)
+- Area, perimeter, volume, surface formulas
+- Physics, chemistry formulas/constants
