@@ -13,12 +13,14 @@ Calculator for the COSMIC desktop
 - Expressions are more readable, by using superscript, subscript and custom svg radical sign
 - Copy/Paste expressions or results
 - Trigonometry and radical functions work both before or after inputting an operand
-- Customizable random function
 - Intuitive Backspace and AC/C functions
 - Native f64 Rust variables used to get the highest performance and lowest memory footprint:
 	- 1 bit: sign
 	- 11 bits: exponent
 	- 52 bits: mantissa (fraction) which should give us 15-16 digits precision (we round it to 15 digits)
+- Customizable random function
+- Customizable button layout
+
 
 # Will not be suppored:
 - Complex numbers and their imaginary units (therefore negative number under sqrt should give an error)
