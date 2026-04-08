@@ -15,9 +15,9 @@ Calculator for the COSMIC desktop
 - Trigonometry and radical functions work both before or after inputting an operand
 - Intuitive Backspace and AC/C functions
 - Native f64 Rust variables to get the highest performance and a simple codebase:
-	- 1 bit sign (+/-)
-	- 11 bits exponent (10^308)
-	- 52 bits: mantissa (fraction) +1 implicit bit which gives 15.95 digits precision (rounded down to a reliable 15 digits)
+	- 1-bit sign (+/-)
+	- 11-bits exponent (10^308)
+	- 52-bits mantissa (fraction) +1 implicit bit which gives 15.95 digits precision (rounded down to a reliable 15 digits)
 - Customizable random function
 - Customizable button layout
 
