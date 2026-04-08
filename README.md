@@ -14,10 +14,10 @@ Calculator for the COSMIC desktop
 - Copy/Paste expressions or results
 - Trigonometry and radical functions work both before or after inputting an operand
 - Intuitive Backspace and AC/C functions
-- Native f64 Rust variables used to get the highest performance and lowest memory footprint:
-	- 1 bit: sign
-	- 11 bits: exponent
-	- 52 bits: mantissa (fraction) which should give us 15-16 digits precision (we round it to 15 digits)
+- Native f64 Rust variables to get the highest performance and a simple codebase:
+	- 1 bit sign (+/-)
+	- 11 bits exponent (10^308)
+	- 52 bits: mantissa (fraction) +1 implicit bit which gives 15.95 digits precision (rounded down to a reliable 15 digits)
 - Customizable random function
 - Customizable button layout
 
