@@ -18,8 +18,7 @@ Calculator for the COSMIC desktop
 - Also compatible with other ASCII expression formats:
 	- 1-2 * -5 *  4.5E3/1000
 	- sqrt(asin(1)-atan(1))cbrt(8)rOOt(16, 4)pi*e
-- Customizable random function (from GUI)
-- Customizable button layout (from config file)
+- Customizable random function
 - Native f64 Rust variables to get the highest performance supported by x64 processors while also keeping the code simple:
 	- 1-bit sign (+/-)
 	- 11-bits exponent (limited to 10^307 to be reliable)
