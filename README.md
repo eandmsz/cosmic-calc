@@ -1,9 +1,10 @@
 # COSMIC Calculator
 Calculator for the COSMIC desktop
 
-- Native Rust applicaiton: No dependency on any other language (no wrappers for C or Python modules)
-- Focusing on simplicity, ease of use, logical button layout, touch friendly operation: We have identified many features missing from other Linux calculators
-- IEEE 754 double-precision floating-point precision: We want to keep it fast and lightweight and having more precision wouldn't make pracital sense
+- Native Rust applicaiton. No dependency on any other language (no wrappers for C or Python)
+- Focusing on simplicity, ease of use, touch friendly operation, logical and aesthetic layout
+- IEEE 754 double-precision (64-bit) floating-point precision
+- Stateful operation for more intuitive workflow
 
 # Features:
 - Repeat last operation using =
@@ -11,6 +12,7 @@ Calculator for the COSMIC desktop
 - Intuitive Backspace and AC/C functions
 - Automatic scientific mode in landscape window
 - Easily readable expressions with superscript, subscript
+- Customizable random function
 - Trigonometry and radical functions work both before or after inputting an operand
 - Fully compatible with iOS/macOS ASCII expressions e.g:
 	- 1-2×-5×4,5e3÷1000
@@ -18,12 +20,11 @@ Calculator for the COSMIC desktop
 - Also compatible with other ASCII expression formats:
 	- 1-2 * -5 *  4.5E3/1000
 	- sqrt(asin(1)-atan(1))cbrt(8)rOOt(16, 4)pi*e
-- Customizable random function
-- Native f64 Rust variables to get the highest performance supported by x64 processors while also keeping the code simple:
+- IEEE 754 standard implemented with native f64 variables to get a high performance and lightweight application
 	- 1-bit sign (+/-)
 	- 11-bits exponent (limited to 10^307 to be reliable)
 	- 52-bits mantissa (fraction) +1 implicit bit which gives 15.95 digits precision (rounded down to a reliable 15 digits)
-- User input or calculator result indicates in real-time if it's a prime number or not:
+- Indicates in real-time if the user input or calculation result is a prime number or not:
  	- The Miller-Rabin primality test with 7 deterministic bases {2,3,5,7,11,13,17} is mathematically proven to give a 100% accurate prime number detection up to 2^64 (~10^19) and since this calculator has 15 digits precision it's sufficient
 
 # Will not be suppored - Out of scope for a simple calculator:
