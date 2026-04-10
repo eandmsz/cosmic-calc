@@ -20,7 +20,7 @@ Calculator for the COSMIC desktop
 - Also compatible with other ASCII expression formats:
 	- 1-2 * -5 *  4.5E3/1000
 	- sqrt(asin(1)-atan(1))cbrt(8)rOOt(16, 4)pi*e
-- IEEE 754 standard implemented with native f64 variables to get a high performance and lightweight application
+- IEEE 754 standard implemented with native f64 variables to get a high performance and lightweight application with simple codebase
 	- 1-bit sign (+/-)
 	- 11-bits exponent (limited to 10^307 to be reliable)
 	- 52-bits mantissa (fraction) +1 implicit bit which gives 15.95 digits precision (rounded down to a reliable 15 digits)
