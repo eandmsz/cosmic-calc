@@ -12,7 +12,7 @@ Calculator for the COSMIC desktop
 - Intuitive Backspace and AC/C functions
 - Automatic scientific mode in landscape window
 - Easily readable expressions with superscript, subscript
-- Customizable rand function using xoshiro256** fast pseudorandom number generator known from its excellent statistical quality
+- Customizable Rand function using xoshiro256** fast pseudorandom number generator known from its excellent statistical quality
 - Trigonometry and radical functions work both before or after inputting an operand
 - Fully compatible with iOS/macOS ASCII expressions e.g:
 	- 1-2×-5×4,5e3÷1000
