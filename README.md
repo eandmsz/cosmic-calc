@@ -14,7 +14,7 @@ Calculator for the COSMIC desktop
 - Trigonometry and radical functions work both before or after inputting an operand
 - Fully compatible with iOS/macOS calculator ASCII expressions:
 - Fully compatible with iOS/macOS ASCII expressions e.g:
-	- sin^-1(1)-tan^-1(1)
+	- 1-2×-5×4,5e3÷1000
 	- √(sin^-1(1)-tan^-1(1))×∛8×root(16, 4)×π×𝑒
 - Also compatible with other ASCII expression formats:
 	- 1-2 * -5 *  4.5E3/1000
