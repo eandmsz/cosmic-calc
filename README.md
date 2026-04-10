@@ -12,7 +12,13 @@ Calculator for the COSMIC desktop
 - Automatic scientific mode in landscape window
 - Easily readable expressions with superscript, subscript
 - Trigonometry and radical functions work both before or after inputting an operand
-- Copy/Paste expressions and results (iOS, macOS Calculator compatible ASCII formatting + additional compatility)
+- Fully compatible with iOS/macOS calculator ASCII expressions:
+- Fully compatible with iOS/macOS ASCII expressions e.g:
+	- sin^-1(1)-tan^-1(1)
+	- √(sin^-1(1)-tan^-1(1))×∛8×root(16, 4)×π×𝑒
+- Also compatible with other ASCII expression formats:
+	- 1-2 * -5 *  4.5E3/1000
+	- sqrt(asin(1)-atan(1))cbrt(8)rOOt(16, 4)pi*e
 - Customizable random function (from GUI)
 - Customizable button layout (from config file)
 - Native f64 Rust variables to get the highest performance supported by x64 processors while also keeping the code simple:
