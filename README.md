@@ -18,7 +18,7 @@ Calculator for the COSMIC desktop
 	- 1-2×-5×4,5e3×100÷2^2^2×((2^2)^2)^2
 	- √(sin^−1(1)−tan^−1(1))×∛8×root(16, 4)×π×𝑒
 - Also compatible with alternative formatting:
-	- 1-2 * -5 *  4.5E3*100/2^2^2*( ( 2^2 )^ 2) ^2
+	- 1-2 * -5 *  4.5E3* 100/2^2^2*( ( 2^2 )^ 2) ^2
 	- sqrt(sin-1(1)-atan(1))cbrt(8)rOOt(16, 4)pi*e
 - IEEE 754 standard implemented with native f64 variables to get a high performance and lightweight application with simple codebase
 	- 1-bit sign (+/-)
