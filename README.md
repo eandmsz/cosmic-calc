@@ -28,6 +28,7 @@ Calculator for the COSMIC desktop
  	- The Miller-Rabin primality test with 7 deterministic bases {2,3,5,7,11,13,17} is mathematically proven to give a 100% accurate prime number detection up to 2^64 (~10^19) and since this calculator has 15 digits precision it's sufficient
 
 # Will not be suppored - Out of scope for a simple calculator:
+- Arbitrary "infinite" precision arithmetic
 - Integral, derivative, lim, combinations (nCr), permutations (nPr), Fibonacci function
 - Complex numbers and their imaginary units (negative number under sqrt will give an error instead)
 - Programmer's operations: bitshift, binary, hexadecimal calcualtions
