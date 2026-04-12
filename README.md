@@ -17,7 +17,7 @@ Calculator for the COSMIC desktop
 - Fully compatible with iOS/macOS ASCII expressions e.g:
 	- 1-2×-5×4,5e3×100÷2^2^2×((2^2)^2)^2
 	- √(sin^-1(1)+tan^-1(1))×∛8×root(16, 4)×3π×2𝑒+2e3
-- Also compatible with alternative formatting:
+- Also compatible with alternative formatting and characters:
 	- 1-2 * −5 *  4.5E3* 100/2^2^2*( ( 2^2 )^ 2) ^2
 	- sqrt(sin−1(1)＋atan(1))cbrt(8)rOOt(16, 4)3pi*2e＋2e3
 - IEEE 754 standard implemented with native f64 variables to get a high performance and lightweight application with simple codebase
