@@ -14,6 +14,8 @@ Calculator for the COSMIC desktop
 - Easily readable expressions with superscript, subscript
 - Customizable Rand function using xoshiro256** fast pseudorandom number generator known from its excellent statistical quality
 - Trigonometry and radical functions work both before or after inputting an operand
+- Fully compatible with Cosmic desktop themes and also inherting accent color from KDE, GNOME, XFCE
+- Decimal separator is automatically based on the system locale
 - Fully compatible with iOS/macOS ASCII expressions e.g:
 	- 1-2×-5×4,5e3×100÷2^2^2×((2^2)^2)^2
 	- √(sin^-1(1)+tan^-1(1))×∛8×root(16, 4)×3π×2𝑒+2e3
