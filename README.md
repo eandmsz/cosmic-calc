@@ -27,7 +27,7 @@ Calculator for the COSMIC desktop
 	- 11-bits exponent (limited to 10^307 to be reliable)
 	- 52-bits mantissa (fraction) +1 implicit bit which gives 15.95 digits precision (rounded down to a reliable 15 digits)
 - Shows real-time number properties: prime ; harshad ; palindrome ; square ; triangular ; fibonacci
- 	- For prime testing the Miller-Rabin primality test is used with 9 deterministic bases which gives a fast and 100% accurate prime number detection up to 2^64 (~10^19)
+ 	- Miller-Rabin primality test is used with 9 deterministic bases which gives a fast and 100% accurate prime number detection up to 2^64 (~10^19)
 
 # Will not be suppored - Out of scope for a simple calculator:
 - Arbitrary "infinite" precision arithmetic
