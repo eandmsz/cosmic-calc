@@ -27,7 +27,7 @@ Calculator for the COSMIC desktop
 	- 11-bits exponent (limited to 10^307 to be reliable)
 	- 52-bits mantissa (fraction) +1 implicit bit which gives 15.95 digits precision (rounded down to a reliable 15 digits)
 - Indicates in real-time if the user input or calculation result is a prime or not:
- 	- The Miller-Rabin primality test with 7 deterministic bases {2,3,5,7,11,13,17} is mathematically proven to give a 100% accurate prime number detection up to 2^64 (~10^19) and since this calculator has 15 digits precision it's sufficient
+ 	- The Miller-Rabin primality test with 9 deterministic bases {2,3,5,7,11,13,17,19,23} is mathematically proven to give a 100% accurate prime number detection up to 2^64 (~10^19) and since this calculator has 15 digits precision it's sufficient
 
 # Will not be suppored - Out of scope for a simple calculator:
 - Arbitrary "infinite" precision arithmetic
