@@ -1,0 +1,1244 @@
+//! libcosmic Application implementation. All keypad presses and
+//! keyboard events funnel through `Message::Button(_)` into
+//! [`buttons::apply_button`], which mutates the engine + ui state and
+//! returns a [`ButtonEffect`] describing any side effect that needs
+//! outside state (history writes, memory mutations, panel toggles).
+//! Settings-panel mutations stay on their own dedicated messages and
+//! trigger an immediate persist-on-mutation path.
+
+use cosmic::app::{Core, Task};
+use cosmic::iced::{Alignment, Length, Padding};
+use cosmic::widget;
+use cosmic::{Application, Element};
+
+use crate::clipboard::ClipboardOp;
+use crate::color::Rgba;
+use crate::config::{ButtonShape, Config, Mode};
+use crate::engine::{AngleMode, Engine};
+use crate::history::History;
+use crate::locale::{DecimalSeparator, ThousandsSeparator};
+use crate::memory::Memory;
+use crate::props::{check_all, parse_simple_nonneg_int, NumberProperty};
+use crate::theme::{apply_cosmic_override, Theme, ThemeKind};
+use crate::ui::buttons::{
+    apply_button, insert_number_string, toggled_angle_mode, toggled_layout, Button, ButtonEffect,
+    ClearMode, MemoryOp, UiState,
+};
+use crate::ui::cosmic_bridge::override_from_cosmic;
+
+/// Which palette slot a `Message::EditThemeColor` is aimed at.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ColorField {
+    AppBg,
+    SidepanelBg,
+    TextActive,
+    ScienceButton,
+    SecondButton,
+    ToprowButton,
+    BasicopButton,
+    EqualsButton,
+    NegateButton,
+    DecimalButton,
+    NumberButton,
+}
+
+/// Messages emitted by the UI. The keypad emits `Button(_)`; the
+/// settings panel keeps dedicated variants so persist-on-mutation is
+/// straightforward.
+#[derive(Debug, Clone)]
+pub enum Message {
+    /// Any keypad or keyboard key press. The dispatcher decides what
+    /// the effect on the engine is.
+    Button(Button),
+    /// Keyboard key press. Same dispatch as `Button`, but additionally
+    /// flips on the visual flash so the user can see which keypad cell
+    /// their keystroke hit. Cleared by `KeyboardReleased`.
+    KeyboardPressed(Button),
+    /// Keyboard key release. Clears the flash. Sent by the same
+    /// subscription that emits `KeyboardPressed`.
+    KeyboardReleased(Button),
+
+    // --- settings panel -------------------------------------------------
+    SetTheme(ThemeKind),
+    EditThemeColor { field: ColorField, color: Rgba },
+    SetMode(Mode),
+    SetDecimalSeparator(DecimalSeparator),
+    SetThousandsSeparator(ThousandsSeparator),
+    SetButtonShape(ButtonShape),
+    SetFont(String),
+    SetRoundingDecimals(u8),
+    /// Raw text from the rand-min input. Parsed and validated by the
+    /// handler; the text is preserved verbatim while the user is still
+    /// typing (e.g. mid-entry of `1.` or `-`).
+    SetRandMinText(String),
+    SetRandMaxText(String),
+    SetRandDecimals(u8),
+    SetPropertyTesting(bool),
+    SetDebugMode(bool),
+
+    // --- history / memory / clipboard ----------------------------------
+    RecallHistory(usize),
+    /// Click on the small `last_expression` caption above the main
+    /// display. Repopulates the buffer with the original items so the
+    /// user can edit and re-evaluate without retyping.
+    RecallLastExpression,
+    Clipboard(ClipboardOp),
+    /// Result of a clipboard read. `None` when the system delivered no
+    /// text (wrong MIME type, empty clipboard, read failure); `Some`
+    /// when a raw string arrived that still needs sanitising.
+    PasteDelivered(Option<String>),
+    /// Right-click on the display opens or closes the copy/paste
+    /// context menu.
+    ToggleContextMenu,
+    /// Close the context menu without performing an action (used by
+    /// the menu's background-click to dismiss).
+    CloseContextMenu,
+    /// Window inner size changed (in logical pixels). Width drives the
+    /// responsive font sizing of the main display and caption above it;
+    /// height drives the keypad's 62%-of-window target so the buttons
+    /// grow with the window instead of staying at a fixed pixel height.
+    WindowResized(f32, f32),
+    Noop,
+}
+
+/// Application state. Engine owns the input buffer; `ui` holds the
+/// side-panel toggles + clear/second flags; config holds everything
+/// persisted.
+pub struct AppModel {
+    core: Core,
+    engine: Engine,
+    history: History,
+    memory: Memory,
+    config: Config,
+    ui: UiState,
+    /// Cached output of the number-property panel. `Some((n, flags))`
+    /// when the ASCII expression is a bare non-negative integer AND
+    /// mode is Scientific AND `property_testing` is enabled – `None`
+    /// otherwise. Refreshed on every buffer mutation.
+    property_results: Option<(u64, [bool; 6])>,
+    /// Raw text the user typed into the rand-min input. Kept separately
+    /// from `config.rand_min_incl` so partial entries like `-` or `1.`
+    /// don't get clobbered by re-rendering before the user finishes
+    /// typing a valid number.
+    rand_min_text: String,
+    rand_max_text: String,
+    /// Last reported window inner width in logical pixels. Updated from
+    /// `Message::WindowResized`. Used by the display layer to scale the
+    /// main expression and caption font sizes proportionally to the
+    /// current window width.
+    window_width: f32,
+    /// Last reported window inner height in logical pixels. Updated
+    /// from `Message::WindowResized`. Drives the keypad's 62%-target
+    /// button height so the grid grows vertically with the window.
+    window_height: f32,
+    /// Button currently being flashed because the user pressed its
+    /// keyboard equivalent. Set on `KeyboardPressed`, cleared on
+    /// `KeyboardReleased`. `None` when no key is held.
+    flashing_button: Option<Button>,
+}
+
+impl AppModel {
+    /// Current active palette – for the Cosmic preset we overlay the
+    /// live desktop colours on top of the stored palette. Every
+    /// other preset (including Custom) is returned as-is.
+    pub fn active_theme(&self) -> Theme {
+        if self.config.theme_kind == ThemeKind::Cosmic {
+            let over = override_from_cosmic(self.core.system_theme().cosmic());
+            apply_cosmic_override(self.config.theme.clone(), over)
+        } else {
+            self.config.theme.clone()
+        }
+    }
+
+    /// Persist the current config to disk. Errors are logged rather
+    /// than propagated – the settings panel keeps working even if the
+    /// filesystem is read-only.
+    fn persist(&self) {
+        if let Err(e) = self.config.save() {
+            eprintln!("cosmic-calc: failed to save config: {e}");
+        }
+    }
+
+    /// Re-evaluate the number-property panel against the current
+    /// ASCII expression.
+    fn refresh_property_results(&mut self) {
+        self.property_results = if self.config.mode == Mode::Scientific
+            && self.config.property_testing
+        {
+            parse_simple_nonneg_int(&self.engine.input.ascii_expression())
+                .map(|n| (n, check_all(n)))
+        } else {
+            None
+        };
+    }
+
+    /// Read-only accessor exposed for tests and for the side panel.
+    pub fn property_results(&self) -> Option<(u64, [bool; 6])> {
+        self.property_results
+    }
+
+    /// True when the live rand-bound inputs would commit cleanly (or
+    /// are blank, in which case the persisted config values stand).
+    /// Mirrors the red-border logic in `panels::settings_panel` so the
+    /// Rand button reacts to the same notion of "valid" as the user
+    /// sees.
+    fn rand_inputs_valid(&self) -> bool {
+        let parsed_min: Option<f64> = self.rand_min_text.parse().ok().filter(|v: &f64| v.is_finite());
+        let parsed_max: Option<f64> = self.rand_max_text.parse().ok().filter(|v: &f64| v.is_finite());
+        let effective_max = parsed_max.unwrap_or(self.config.rand_max_excl);
+        let effective_min = parsed_min.unwrap_or(self.config.rand_min_incl);
+        let min_invalid = match parsed_min {
+            Some(v) => v >= effective_max,
+            None => !self.rand_min_text.trim().is_empty(),
+        };
+        let max_invalid = match parsed_max {
+            Some(v) => v <= effective_min,
+            None => !self.rand_max_text.trim().is_empty(),
+        };
+        !min_invalid && !max_invalid
+    }
+
+    /// Expose the UI-state flags (panel toggles, clear mode) so the
+    /// view layer can render them without running through the
+    /// dispatcher.
+    pub fn ui_state(&self) -> &UiState {
+        &self.ui
+    }
+
+    /// Dispatch a keypad button through `apply_button` and handle any
+    /// follow-up effect (history write, memory mutation, panel
+    /// toggle).
+    fn handle_button(&mut self, button: Button) {
+        // Rand reads its bounds from `config.rand_min_incl/max_excl`,
+        // but those are the *last good* values — the live text inputs
+        // may currently be in their error state (red border) with a
+        // user-typed range that wouldn't parse or that inverts the
+        // bounds. Bail before touching the engine so the user has to
+        // fix the bounds before a press takes effect.
+        if matches!(button, Button::Rand) && !self.rand_inputs_valid() {
+            return;
+        }
+        let effect = apply_button(&mut self.engine, &mut self.ui, &self.config, button);
+        self.refresh_property_results();
+        match effect {
+            ButtonEffect::None => {}
+            ButtonEffect::Evaluated {
+                expression,
+                result,
+                items,
+            } => {
+                self.history.push(expression, result, items);
+            }
+            ButtonEffect::ToggleHistoryPanel => {
+                self.ui.history_panel_open = !self.ui.history_panel_open;
+                if self.ui.history_panel_open {
+                    self.ui.settings_panel_open = false;
+                }
+            }
+            ButtonEffect::ToggleSettingsPanel => {
+                self.ui.settings_panel_open = !self.ui.settings_panel_open;
+                if self.ui.settings_panel_open {
+                    self.ui.history_panel_open = false;
+                }
+            }
+            ButtonEffect::ToggleMode => {
+                self.config.mode = toggled_layout(self.config.mode);
+                self.refresh_property_results();
+                self.persist();
+            }
+            ButtonEffect::ToggleAngleMode => {
+                let next = toggled_angle_mode(self.config.angle_mode);
+                self.config.angle_mode = next;
+                self.engine.angle_mode = next;
+                self.persist();
+            }
+            ButtonEffect::MemoryClear => self.memory.clear(),
+            ButtonEffect::MemoryRecall => {
+                if let Some(v) = self.memory.recall() {
+                    insert_number_string(&mut self.engine, &format!("{v}"));
+                }
+            }
+            ButtonEffect::MemoryStore(op) => {
+                if let Ok(out) = self.engine.evaluate() {
+                    match op {
+                        MemoryOp::Add => self.memory.add(out.value),
+                        MemoryOp::Sub => self.memory.sub(out.value),
+                    }
+                }
+            }
+        }
+    }
+
+    /// Translate a `ClipboardOp` into a real cosmic `Task`. Copy is a
+    /// one-shot write; Paste is an async read whose result is routed
+    /// back through `Message::PasteDelivered`.
+    fn handle_clipboard(&mut self, op: ClipboardOp) -> Task<Message> {
+        self.ui.context_menu_open = false;
+        match op {
+            ClipboardOp::Copy => {
+                let text = crate::clipboard::copy_text_for(
+                    &self.engine.input.ascii_expression(),
+                );
+                cosmic::iced::clipboard::write(text)
+            }
+            ClipboardOp::Paste => cosmic::iced::clipboard::read()
+                .map(|payload| cosmic::action::app(Message::PasteDelivered(payload))),
+        }
+    }
+
+    /// Consume a clipboard-read result. `None` means the clipboard was
+    /// empty or held non-text data; `Some(raw)` goes through the
+    /// sanitiser and, on success, replaces the buffer.
+    fn handle_paste_delivered(&mut self, payload: Option<String>) {
+        let raw = match payload {
+            Some(text) => text,
+            None => return,
+        };
+        let Some(clean) = crate::clipboard::sanitize_paste(&raw) else {
+            return;
+        };
+        let items = crate::clipboard::items_from_paste(&clean);
+        if items.is_empty() {
+            return;
+        }
+        self.engine.input.replace(items);
+        self.ui.last_result.clear();
+        self.ui.last_result_value = None;
+        self.ui.last_expression.clear();
+        self.ui.last_expression_items.clear();
+        self.ui.random_range = None;
+        self.ui.just_evaluated = false;
+        self.refresh_property_results();
+    }
+
+    /// Mutate one palette slot in-place and flip the active preset
+    /// to Custom. Called from `Message::EditThemeColor`.
+    fn apply_color_edit(&mut self, field: ColorField, color: Rgba) {
+        match field {
+            ColorField::AppBg => self.config.theme.app_bg = color,
+            ColorField::SidepanelBg => self.config.theme.sidepanel_bg = color,
+            ColorField::TextActive => self.config.theme.text_active = color,
+            ColorField::ScienceButton => self.config.theme.science_button = color,
+            ColorField::SecondButton => self.config.theme.second_button = color,
+            ColorField::ToprowButton => self.config.theme.toprow_button = color,
+            ColorField::BasicopButton => self.config.theme.basicop_button = color,
+            ColorField::EqualsButton => self.config.theme.equals_button = color,
+            ColorField::NegateButton => self.config.theme.negate_button = color,
+            ColorField::DecimalButton => self.config.theme.decimal_button = color,
+            ColorField::NumberButton => self.config.theme.number_button = color,
+        }
+        self.config.mark_theme_custom();
+    }
+}
+
+impl Application for AppModel {
+    type Executor = cosmic::executor::Default;
+    type Flags = ();
+    type Message = Message;
+
+    const APP_ID: &'static str = "com.system76.CosmicCalc";
+
+    fn core(&self) -> &Core {
+        &self.core
+    }
+
+    fn core_mut(&mut self) -> &mut Core {
+        &mut self.core
+    }
+
+    fn init(mut core: Core, _flags: Self::Flags) -> (Self, Task<Self::Message>) {
+        // libcosmic adds 7-8px of horizontal padding around the user's
+        // view() output when `content_container` is true; turning it off
+        // lets the keypad reach the window edges so buttons fill the
+        // window width as the user resizes it.
+        core.window.content_container = false;
+        let config = Config::load_or_create_default().unwrap_or_else(|e| {
+            eprintln!("cosmic-calc: config load failed ({e}); using defaults");
+            Config::default()
+        });
+        // Push the persisted font into libcosmic's global font slot so
+        // every widget that consults `crate::font::default()` (buttons,
+        // dropdowns, sliders, ...) uses it from the very first frame
+        // instead of falling back to the system default.
+        crate::ui::font::apply_interface_font(&config.font);
+        let mut engine = Engine::new(config.rounding_decimals);
+        engine.angle_mode = config.angle_mode;
+        let rand_min_text = format_f64_for_input(config.rand_min_incl);
+        let rand_max_text = format_f64_for_input(config.rand_max_excl);
+        let mut model = AppModel {
+            core,
+            engine,
+            history: History::new(),
+            memory: Memory::new(),
+            config,
+            ui: UiState::default(),
+            property_results: None,
+            rand_min_text,
+            rand_max_text,
+            // Conservative default; the first `Window::Resized` event
+            // overrides this with the real value.
+            window_width: 480.0,
+            window_height: 720.0,
+            flashing_button: None,
+        };
+        model.refresh_property_results();
+        (model, Task::none())
+    }
+
+    fn update(&mut self, message: Self::Message) -> Task<Self::Message> {
+        match message {
+            Message::Button(b) => self.handle_button(b),
+            Message::KeyboardPressed(b) => {
+                self.flashing_button = Some(b);
+                self.handle_button(b);
+            }
+            Message::KeyboardReleased(b) => {
+                if self.flashing_button == Some(b) {
+                    self.flashing_button = None;
+                }
+            }
+
+            Message::SetTheme(kind) => {
+                self.config.apply_theme_preset(kind);
+                self.persist();
+            }
+            Message::EditThemeColor { field, color } => {
+                self.apply_color_edit(field, color);
+                self.persist();
+            }
+            Message::SetMode(mode) => {
+                self.config.mode = mode;
+                self.refresh_property_results();
+                self.persist();
+            }
+            Message::SetDecimalSeparator(sep) => {
+                self.config.decimal_separator = sep;
+                if self
+                    .config
+                    .thousands_separator
+                    .collides_with_decimal(sep.resolved())
+                {
+                    self.config.thousands_separator = ThousandsSeparator::None;
+                }
+                self.persist();
+            }
+            Message::SetThousandsSeparator(sep) => {
+                self.config.thousands_separator = sep;
+                self.persist();
+            }
+            Message::SetButtonShape(shape) => {
+                self.config.button_shape = shape;
+                self.persist();
+            }
+            Message::SetFont(font) => {
+                self.config.font = font;
+                self.config.validate_and_clamp();
+                crate::ui::font::apply_interface_font(&self.config.font);
+                self.persist();
+            }
+            Message::SetRoundingDecimals(n) => {
+                self.config.rounding_decimals = n;
+                self.config.validate_and_clamp();
+                self.engine.rounding_decimals = self.config.rounding_decimals;
+                self.persist();
+            }
+            Message::SetRandMinText(s) => {
+                // Spec: digits-only, ≤15 chars. Reject the entire update
+                // (typed or pasted) on violation so non-digit keystrokes
+                // are silently ignored and bad pastes don't replace the
+                // existing value with garbage.
+                if !is_valid_rand_input(&s) {
+                    return Task::none();
+                }
+                self.rand_min_text = s.clone();
+                if let Ok(v) = s.parse::<f64>() {
+                    if v.is_finite() && v < self.config.rand_max_excl {
+                        self.config.rand_min_incl = v;
+                        self.persist();
+                    }
+                }
+            }
+            Message::SetRandMaxText(s) => {
+                if !is_valid_rand_input(&s) {
+                    return Task::none();
+                }
+                self.rand_max_text = s.clone();
+                if let Ok(v) = s.parse::<f64>() {
+                    if v.is_finite() && v > self.config.rand_min_incl {
+                        self.config.rand_max_excl = v;
+                        // Tightening the upper bound shrinks the
+                        // available decimal range; clamp the current
+                        // setting so the slider doesn't show a value
+                        // outside its new max.
+                        let cap = crate::config::max_decimals_for_rand_max(v);
+                        self.config.rand_decimals = self.config.rand_decimals.min(cap);
+                        self.persist();
+                    }
+                }
+            }
+            Message::SetRandDecimals(n) => {
+                self.config.rand_decimals = n;
+                self.config.validate_and_clamp();
+                self.persist();
+            }
+            Message::SetPropertyTesting(flag) => {
+                self.config.property_testing = flag;
+                self.refresh_property_results();
+                self.persist();
+            }
+            Message::SetDebugMode(flag) => {
+                self.config.debug_mode = flag;
+                self.persist();
+            }
+            Message::RecallHistory(idx) => {
+                if let Some(entry) = self.history.get_newest_first(idx) {
+                    let items = if entry.items.is_empty() {
+                        crate::clipboard::items_from_paste(&entry.expression)
+                    } else {
+                        entry.items.clone()
+                    };
+                    self.engine.input.replace(items);
+                    self.ui.last_expression.clear();
+                    self.ui.last_expression_items.clear();
+                    self.ui.last_result.clear();
+                    self.ui.last_result_value = None;
+                    self.ui.random_range = None;
+                    self.ui.just_evaluated = false;
+                    self.ui.error_message = None;
+                    self.ui.clear_mode = ClearMode::Single;
+                    self.refresh_property_results();
+                }
+            }
+            Message::RecallLastExpression => {
+                if !self.ui.last_expression_items.is_empty() {
+                    let items = self.ui.last_expression_items.clone();
+                    self.engine.input.replace(items);
+                    self.ui.last_expression.clear();
+                    self.ui.last_expression_items.clear();
+                    self.ui.last_result.clear();
+                    self.ui.last_result_value = None;
+                    self.ui.random_range = None;
+                    self.ui.just_evaluated = false;
+                    self.ui.error_message = None;
+                    self.ui.clear_mode = ClearMode::Single;
+                    self.refresh_property_results();
+                }
+            }
+            Message::Clipboard(op) => return self.handle_clipboard(op),
+            Message::PasteDelivered(payload) => self.handle_paste_delivered(payload),
+            Message::ToggleContextMenu => {
+                self.ui.context_menu_open = !self.ui.context_menu_open;
+            }
+            Message::CloseContextMenu => {
+                self.ui.context_menu_open = false;
+            }
+            Message::WindowResized(w, h) => {
+                self.window_width = w;
+                self.window_height = h;
+            }
+            Message::Noop => {}
+        }
+        Task::none()
+    }
+
+    fn view(&self) -> Element<'_, Self::Message> {
+        let layout = self.main_column_layout();
+        let top_bar = self.render_top_bar();
+        let display_metrics = self.compute_display_metrics(&layout);
+        let display = self.render_display(&layout, &display_metrics);
+        let status_visible =
+            self.config.mode == Mode::Scientific && self.config.property_testing;
+        let status_bar = if status_visible {
+            Some(self.render_status_bar())
+        } else {
+            None
+        };
+        let memory_row = self.render_memory_row(&layout);
+        let active_theme = self.active_theme();
+        let clear_label = match self.ui.clear_mode {
+            crate::ui::buttons::ClearMode::AllClear => "AC",
+            crate::ui::buttons::ClearMode::Single => "C",
+        };
+        let keypad = crate::ui::keypad::render(
+            self.config.mode,
+            &active_theme,
+            &self.config,
+            clear_label,
+            self.ui.second_mode,
+            self.window_width,
+            layout.keypad_area_height,
+            layout.keypad_metrics,
+            layout.edge_spacing,
+            self.flashing_button,
+        );
+        // Memory row is shorter than keypad buttons; reclaimed height
+        // goes to the expression display above.
+        let controls = widget::column::with_capacity(2)
+            .push(memory_row)
+            .push(keypad)
+            .spacing(layout.row_spacing)
+            .width(Length::Fill);
+
+        let display_slot = widget::container(display)
+            .width(Length::Fill)
+            .height(Length::Fixed(layout.display_budget.max(1.0)));
+        let mut main_column = widget::column::with_capacity(4)
+            .push(top_bar)
+            .push(display_slot)
+            .spacing(layout.row_spacing)
+            .padding(Padding {
+                top: layout.row_spacing,
+                bottom: layout.edge_spacing,
+                left: layout.edge_spacing,
+                right: layout.edge_spacing,
+            })
+            .width(Length::Fill)
+            .height(Length::Fill);
+        if let Some(status) = status_bar {
+            main_column = main_column.push(status);
+        }
+        main_column = main_column.push(controls);
+
+        // Panels are side panels: history docks left, settings docks
+        // right. Pushing them into a Row beside the main column means
+        // toggling either one widens the window's logical content
+        // instead of stacking vertically below the keypad.
+        let history_open = self.ui.history_panel_open;
+        let settings_open = self.ui.settings_panel_open;
+        if !history_open && !settings_open {
+            return main_column.into();
+        }
+
+        let mut row = widget::row::with_capacity(3);
+        if history_open {
+            row = row.push(crate::ui::panels::history_panel(
+                &self.history,
+                &self.memory,
+            ));
+        }
+        row = row.push(main_column);
+        if settings_open {
+            row = row.push(crate::ui::panels::settings_panel(
+                &self.config,
+                &self.rand_min_text,
+                &self.rand_max_text,
+            ));
+        }
+        row.spacing(4)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .into()
+    }
+
+    fn subscription(&self) -> cosmic::iced::Subscription<Self::Message> {
+        crate::ui::keys::subscription()
+    }
+
+    /// Short-circuit graceful shutdown. Letting libcosmic / wgpu /
+    /// winit run their full Drop chain on Wayland makes the desktop
+    /// freeze for a few seconds while GPU surfaces are torn down; the
+    /// kernel reclaims everything cleanly when the process exits, so
+    /// returning here without going through that path keeps the close
+    /// instantaneous. Persisted state (config) is already saved on
+    /// every change, so there is nothing further to flush.
+    fn on_close_requested(&self, _id: cosmic::iced::window::Id) -> Option<Self::Message> {
+        std::process::exit(0);
+    }
+
+    /// Same fast-exit logic, in case libcosmic reaches the post-loop
+    /// teardown path through some channel other than the explicit
+    /// close request (e.g. last-window-closed bookkeeping).
+    fn on_app_exit(&mut self) -> Option<Self::Message> {
+        std::process::exit(0);
+    }
+
+    fn style(&self) -> Option<cosmic::iced::theme::Style> {
+        let t = self.active_theme();
+        let (r, g, b, a) = t.app_bg.to_f32();
+        let (tr, tg, tb, ta) = t.text_active.to_f32();
+        Some(cosmic::iced::theme::Style {
+            background_color: cosmic::iced::Color::from_rgba(r, g, b, a),
+            text_color: cosmic::iced::Color::from_rgba(tr, tg, tb, ta),
+            icon_color: cosmic::iced::Color::from_rgba(tr, tg, tb, ta),
+        })
+    }
+}
+
+// ---------------------------------------------------------------------
+// View helpers
+// ---------------------------------------------------------------------
+
+impl AppModel {
+    /// Top row: history panel toggle on the left, mode toggle in the
+    /// middle, settings panel toggle on the right. Rendered as plain
+    /// buttons emitting the matching `Button::Toggle*` variants.
+    fn render_top_bar(&self) -> Element<'_, Message> {
+        // The label reflects the CURRENT layout (so the user sees what
+        // they're in), not the layout the press would switch to.
+        let mode_label = match self.config.mode {
+            Mode::Basic => "Basic",
+            Mode::Scientific => "Scientific",
+        };
+        widget::row::with_capacity(3)
+            .push(
+                widget::button::standard("History")
+                    .on_press(Message::Button(Button::ToggleHistoryPanel)),
+            )
+            .push(widget::Space::new().width(Length::Fill))
+            .push(
+                widget::button::standard(mode_label)
+                    .on_press(Message::Button(Button::ToggleMode)),
+            )
+            .push(widget::Space::new().width(Length::Fill))
+            .push(
+                widget::button::standard("Settings")
+                    .on_press(Message::Button(Button::ToggleSettingsPanel)),
+            )
+            .spacing(4)
+            .width(Length::Fill)
+            .into()
+    }
+
+    /// Middle section: the previously evaluated expression (small,
+    /// above) and the current buffer (large, below). On a successful
+    /// `=` press `buttons.rs` rewrites the buffer with the result, so
+    /// the main display always shows either what the user is typing or
+    /// the most recent answer.
+    fn main_column_layout(&self) -> MainColumnLayout {
+        const TOP_BAR_HEIGHT: f32 = 40.0;
+        const PROPERTY_STATUS_HEIGHT: f32 = 22.0;
+        const MIN_DISPLAY_HEIGHT: f32 = 56.0;
+        let window_height = self.window_height;
+        let config = &self.config;
+        let spacing_metrics = crate::ui::keypad::keypad_metrics(window_height, config);
+        let row_spacing = spacing_metrics.spacing;
+        let edge = row_spacing;
+        let status_visible =
+            config.mode == Mode::Scientific && config.property_testing;
+        let status_h = if status_visible {
+            PROPERTY_STATUS_HEIGHT
+        } else {
+            0.0
+        };
+        let column_gaps = if status_visible { 3.0 } else { 2.0 };
+        let memory_h = crate::ui::keypad::memory_row_height(&spacing_metrics);
+        // Bottom padding (`edge`) sits below the keypad and must not
+        // steal height from the display region.
+        let chrome_without_keypad = row_spacing
+            + TOP_BAR_HEIGHT
+            + status_h
+            + memory_h
+            + row_spacing
+            + row_spacing * column_gaps;
+        let keypad_area_height = (window_height * crate::ui::keypad::KEYPAD_HEIGHT_FRACTION)
+            .min((window_height - chrome_without_keypad - MIN_DISPLAY_HEIGHT).max(1.0));
+        let display_budget =
+            (window_height - chrome_without_keypad - keypad_area_height).max(MIN_DISPLAY_HEIGHT);
+        let keypad_metrics =
+            crate::ui::keypad::keypad_metrics_for_area(keypad_area_height, config);
+        MainColumnLayout {
+            display_budget,
+            keypad_area_height,
+            keypad_metrics,
+            edge_spacing: edge,
+            row_spacing,
+        }
+    }
+
+    fn compute_display_metrics(&self, layout: &MainColumnLayout) -> DisplayMetrics {
+        let segments = crate::ui::display::render_expression(
+            self.engine.input.items(),
+            self.engine.input.cursor(),
+            self.config.decimal_separator,
+            self.config
+                .thousands_separator
+                .resolve(self.config.decimal_separator),
+            self.ui.random_range,
+        );
+        let has_caption = !self.ui.last_expression.is_empty();
+        let main_chars = if let Some(err) = self.ui.error_message.as_deref() {
+            err.chars().count()
+        } else if segments.is_empty() {
+            1
+        } else {
+            segments.iter().map(|s| s.text.chars().count()).sum()
+        };
+        let available_width =
+            available_display_width(self.window_width, layout.edge_spacing);
+        let main_width_units = if let Some(err) = self.ui.error_message.as_deref() {
+            crate::ui::keypad::label_width_units(err)
+        } else if segments.is_empty() {
+            1.0
+        } else {
+            segments
+                .iter()
+                .map(|s| crate::ui::keypad::label_width_units(&s.text))
+                .sum()
+        };
+        let (caption_slot_h, main_slot_h) = display_line_budgets(
+            layout.display_budget,
+            layout.row_spacing,
+            has_caption,
+        );
+        let (mut main_size, mut main_line_h) =
+            scale_main_text_size(main_chars, self.window_width, main_slot_h);
+        (main_size, main_line_h) = fit_display_text(
+            main_width_units,
+            available_width,
+            main_slot_h,
+            main_size,
+            main_line_h,
+        );
+        let (caption_size, caption_line_h) = if has_caption {
+            let caption_units =
+                crate::ui::keypad::label_width_units(&self.ui.last_expression);
+            let (size, line_h) = scale_caption_text_size(
+                self.ui.last_expression.chars().count(),
+                self.window_width,
+                caption_slot_h,
+            );
+            fit_display_text(
+                caption_units,
+                available_width,
+                caption_slot_h,
+                size,
+                line_h,
+            )
+        } else {
+            (0.0, 0.0)
+        };
+        DisplayMetrics {
+            has_caption,
+            main_size,
+            main_line_h,
+            caption_size,
+            caption_line_h,
+            segments,
+        }
+    }
+
+    fn render_display(
+        &self,
+        layout: &MainColumnLayout,
+        metrics: &DisplayMetrics,
+    ) -> Element<'_, Message> {
+        let theme = self.active_theme();
+        let inactive_color = {
+            let (r, g, b, a) = theme.text_active.inactive().to_f32();
+            cosmic::iced::Color::from_rgba(r, g, b, a)
+        };
+        let display_font = crate::ui::font::font_for_name(&self.config.font);
+        let has_caption = metrics.has_caption;
+        let main_size = metrics.main_size;
+        let main_line_h = metrics.main_line_h;
+        let caption_size = metrics.caption_size;
+        let caption_line_h = metrics.caption_line_h;
+
+        let main_inner: Element<'_, Message> = if let Some(err) =
+            self.ui.error_message.as_deref()
+        {
+            widget::text::title1(err.to_string())
+                .size(main_size)
+                .font(display_font)
+                .line_height(cosmic::iced::widget::text::LineHeight::Absolute(
+                    main_line_h.into(),
+                ))
+                .into()
+        } else if metrics.segments.is_empty() {
+            widget::text::title1("0")
+                .size(main_size)
+                .font(display_font)
+                .line_height(cosmic::iced::widget::text::LineHeight::Absolute(
+                    main_line_h.into(),
+                ))
+                .into()
+        } else {
+            let mut row = widget::row::with_capacity(metrics.segments.len());
+            for seg in &metrics.segments {
+                let t = widget::text::title1(seg.text.clone())
+                    .size(main_size)
+                    .font(display_font)
+                    .line_height(cosmic::iced::widget::text::LineHeight::Absolute(
+                        main_line_h.into(),
+                    ));
+                let t = if seg.active {
+                    t
+                } else {
+                    t.class(cosmic::theme::Text::Color(inactive_color))
+                };
+                row = row.push(t);
+            }
+            row.into()
+        };
+        // Anchor the main display to the right edge so the rendered
+        // expression grows leftward as the user types — matching the
+        // calculator convention.
+        let main_widget: Element<'_, Message> = widget::container(main_inner)
+            .width(Length::Fill)
+            .align_x(Alignment::End)
+            .into();
+
+        let mut text_stack = widget::column::with_capacity(2)
+            .spacing(layout.row_spacing)
+            .width(Length::Fill);
+        if has_caption {
+            let caption_inner: Element<'_, Message> = widget::container(
+                widget::text::caption(self.ui.last_expression.clone())
+                    .size(caption_size)
+                    .line_height(cosmic::iced::widget::text::LineHeight::Absolute(
+                        caption_line_h.into(),
+                    ))
+                    .class(cosmic::theme::Text::Color(inactive_color)),
+            )
+            .width(Length::Fill)
+            .align_x(Alignment::End)
+            .into();
+            let caption_widget: Element<'_, Message> = widget::mouse_area(caption_inner)
+                .on_press(Message::RecallLastExpression)
+                .into();
+            text_stack = text_stack.push(
+                widget::container(caption_widget)
+                    .width(Length::Fill)
+                    .height(Length::Fixed(caption_line_h.max(1.0))),
+            );
+        }
+        let text_stack = text_stack.push(
+            widget::container(main_widget)
+                .width(Length::Fill)
+                .height(Length::Fixed(main_line_h.max(1.0))),
+        );
+
+        let hit_area = widget::mouse_area(text_stack).on_right_press(Message::ToggleContextMenu);
+
+        let interactive: Element<'_, Message> = if self.ui.context_menu_open {
+            widget::popover(hit_area)
+                .popup(self.render_context_menu())
+                .on_close(Message::CloseContextMenu)
+                .into()
+        } else {
+            hit_area.into()
+        };
+
+        widget::container(interactive)
+            .width(Length::Fill)
+            .height(Length::Fixed(layout.display_budget.max(1.0)))
+            .align_y(Alignment::End)
+            .clip(true)
+            .into()
+    }
+
+    /// Small pop-up with Copy / Paste buttons. Triggered by right-click
+    /// on the display; dismissed by performing an action, clicking off,
+    /// or pressing Escape.
+    fn render_context_menu(&self) -> Element<'_, Message> {
+        widget::column::with_capacity(2)
+            .push(
+                widget::button::standard("Copy")
+                    .on_press(Message::Clipboard(ClipboardOp::Copy))
+                    .width(Length::Fixed(120.0)),
+            )
+            .push(
+                widget::button::standard("Paste")
+                    .on_press(Message::Clipboard(ClipboardOp::Paste))
+                    .width(Length::Fixed(120.0)),
+            )
+            .spacing(4)
+            .padding(6)
+            .into()
+    }
+
+    /// Status bar below the display: property-panel summary when in
+    /// scientific mode with property testing enabled. DEG/RAD lives on
+    /// the memory row instead.
+    fn render_status_bar(&self) -> Element<'_, Message> {
+        if self.config.mode != Mode::Scientific || !self.config.property_testing {
+            return widget::Space::new().height(Length::Shrink).into();
+        }
+
+        let mut row =
+            widget::row::with_capacity(NumberProperty::ALL.len());
+
+        // Property labels: always visible in Scientific + property_testing
+        // so the user has a stable reading. Each label is dimmed by
+        // default; flip to active when its property holds for the
+        // currently-parsed integer.
+        if self.config.mode == Mode::Scientific && self.config.property_testing {
+            let theme = self.active_theme();
+            let inactive_color = {
+                let (r, g, b, a) = theme.text_active.inactive().to_f32();
+                cosmic::iced::Color::from_rgba(r, g, b, a)
+            };
+            let flags = self
+                .property_results
+                .map(|(_, f)| f)
+                .unwrap_or([false; NumberProperty::ALL.len()]);
+            for (prop, on) in NumberProperty::ALL.iter().zip(flags.iter()) {
+                let label = widget::text::caption(prop.label());
+                let label = if *on {
+                    label
+                } else {
+                    label.class(cosmic::theme::Text::Color(inactive_color))
+                };
+                row = row.push(label);
+            }
+        }
+        row.spacing(8).width(Length::Fill).into()
+    }
+
+    /// Memory-button row. Always visible directly above the keypad in
+    /// both Basic and Scientific modes so the user has a consistent
+    /// place to reach MC/MR/M+/M-. Styled via the TopRow palette
+    /// slot (applied in `mem_btn`).
+    fn render_memory_row(&self, layout: &MainColumnLayout) -> Element<'_, Message> {
+        let t = self.active_theme();
+        let metrics = layout.keypad_metrics;
+        let spacing = layout.row_spacing;
+        let btn_height = crate::ui::keypad::memory_row_height(&metrics);
+        let radius = metrics.radius * (btn_height / metrics.button_height);
+        let edge = layout.edge_spacing;
+        let angle_label = match self.config.angle_mode {
+            AngleMode::Deg => "DEG",
+            AngleMode::Rad => "RAD",
+        };
+        let cell_w =
+            crate::ui::keypad::button_cell_width(self.window_width, 5, spacing, edge);
+        widget::row::with_capacity(5)
+            .push(mem_btn(
+                &t,
+                angle_label,
+                Button::ToggleAngleMode,
+                radius,
+                btn_height,
+                cell_w,
+            ))
+            .push(mem_btn(&t, "MC", Button::MemClear, radius, btn_height, cell_w))
+            .push(mem_btn(&t, "MR", Button::MemRecall, radius, btn_height, cell_w))
+            .push(mem_btn(&t, "M+", Button::MemAdd, radius, btn_height, cell_w))
+            .push(mem_btn(&t, "M-", Button::MemSub, radius, btn_height, cell_w))
+            .spacing(spacing)
+            .width(Length::Fill)
+            .height(Length::Fixed(btn_height))
+            .into()
+    }
+}
+
+/// Vertical layout numbers for the main column.
+struct MainColumnLayout {
+    /// Height of the expression display region and font-scaling budget.
+    display_budget: f32,
+    /// Keypad slice height (may be below 62% on short windows).
+    keypad_area_height: f32,
+    keypad_metrics: crate::ui::keypad::KeypadMetrics,
+    edge_spacing: f32,
+    /// Vertical gap between sections — matches keypad inter-row spacing.
+    row_spacing: f32,
+}
+
+/// Measured display fonts for the expression area.
+struct DisplayMetrics {
+    has_caption: bool,
+    main_size: f32,
+    main_line_h: f32,
+    caption_size: f32,
+    caption_line_h: f32,
+    segments: Vec<crate::ui::display::DisplaySegment>,
+}
+
+/// Render a config-stored f64 back into a string the user can edit
+/// in a text input. Per spec the rand bounds are digit-only integers
+/// ≤15 chars, so we clamp negatives and fractional values to a plain
+/// non-negative integer rendering — anything older that drifted into
+/// fractional or negative territory falls back cleanly.
+fn format_f64_for_input(v: f64) -> String {
+    if !v.is_finite() || v < 0.0 {
+        return String::from("0");
+    }
+    let truncated = v.trunc().min(999_999_999_999_999.0);
+    format!("{}", truncated as u64)
+}
+
+/// Spec rule for the rand-bounds inputs: ASCII digits only, 15 chars
+/// max. Empty strings are accepted so the user can fully clear the
+/// field while editing.
+fn is_valid_rand_input(s: &str) -> bool {
+    s.chars().count() <= 15 && s.chars().all(|c| c.is_ascii_digit())
+}
+
+/// Pick a (font size, line height) pair for the main display so a
+/// long expression shrinks rather than wrapping. The thresholds are
+/// tuned to the default 300px window: the title1 preset (35sp) fits
+/// roughly 12 chars, so once the rendered string exceeds that we step
+/// down through the libcosmic title2..title4 sizes and finally cap at
+/// the body size for genuinely long inputs. Line heights mirror the
+/// libcosmic preset ratios (~1.49) so vertical spacing tracks the
+/// font size cleanly.
+fn scale_main_text_size(chars: usize, window_width: f32, display_height: f32) -> (f32, f32) {
+    // Each tier was bumped a few points over the original libcosmic
+    // title1..title4 ladder so the answer reads more like a calculator
+    // result than a generic heading. The tallest tier in particular sits
+    // closer to the "huge digit" feel of dedicated calc apps without
+    // overflowing the 300px reference window.
+    let (base_size, base_line) = match chars {
+        0..=12 => (44.0, 62.0),
+        13..=16 => (36.0, 52.0),
+        17..=22 => (30.0, 44.0),
+        23..=30 => (24.0, 36.0),
+        _ => (20.0, 30.0),
+    };
+    let factor = window_width_scale_factor(window_width)
+        * display_height_scale_factor(display_height, chars);
+    (base_size * factor, base_line * factor)
+}
+
+/// Same idea for the caption above the main display – starts at the
+/// default caption size (10sp) and shrinks slightly for very long
+/// previously-evaluated expressions.
+fn scale_caption_text_size(chars: usize, window_width: f32, display_height: f32) -> (f32, f32) {
+    let (base_size, base_line) = match chars {
+        0..=24 => (10.0, 14.0),
+        25..=40 => (9.0, 13.0),
+        _ => (8.0, 12.0),
+    };
+    let factor = window_width_scale_factor(window_width)
+        * display_height_scale_factor(display_height, chars.saturating_add(8));
+    (base_size * factor, base_line * factor)
+}
+
+/// Map a window width (logical pixels) to a font-size multiplier so the
+/// main display and caption grow as the user enlarges the window. The
+/// reference width is 480px (the default startup size) – at that point
+/// the multiplier is 1.0; bigger windows scale up to a 2.0 cap and
+/// smaller windows scale down to 0.7 so the layout doesn't collapse.
+fn window_width_scale_factor(window_width: f32) -> f32 {
+    const REFERENCE_WIDTH: f32 = 480.0;
+    let raw = window_width / REFERENCE_WIDTH;
+    raw.clamp(0.7, 2.0)
+}
+
+/// Horizontal space for right-aligned display text after column padding.
+pub(crate) fn available_display_width(window_width: f32, edge_spacing: f32) -> f32 {
+    (window_width - 2.0 * edge_spacing).max(1.0)
+}
+
+/// Fit display text to both the slot height and available width.
+pub(crate) fn fit_display_text(
+    width_units: f32,
+    available_width: f32,
+    max_line_h: f32,
+    size: f32,
+    line_h: f32,
+) -> (f32, f32) {
+    let (mut size, mut line_h) = fit_display_text_to_width(width_units, available_width, size, line_h);
+    if max_line_h > 1.0 && line_h > 0.0 && line_h < max_line_h {
+        let grow = max_line_h / line_h;
+        size *= grow;
+        line_h = max_line_h;
+        (size, line_h) = fit_display_text_to_width(width_units, available_width, size, line_h);
+    }
+    let mut size = size;
+    let mut line_h = line_h;
+    fit_text_to_line_height(max_line_h, &mut size, &mut line_h);
+    (size, line_h)
+}
+
+/// Shrink `(size, line_h)` when the rendered string would extend past
+/// `available_width`. Uses the same width-per-glyph estimate as the
+/// keypad so tall, narrow windows do not clip after height-based scaling.
+pub(crate) fn fit_display_text_to_width(
+    width_units: f32,
+    available_width: f32,
+    size: f32,
+    line_h: f32,
+) -> (f32, f32) {
+    if width_units <= 0.0 || size <= 0.0 {
+        return (size, line_h);
+    }
+    let estimated = width_units * size * crate::ui::keypad::LABEL_CHAR_WIDTH_RATIO;
+    if estimated <= available_width {
+        return (size, line_h);
+    }
+    let scale = available_width / estimated;
+    (size * scale, line_h * scale)
+}
+
+/// Grow display fonts when the flexible display slice is taller than
+/// the reference layout, but cap the boost for long expressions so
+/// they still fit vertically.
+fn display_height_scale_factor(display_height: f32, chars: usize) -> f32 {
+    const REFERENCE_HEIGHT: f32 = 72.0;
+    let raw = display_height / REFERENCE_HEIGHT;
+    let cap = match chars {
+        0..=12 => 2.2,
+        13..=22 => 1.8,
+        23..=30 => 1.5,
+        _ => 1.2,
+    };
+    // Do not shrink below 1.0 when the window is short — per-slot fitting
+    // handles vertical overflow instead of scaling text away.
+    raw.clamp(1.0, cap)
+}
+
+/// Last-expression slot is always 60% of the main readout slot height.
+const CAPTION_TO_MAIN_HEIGHT_RATIO: f32 = 0.6;
+const MAIN_HEIGHT_PORTION: u16 = 100;
+const CAPTION_HEIGHT_PORTION: u16 =
+    (MAIN_HEIGHT_PORTION as f32 * CAPTION_TO_MAIN_HEIGHT_RATIO) as u16;
+
+/// Split the fixed display column into caption and main line heights.
+pub(crate) fn display_line_budgets(
+    display_height: f32,
+    row_spacing: f32,
+    has_caption: bool,
+) -> (f32, f32) {
+    if !has_caption {
+        return (0.0, display_height.max(1.0));
+    }
+    let content = (display_height - row_spacing).max(1.0);
+    let total_portions =
+        MAIN_HEIGHT_PORTION as f32 + CAPTION_HEIGHT_PORTION as f32;
+    let main_h = content * MAIN_HEIGHT_PORTION as f32 / total_portions;
+    let caption_h = content * CAPTION_HEIGHT_PORTION as f32 / total_portions;
+    (caption_h, main_h)
+}
+
+/// Clamp font metrics to a single line slot.
+fn fit_text_to_line_height(max_line_h: f32, size: &mut f32, line_h: &mut f32) {
+    if max_line_h <= 1.0 {
+        *line_h = 1.0;
+        *size = 1.0;
+        return;
+    }
+    if *line_h > max_line_h {
+        let scale = max_line_h / *line_h;
+        *line_h *= scale;
+        *size *= scale;
+    }
+    *line_h = (*line_h).min(max_line_h);
+    *size = (*size).min(*line_h);
+}
+
+/// Small helper for the 5-way memory button row. Paints each key in
+/// the active theme's top-row slot so it matches the other control
+/// buttons.
+fn mem_btn(
+    theme: &Theme,
+    label: &'static str,
+    button: Button,
+    corner_radius: f32,
+    height: f32,
+    cell_width: f32,
+) -> Element<'static, Message> {
+    widget::container(crate::ui::keypad::control_button(
+        theme,
+        label,
+        button,
+        corner_radius,
+        height,
+        cell_width,
+        false,
+        false,
+    ))
+    .width(Length::Fill)
+    .height(Length::Fill)
+    .into()
+}
