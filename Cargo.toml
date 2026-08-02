@@ -1,0 +1,37 @@
+[package]
+name = "cosmic-calc"
+version = "0.1.0"
+edition = "2021"
+description = "A scientific calculator for the COSMIC desktop"
+license = "GPL-3.0-only"
+
+[dependencies]
+libm = "0.2"
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+sys-locale = "0.3"
+dirs = "6"
+rand = "0.8"
+fontdb = "0.23"
+
+[dependencies.libcosmic]
+git = "https://github.com/pop-os/libcosmic.git"
+default-features = false
+features = ["winit", "tokio", "wgpu"]
+
+[profile.dev]
+opt-level = 1
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = true
+
+[lib]
+name = "cosmic_calc"
+path = "src/lib.rs"
+
+[[bin]]
+name = "cosmic-calc"
+path = "src/main.rs"
