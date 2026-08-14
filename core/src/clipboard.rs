@@ -136,6 +136,21 @@ pub fn items_from_paste(s: &str) -> Option<Vec<InputItem>> {
             continue;
         }
 
+        // `log<digits>(` carries its base in the name. Checked before
+        // the keyword table so `log6` is not read as `log` followed by
+        // a stray 6 — which turned `log6(279936)` into `log(6(279936)`
+        // = 6.23 where the engine, handed the same text directly,
+        // answers 7.
+        if let Some((base, len)) = log_base_suffix_len(&chars, i) {
+            out.push(InputItem::LogN(base));
+            i += len;
+            if chars.get(i) == Some(&'(') {
+                i += 1;
+            }
+            arg_sep_stack.push(false);
+            continue;
+        }
+
         if let Some((item, len)) = match_keyword(&chars, i) {
             let opens_paren = item_opens_paren(&item);
             let takes_arg_list = matches!(
@@ -383,6 +398,35 @@ fn match_keyword(chars: &[char], i: usize) -> Option<(InputItem, usize)> {
         }
     }
     None
+}
+
+/// Match `log<digits>` at `i`, returning the base and the run length.
+/// `log2` and `log10` have their own [`UnaryFunc`] variants and are
+/// left to the keyword table; every other base becomes a
+/// [`InputItem::LogN`], which is what the engine tokenizer produces for
+/// the same text.
+fn log_base_suffix_len(chars: &[char], i: usize) -> Option<(u32, usize)> {
+    const LOG: [char; 3] = ['l', 'o', 'g'];
+    if chars.get(i..i + LOG.len())? != LOG {
+        return None;
+    }
+    let digits_start = i + LOG.len();
+    let mut j = digits_start;
+    while matches!(chars.get(j), Some(d) if d.is_ascii_digit()) {
+        j += 1;
+    }
+    if j == digits_start {
+        return None;
+    }
+    let base: u32 = chars[digits_start..j]
+        .iter()
+        .collect::<String>()
+        .parse()
+        .ok()?;
+    if matches!(base, 2 | 10) {
+        return None;
+    }
+    Some((base, j - i))
 }
 
 /// True when the item renders its own opening paren.

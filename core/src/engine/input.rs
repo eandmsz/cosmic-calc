@@ -41,12 +41,6 @@ impl InputBuffer {
         self.cursor += 1;
     }
 
-    /// Append an item at the end regardless of cursor position.
-    pub fn push(&mut self, item: InputItem) {
-        self.items.push(item);
-        self.cursor = self.items.len();
-    }
-
     /// Delete the item immediately before the cursor, if any.
     pub fn delete_before(&mut self) {
         if self.cursor > 0 {

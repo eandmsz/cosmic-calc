@@ -26,6 +26,12 @@ impl Rgba {
     /// defaults to `FF` when omitted).
     pub fn parse_hex_str(s: &str) -> Result<Self, String> {
         let hex = s.trim().trim_start_matches('#');
+        // `from_str_radix` accepts a leading `+` or `-`, so `#+FFFFF`
+        // would pass the six-character check and silently produce the
+        // wrong channels. Require plain hex digits.
+        if !hex.chars().all(|c| c.is_ascii_hexdigit()) {
+            return Err(format!("invalid hex colour: {s:?}"));
+        }
         let value =
             u32::from_str_radix(hex, 16).map_err(|_| format!("invalid hex colour: {s:?}"))?;
         Ok(match hex.len() {

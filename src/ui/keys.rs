@@ -155,6 +155,8 @@ pub(crate) fn map_named(named: Named, _modifiers: Modifiers) -> Option<Button> {
         Named::Escape => Some(Button::Clear),
         Named::ArrowLeft => Some(Button::CursorLeft),
         Named::ArrowRight => Some(Button::CursorRight),
+        Named::Home => Some(Button::CursorHome),
+        Named::End => Some(Button::CursorEnd),
         _ => None,
     }
 }

@@ -100,14 +100,6 @@ pub fn keypad_metrics(window_height: f32, config: &Config) -> KeypadMetrics {
     keypad_metrics_for_area(window_height * KEYPAD_HEIGHT_FRACTION, config)
 }
 
-/// Public helper for callers outside the keypad (e.g. the memory row)
-/// that need to match the keypad's effective spacing — including the
-/// dynamic Round / SlightlyRound rules — so a frame's button gaps and
-/// edge padding line up across both elements.
-pub fn effective_spacing(window_height: f32, config: &Config) -> f32 {
-    keypad_metrics(window_height, config).spacing
-}
-
 /// Height of the memory / DEG button row (shorter than keypad buttons).
 pub(crate) fn memory_row_height(metrics: &KeypadMetrics) -> f32 {
     metrics.button_height * MEMORY_ROW_HEIGHT_RATIO

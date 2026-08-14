@@ -39,6 +39,10 @@ pub enum Button {
     RightParen,
     CursorLeft,
     CursorRight,
+    /// Jump the cursor to the start / end of the expression. Bound to
+    /// the Home and End keys; there is no keypad cell for either.
+    CursorHome,
+    CursorEnd,
 
     // --- operators ---
     Add,
@@ -355,6 +359,14 @@ pub fn apply_button(
             engine.input.move_cursor(crate::engine::CursorMove::Right);
             ButtonEffect::None
         }
+        Button::CursorHome => {
+            engine.input.move_cursor(crate::engine::CursorMove::Home);
+            ButtonEffect::None
+        }
+        Button::CursorEnd => {
+            engine.input.move_cursor(crate::engine::CursorMove::End);
+            ButtonEffect::None
+        }
 
         Button::Add => {
             replace_or_insert_binop(engine, BinOp::Add);
@@ -621,6 +633,8 @@ fn available_in_basic(b: Button) -> bool {
             | Button::RightParen
             | Button::CursorLeft
             | Button::CursorRight
+            | Button::CursorHome
+            | Button::CursorEnd
             | Button::Add
             | Button::Sub
             | Button::Mul
@@ -714,6 +728,8 @@ fn is_buffer_mutating_button(button: Button) -> bool {
         Button::Second
             | Button::CursorLeft
             | Button::CursorRight
+            | Button::CursorHome
+            | Button::CursorEnd
             | Button::MemClear
             | Button::MemAdd
             | Button::MemSub

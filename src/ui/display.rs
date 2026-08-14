@@ -266,26 +266,24 @@ fn write_formatted_number(out: &mut String, run: &str, decimal: char, thousands:
 }
 
 /// Append `digits` to `out` with `sep` every 3 characters from the
-/// right. Handles leading zeroes verbatim (spec says 15-digit entry
-/// cap, so leading zeroes are rare but not forbidden).
+/// right. `digits` is always ASCII (it comes from a numeric run), so
+/// slicing by byte index is safe.
 fn write_with_thousands(out: &mut String, digits: &str, sep: char) {
     let len = digits.len();
     if len <= 3 {
         out.push_str(digits);
         return;
     }
+    // The first group is whatever does not divide evenly into threes.
     let first_group = len % 3;
-    let bytes = digits.as_bytes();
-    let mut i = 0;
     if first_group > 0 {
-        out.push_str(std::str::from_utf8(&bytes[..first_group]).unwrap());
-        i = first_group;
+        out.push_str(&digits[..first_group]);
     }
-    while i < len {
-        if !out.is_empty() && i > 0 && !(first_group == 0 && i == 0) {
+    for (n, start) in (first_group..len).step_by(3).enumerate() {
+        // Separate every group after the first thing written.
+        if n > 0 || first_group > 0 {
             out.push(sep);
         }
-        out.push_str(std::str::from_utf8(&bytes[i..i + 3]).unwrap());
-        i += 3;
+        out.push_str(&digits[start..start + 3]);
     }
 }

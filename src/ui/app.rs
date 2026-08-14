@@ -602,6 +602,7 @@ impl Application for AppModel {
             row = row.push(crate::ui::panels::history_panel(
                 &self.history,
                 &self.memory,
+                self.config.significant_digits,
             ));
         }
         row = row.push(main_column);

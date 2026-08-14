@@ -22,9 +22,13 @@ use crate::ui::font::available_fonts_with_faces;
 /// Left-hand history + memory panel. Newest entries first. Clicking
 /// a row emits `Message::RecallHistory(idx)` which rewrites the
 /// display (but leaves the buffer alone, per spec).
-pub fn history_panel<'a>(history: &History, memory: &Memory) -> Element<'a, Message> {
+pub fn history_panel<'a>(
+    history: &History,
+    memory: &Memory,
+    significant_digits: u8,
+) -> Element<'a, Message> {
     let header = widget::text::title4("History");
-    let mem_label = match memory.display() {
+    let mem_label = match memory.display(significant_digits) {
         s if s.is_empty() => "Memory: (empty)".to_string(),
         s => format!("Memory: {s}"),
     };

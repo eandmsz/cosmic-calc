@@ -37,3 +37,17 @@ fn both_decimal_glyphs_route_to_decimal() {
     assert_eq!(map_char('.', m), Some(Button::Decimal));
     assert_eq!(map_char(',', m), Some(Button::Decimal));
 }
+
+#[test]
+fn home_and_end_keys_are_bound() {
+    use cosmic::iced::keyboard::key::Named;
+    use cosmic::iced::keyboard::Modifiers;
+    assert_eq!(
+        map_named(Named::Home, Modifiers::default()),
+        Some(Button::CursorHome)
+    );
+    assert_eq!(
+        map_named(Named::End, Modifiers::default()),
+        Some(Button::CursorEnd)
+    );
+}

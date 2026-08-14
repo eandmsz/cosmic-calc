@@ -74,7 +74,7 @@ pub fn evaluate_expression(
     mode: AngleMode,
     significant_digits: u8,
 ) -> Result<EvalOutput, CalcError> {
-    let toks = tokenizer::tokenize(expr).map_err(|_| CalcError::Undefined)?;
+    let toks = tokenizer::tokenize(expr)?;
     let ast = parser::parse(toks)?;
     let value = eval::eval(&ast, mode)?;
     let display = format::format_result(value, significant_digits);

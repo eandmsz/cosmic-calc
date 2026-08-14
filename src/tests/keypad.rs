@@ -9,7 +9,7 @@ fn min_window_size_keeps_font_legible() {
     assert!((360.0..=800.0).contains(&min_w), "min_w = {}", min_w);
     assert!((360.0..=800.0).contains(&min_h), "min_h = {}", min_h);
     let m = keypad_metrics(min_h, &config);
-    let edge = crate::ui::keypad::effective_spacing(min_h, &config);
+    let edge = crate::ui::keypad::keypad_metrics(min_h, &config).spacing;
     let cell_w = button_cell_width(min_w, 9, m.spacing, edge);
     let font = label_font_size(m.button_height, cell_w, "cosh⁻¹");
     assert!(

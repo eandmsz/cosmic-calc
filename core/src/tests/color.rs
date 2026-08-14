@@ -131,3 +131,12 @@ fn hover_white_is_still_white() {
     let base = Rgba::from_hex(0xFF_FF_FF_FF);
     assert_eq!(hover(base), base);
 }
+
+#[test]
+fn hex_parse_rejects_a_sign_prefix() {
+    // `from_str_radix` accepts `+`/`-`, so this parsed as a valid
+    // six-character colour and silently produced the wrong channels.
+    assert!(Rgba::parse_hex_str("#+FFFFF").is_err());
+    assert!(Rgba::parse_hex_str("-FFFFFF").is_err());
+    assert!(Rgba::parse_hex_str("#FFFFFF").is_ok());
+}

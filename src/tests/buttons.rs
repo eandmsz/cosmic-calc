@@ -630,3 +630,16 @@ fn shipped_defaults_do_not_show_float_noise() {
         assert_eq!(e.input.display_string(), expected);
     }
 }
+
+#[test]
+fn home_and_end_move_the_cursor_to_the_extremes() {
+    let (mut e, mut s, c) = fresh();
+    for b in [Button::Num(1), Button::Num(2), Button::Num(3)] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert_eq!(e.input.cursor(), 3);
+    apply_button(&mut e, &mut s, &c, Button::CursorHome);
+    assert_eq!(e.input.cursor(), 0);
+    apply_button(&mut e, &mut s, &c, Button::CursorEnd);
+    assert_eq!(e.input.cursor(), 3);
+}

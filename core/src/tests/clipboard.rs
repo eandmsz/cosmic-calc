@@ -221,3 +221,24 @@ fn italic_euler_is_never_an_exponent() {
         crate::engine::evaluate_to_string(&buffer_ascii(&items), crate::engine::AngleMode::Deg, 15);
     assert!(shown.starts_with("16.309690970754"), "got {shown}");
 }
+
+#[test]
+fn paste_keeps_an_arbitrary_log_base() {
+    // `log6(279936)` used to read as `log` + a stray `6`, producing
+    // `log(6(279936)` = 6.23 where the engine, handed the same text
+    // directly, answers 7.
+    let items = items_from_paste("log6(279936)").expect("representable");
+    assert!(matches!(items[0], InputItem::LogN(6)));
+    assert_eq!(
+        crate::engine::evaluate_to_string(&buffer_ascii(&items), crate::engine::AngleMode::Deg, 15),
+        "7"
+    );
+    // log2 and log10 keep their dedicated variants.
+    let items = items_from_paste("log2(8)").expect("representable");
+    assert!(matches!(items[0], InputItem::UnaryFunc(UnaryFunc::Log2)));
+    let items = items_from_paste("log10(1000)").expect("representable");
+    assert!(matches!(items[0], InputItem::UnaryFunc(UnaryFunc::Log10)));
+    // A bare `log` is still log base 10.
+    let items = items_from_paste("log(100)").expect("representable");
+    assert!(matches!(items[0], InputItem::UnaryFunc(UnaryFunc::Log)));
+}

@@ -3,9 +3,7 @@ use crate::engine::item::{ConstKind, InputItem, UnaryFunc};
 
 fn buf(seq: &[InputItem]) -> InputBuffer {
     let mut b = InputBuffer::new();
-    for it in seq {
-        b.push(it.clone());
-    }
+    b.replace(seq.to_vec());
     b
 }
 

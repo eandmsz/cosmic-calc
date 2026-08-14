@@ -26,7 +26,7 @@ fn subnormal_accumulation_does_not_render_as_infinity() {
     let mut m = Memory::new();
     m.add(1e-307);
     m.sub(9.99999e-308);
-    let shown = m.display();
+    let shown = m.display(15);
     assert!(!shown.contains("inf"), "got {shown}");
     assert!(shown.ends_with("e-314"), "got {shown}");
 }
@@ -36,5 +36,15 @@ fn non_finite_accumulation_reports_an_error_not_inf() {
     let mut m = Memory::new();
     m.add(f64::MAX);
     m.add(f64::MAX);
-    assert_eq!(m.display(), "Overflow");
+    assert_eq!(m.display(15), "Overflow");
+}
+
+#[test]
+fn memory_readout_honours_the_configured_precision() {
+    // It was pinned to the default, so lowering the precision left the
+    // side panel disagreeing with the main display about one value.
+    let mut m = Memory::new();
+    m.add(2.0 / 3.0);
+    assert_eq!(m.display(15), "0.666666666666667");
+    assert_eq!(m.display(4), "0.6667");
 }
