@@ -18,7 +18,7 @@
 //! by using `iced::clipboard::read()` which returns `None` in that
 //! case.
 
-use crate::engine::item::{BinOp, ConstKind, InputItem, UnaryFunc};
+use crate::engine::item::{BinOp, BinaryFunc, ConstKind, InputItem, UnaryFunc};
 
 /// Outbound clipboard operation dispatched by the UI after a user
 /// action. The `update` handler turns each variant into a libcosmic
@@ -96,47 +96,114 @@ pub fn sanitize_paste(raw: &str) -> Option<String> {
 }
 
 /// Translate a sanitised paste string into the engine's
-/// [`InputItem`] stream. Unrecognised characters are silently dropped
-/// so that an adversarial clipboard can't blow up the buffer.
-pub fn items_from_paste(s: &str) -> Vec<InputItem> {
+/// [`InputItem`] stream, or `None` when the string contains something
+/// the buffer cannot represent faithfully.
+///
+/// Rejecting is the important part. This used to drop unrecognised
+/// characters and accept whatever was left, which quietly turned a
+/// paste into a *different expression*: `root(16,4)` lost its keyword
+/// and its argument comma and became `(16.4)`, and `3pi` became `3`.
+/// A paste that cannot be represented is now dropped whole, the same
+/// way [`sanitize_paste`] already drops one containing a disallowed
+/// character.
+pub fn items_from_paste(s: &str) -> Option<Vec<InputItem>> {
     let chars: Vec<char> = s.chars().collect();
     let mut out: Vec<InputItem> = Vec::new();
+    // One flag per open paren: true when `,` separates arguments
+    // rather than introducing a fractional part. Mirrors the same
+    // stack in the engine tokenizer.
+    let mut arg_sep_stack: Vec<bool> = Vec::new();
     let mut i = 0usize;
+
     while i < chars.len() {
-        if let Some((func, len)) = match_function_keyword(&chars, i) {
-            out.push(InputItem::UnaryFunc(func));
-            // `UnaryFunc` renders its own `(`; if a literal `(` follows
-            // in the paste stream, consume it so we don't end up with
-            // double-open parens.
-            let after = i + len;
-            if chars.get(after) == Some(&'(') {
-                i = after + 1;
-            } else {
-                i = after;
+        let c = chars[i];
+
+        // `sanitize_paste` only keeps spaces after a comma, where they
+        // carry no meaning of their own.
+        if c == ' ' {
+            i += 1;
+            continue;
+        }
+
+        // Scientific notation. `2e3` has to become `2×10^3`, not
+        // `2 × 𝑒 × 3`: the buffer renders the Euler constant as `𝑒` but
+        // serialises it back to a bare `e`, which the tokenizer's
+        // number scanner then swallows as an exponent — so the display
+        // said 2·e·3 (≈16.31) while the engine computed 2000.
+        if let Some(len) = exponent_suffix_len(&chars, i, &out) {
+            push_exponent(&mut out, &chars[i + 1..i + len]);
+            i += len;
+            continue;
+        }
+
+        if let Some((item, len)) = match_keyword(&chars, i) {
+            let opens_paren = item_opens_paren(&item);
+            let takes_arg_list = matches!(
+                item,
+                InputItem::BinaryFunc(_) | InputItem::UnaryFunc(UnaryFunc::Log)
+            );
+            out.push(item);
+            i += len;
+            // Function items render their own `(`; consume a literal
+            // one that follows so we don't end up with two.
+            if opens_paren {
+                if chars.get(i) == Some(&'(') {
+                    i += 1;
+                }
+                arg_sep_stack.push(takes_arg_list);
             }
             continue;
         }
-        match chars[i] {
-            c @ '0'..='9' => out.push(InputItem::Digit(c)),
-            '.' | ',' => out.push(InputItem::DecimalPoint),
-            '+' => out.push(InputItem::BinOp(BinOp::Add)),
-            '-' => out.push(InputItem::BinOp(BinOp::Sub)),
-            '×' | '*' => out.push(InputItem::BinOp(BinOp::Mul)),
-            '÷' | '/' => out.push(InputItem::BinOp(BinOp::Div)),
-            '^' => out.push(InputItem::BinOp(BinOp::Pow)),
-            '%' => out.push(InputItem::Percent),
-            '!' => out.push(InputItem::Factorial),
-            '(' => out.push(InputItem::LeftParen),
-            ')' => out.push(InputItem::RightParen),
-            '√' => out.push(InputItem::UnaryFunc(UnaryFunc::Sqrt)),
-            '∛' => out.push(InputItem::UnaryFunc(UnaryFunc::Cbrt)),
-            'π' => out.push(InputItem::Constant(ConstKind::Pi)),
-            '𝑒' | 'e' | 'E' => out.push(InputItem::Constant(ConstKind::E)),
-            _ => {}
+
+        let item = match c {
+            d @ '0'..='9' => InputItem::Digit(d),
+            '.' => InputItem::DecimalPoint,
+            ',' | ';' => {
+                if arg_sep_stack.last().copied().unwrap_or(false) {
+                    InputItem::Comma
+                } else {
+                    InputItem::DecimalPoint
+                }
+            }
+            '+' => InputItem::BinOp(BinOp::Add),
+            '-' => InputItem::BinOp(BinOp::Sub),
+            '×' | '*' => InputItem::BinOp(BinOp::Mul),
+            '÷' | '/' => InputItem::BinOp(BinOp::Div),
+            '^' => InputItem::BinOp(BinOp::Pow),
+            '%' => InputItem::Percent,
+            '!' => InputItem::Factorial,
+            '(' => {
+                arg_sep_stack.push(false);
+                InputItem::LeftParen
+            }
+            ')' => {
+                arg_sep_stack.pop();
+                InputItem::RightParen
+            }
+            '√' => InputItem::UnaryFunc(UnaryFunc::Sqrt),
+            '∛' => InputItem::UnaryFunc(UnaryFunc::Cbrt),
+            'π' => InputItem::Constant(ConstKind::Pi),
+            '𝑒' | 'e' => InputItem::Constant(ConstKind::E),
+            // Anything else would have to be dropped to continue, and
+            // dropping changes the meaning of the expression.
+            _ => return None,
+        };
+        // `√` and `∛` carry an implicit opener like the named
+        // functions do, so a literal `(` after them is redundant.
+        if matches!(c, '√' | '∛') {
+            out.push(item);
+            i += 1;
+            if chars.get(i) == Some(&'(') {
+                i += 1;
+            }
+            arg_sep_stack.push(false);
+            continue;
         }
+        out.push(item);
         i += 1;
     }
-    out
+
+    Some(out)
 }
 
 // ---------------------------------------------------------------------
@@ -254,7 +321,6 @@ fn rewrite_function_names(input: &str) -> String {
         ("atan", "tan-1"),
         ("sqrt", "√"),
         ("cbrt", "∛"),
-        ("mod", "%"),
     ];
     let mut out = String::with_capacity(input.len());
     let bytes: &[u8] = input.as_bytes();
@@ -280,34 +346,98 @@ fn rewrite_function_names(input: &str) -> String {
     out
 }
 
-/// Match a multi-char function name that should become a UnaryFunc
-/// item. Longest-match wins.
-fn match_function_keyword(chars: &[char], i: usize) -> Option<(UnaryFunc, usize)> {
-    const RULES: &[(&str, UnaryFunc)] = &[
-        ("sinh-1", UnaryFunc::Asinh),
-        ("cosh-1", UnaryFunc::Acosh),
-        ("tanh-1", UnaryFunc::Atanh),
-        ("sin-1", UnaryFunc::Asin),
-        ("cos-1", UnaryFunc::Acos),
-        ("tan-1", UnaryFunc::Atan),
-        ("sinh", UnaryFunc::Sinh),
-        ("cosh", UnaryFunc::Cosh),
-        ("tanh", UnaryFunc::Tanh),
-        ("log10", UnaryFunc::Log10),
-        ("log2", UnaryFunc::Log2),
-        ("sin", UnaryFunc::Sin),
-        ("cos", UnaryFunc::Cos),
-        ("tan", UnaryFunc::Tan),
-        ("ln", UnaryFunc::Ln),
-        ("log", UnaryFunc::Log),
+/// Match a multi-char keyword at `i`. Longest-match wins, so `sinh-1`
+/// is preferred over `sinh` and `log10` over `log`.
+fn match_keyword(chars: &[char], i: usize) -> Option<(InputItem, usize)> {
+    use UnaryFunc as U;
+    const RULES: &[(&str, InputItem)] = &[
+        ("sinh-1", InputItem::UnaryFunc(U::Asinh)),
+        ("cosh-1", InputItem::UnaryFunc(U::Acosh)),
+        ("tanh-1", InputItem::UnaryFunc(U::Atanh)),
+        ("coth-1", InputItem::UnaryFunc(U::Acoth)),
+        ("sin-1", InputItem::UnaryFunc(U::Asin)),
+        ("cos-1", InputItem::UnaryFunc(U::Acos)),
+        ("tan-1", InputItem::UnaryFunc(U::Atan)),
+        ("cot-1", InputItem::UnaryFunc(U::Acot)),
+        ("sinh", InputItem::UnaryFunc(U::Sinh)),
+        ("cosh", InputItem::UnaryFunc(U::Cosh)),
+        ("tanh", InputItem::UnaryFunc(U::Tanh)),
+        ("coth", InputItem::UnaryFunc(U::Coth)),
+        ("log10", InputItem::UnaryFunc(U::Log10)),
+        ("log2", InputItem::UnaryFunc(U::Log2)),
+        ("root", InputItem::BinaryFunc(BinaryFunc::Root)),
+        ("sin", InputItem::UnaryFunc(U::Sin)),
+        ("cos", InputItem::UnaryFunc(U::Cos)),
+        ("tan", InputItem::UnaryFunc(U::Tan)),
+        ("cot", InputItem::UnaryFunc(U::Cot)),
+        ("mod", InputItem::Modulo),
+        ("ln", InputItem::UnaryFunc(U::Ln)),
+        ("log", InputItem::UnaryFunc(U::Log)),
+        ("pi", InputItem::Constant(ConstKind::Pi)),
     ];
-    for (name, func) in RULES {
-        let name_chars: Vec<char> = name.chars().collect();
-        if i + name_chars.len() <= chars.len()
-            && chars[i..i + name_chars.len()] == name_chars[..]
-        {
-            return Some((*func, name_chars.len()));
+    for (name, item) in RULES {
+        let len = name.chars().count();
+        if i + len <= chars.len() && chars[i..i + len].iter().copied().eq(name.chars()) {
+            return Some((item.clone(), len));
         }
     }
     None
+}
+
+/// True when the item renders its own opening paren.
+fn item_opens_paren(item: &InputItem) -> bool {
+    matches!(
+        item,
+        InputItem::UnaryFunc(_) | InputItem::BinaryFunc(_) | InputItem::LogN(_)
+    )
+}
+
+/// Length of the `e[+-]?<digits>` run starting at `i`, when it should
+/// be read as a decimal exponent rather than as Euler's number: the
+/// item before it has to close a numeric literal, and at least one
+/// digit has to follow. Returns `None` otherwise, so `2𝑒` and `𝑒3`
+/// still mean multiplication by the constant.
+fn exponent_suffix_len(chars: &[char], i: usize, out: &[InputItem]) -> Option<usize> {
+    if !matches!(chars.get(i), Some('e') | Some('𝑒')) {
+        return None;
+    }
+    if !matches!(
+        out.last(),
+        Some(InputItem::Digit(_)) | Some(InputItem::DecimalPoint)
+    ) {
+        return None;
+    }
+    let mut j = i + 1;
+    if matches!(chars.get(j), Some('+') | Some('-')) {
+        j += 1;
+    }
+    let digits_start = j;
+    while matches!(chars.get(j), Some(d) if d.is_ascii_digit()) {
+        j += 1;
+    }
+    if j == digits_start {
+        return None;
+    }
+    Some(j - i)
+}
+
+/// Append `×10^<exponent>` for the sign-and-digits run in `suffix`.
+/// A negative exponent is parenthesised so the engine reads it as one
+/// signed operand.
+fn push_exponent(out: &mut Vec<InputItem>, suffix: &[char]) {
+    out.push(InputItem::BinOp(BinOp::Mul));
+    out.push(InputItem::Digit('1'));
+    out.push(InputItem::Digit('0'));
+    out.push(InputItem::BinOp(BinOp::Pow));
+    let negative = suffix.first() == Some(&'-');
+    if negative {
+        out.push(InputItem::LeftParen);
+        out.push(InputItem::BinOp(BinOp::Sub));
+    }
+    for d in suffix.iter().filter(|c| c.is_ascii_digit()) {
+        out.push(InputItem::Digit(*d));
+    }
+    if negative {
+        out.push(InputItem::RightParen);
+    }
 }

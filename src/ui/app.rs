@@ -66,7 +66,7 @@ pub enum Message {
     SetThousandsSeparator(ThousandsSeparator),
     SetButtonShape(ButtonShape),
     SetFont(String),
-    SetRoundingDecimals(u8),
+    SetSignificantDigits(u8),
     /// Raw text from the rand-min input. Parsed and validated by the
     /// handler; the text is preserved verbatim while the user is still
     /// typing (e.g. mid-entry of `1.` or `-`).
@@ -361,7 +361,7 @@ impl Application for AppModel {
         // dropdowns, sliders, ...) uses it from the very first frame
         // instead of falling back to the system default.
         crate::ui::font::apply_interface_font(&config.font);
-        let mut engine = Engine::new(config.rounding_decimals);
+        let mut engine = Engine::new(config.significant_digits);
         engine.angle_mode = config.angle_mode;
         let rand_min_text = format_f64_for_input(config.rand_min_incl);
         let rand_max_text = format_f64_for_input(config.rand_max_excl);
@@ -436,10 +436,10 @@ impl Application for AppModel {
                 crate::ui::font::apply_interface_font(&self.config.font);
                 self.persist();
             }
-            Message::SetRoundingDecimals(n) => {
-                self.config.rounding_decimals = n;
+            Message::SetSignificantDigits(n) => {
+                self.config.significant_digits = n;
                 self.config.validate_and_clamp();
-                self.engine.rounding_decimals = self.config.rounding_decimals;
+                self.engine.significant_digits = self.config.significant_digits;
                 self.persist();
             }
             Message::SetRandMinText(s) => {

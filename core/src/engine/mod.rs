@@ -13,7 +13,7 @@ pub mod tokenizer;
 
 pub use errors::{CalcError, ERR_INDETERMINATE, ERR_OVERFLOW, ERR_UNDEFINED, ERR_UNDERFLOW};
 pub use eval::AngleMode;
-pub use format::DEFAULT_ROUNDING_DECIMALS;
+pub use format::DEFAULT_SIGNIFICANT_DIGITS;
 pub use input::{CursorMove, InputBuffer};
 pub use item::InputItem;
 
@@ -32,7 +32,7 @@ pub struct EvalOutput {
 pub struct Engine {
     pub input: InputBuffer,
     pub angle_mode: AngleMode,
-    pub rounding_decimals: u8,
+    pub significant_digits: u8,
 }
 
 impl Default for Engine {
@@ -40,25 +40,25 @@ impl Default for Engine {
         Self {
             input: InputBuffer::new(),
             angle_mode: AngleMode::Deg,
-            rounding_decimals: DEFAULT_ROUNDING_DECIMALS,
+            significant_digits: DEFAULT_SIGNIFICANT_DIGITS,
         }
     }
 }
 
 impl Engine {
     /// Construct an engine with explicit rounding precision.
-    pub fn new(rounding_decimals: u8) -> Self {
+    pub fn new(significant_digits: u8) -> Self {
         Self {
             input: InputBuffer::new(),
             angle_mode: AngleMode::Deg,
-            rounding_decimals,
+            significant_digits,
         }
     }
 
     /// Run tokenize → parse → eval on the current buffer.
     pub fn evaluate(&self) -> Result<EvalOutput, CalcError> {
         let ascii = self.input.ascii_expression();
-        evaluate_expression(&ascii, self.angle_mode, self.rounding_decimals)
+        evaluate_expression(&ascii, self.angle_mode, self.significant_digits)
     }
 
     /// Reset the input buffer (AllClear).
@@ -72,19 +72,19 @@ impl Engine {
 pub fn evaluate_expression(
     expr: &str,
     mode: AngleMode,
-    rounding_decimals: u8,
+    significant_digits: u8,
 ) -> Result<EvalOutput, CalcError> {
     let toks = tokenizer::tokenize(expr).map_err(|_| CalcError::Undefined)?;
     let ast = parser::parse(toks)?;
     let value = eval::eval(&ast, mode)?;
-    let display = format::format_result(value, rounding_decimals);
+    let display = format::format_result(value, significant_digits);
     Ok(EvalOutput { value, display })
 }
 
 /// Convenience wrapper returning the formatted string directly and
 /// translating errors to their display strings.
-pub fn evaluate_to_string(expr: &str, mode: AngleMode, rounding_decimals: u8) -> String {
-    match evaluate_expression(expr, mode, rounding_decimals) {
+pub fn evaluate_to_string(expr: &str, mode: AngleMode, significant_digits: u8) -> String {
+    match evaluate_expression(expr, mode, significant_digits) {
         Ok(out) => out.display,
         Err(e) => e.as_str().to_string(),
     }

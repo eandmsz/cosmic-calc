@@ -3,7 +3,7 @@
 //! The displayed memory value sits above the history side panel. It
 //! is not persisted across restarts.
 
-use crate::engine::format::{DEFAULT_ROUNDING_DECIMALS, format_result};
+use crate::engine::format::{DEFAULT_SIGNIFICANT_DIGITS, format_result};
 
 /// An f64 accumulator with a dirty flag: `has_value` is false until
 /// the user stores something via M+ / M−, and goes back to false on
@@ -50,6 +50,6 @@ impl Memory {
         if !self.has_value {
             return String::new();
         }
-        format_result(self.value, DEFAULT_ROUNDING_DECIMALS)
+        format_result(self.value, DEFAULT_SIGNIFICANT_DIGITS)
     }
 }

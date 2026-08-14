@@ -247,6 +247,7 @@ impl InputBuffer {
                 InputItem::BinOp(BinOp::Div) => s.push('/'),
                 InputItem::BinOp(BinOp::Pow) => s.push('^'),
                 InputItem::Percent => s.push('%'),
+                InputItem::Modulo => s.push_str(" mod "),
                 InputItem::Factorial => s.push('!'),
                 InputItem::UnaryFunc(UnaryFunc::Sqrt) => s.push_str("sqrt("),
                 InputItem::UnaryFunc(UnaryFunc::Cbrt) => s.push_str("cbrt("),

@@ -68,6 +68,12 @@ pub enum InputItem {
     /// inserted on their behalf.
     AutoMul,
     Percent,
+    /// Binary modulo. Kept distinct from [`InputItem::Percent`] all the
+    /// way down to the ASCII form, which is the word `mod`. Both used
+    /// to serialise to `%`, leaving the tokenizer to guess which was
+    /// meant from the following character – so `7 mod -3` silently
+    /// became `7% - 3`, and modulo by a negative was inexpressible.
+    Modulo,
     Factorial,
     UnaryFunc(UnaryFunc),
     BinaryFunc(BinaryFunc),
@@ -95,7 +101,7 @@ impl InputItem {
     pub fn arity(&self) -> Arity {
         match self {
             InputItem::Digit(_) | InputItem::DecimalPoint | InputItem::Constant(_) => Arity::Leaf,
-            InputItem::BinOp(_) | InputItem::AutoMul => Arity::Binary,
+            InputItem::BinOp(_) | InputItem::AutoMul | InputItem::Modulo => Arity::Binary,
             InputItem::Percent | InputItem::Factorial => Arity::Unary,
             InputItem::UnaryFunc(_) | InputItem::LogN(_) => Arity::Unary,
             InputItem::BinaryFunc(_) => Arity::Binary,
@@ -115,6 +121,7 @@ impl InputItem {
             InputItem::BinOp(BinOp::Div) => "÷".to_string(),
             InputItem::BinOp(BinOp::Pow) => "^".to_string(),
             InputItem::Percent => "%".to_string(),
+            InputItem::Modulo => " mod ".to_string(),
             InputItem::Factorial => "!".to_string(),
             InputItem::UnaryFunc(f) => format!("{}(", unary_func_name(*f)),
             InputItem::BinaryFunc(BinaryFunc::LogBase) => "log(".to_string(),

@@ -1,0 +1,14 @@
+[package]
+name = "cosmic-calc-core"
+version = "0.1.0"
+edition = "2021"
+description = "Calculation engine, configuration and formatting for cosmic-calc"
+license = "GPL-3.0-only"
+
+[dependencies]
+libm = "0.2"
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+sys-locale = "0.3"
+dirs = "6"
+rand = "0.8"

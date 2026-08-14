@@ -301,6 +301,10 @@ fn parse_ident(bytes: &[char], i: usize) -> Result<(Token, usize), TokenizeError
     }
 
     let tok = match name.as_str() {
+        // Spelled-out modulo. This is what `InputItem::Modulo`
+        // serialises to, and it is unambiguous in a way the bare `%`
+        // (which doubles as the percent postfix) can never be.
+        "mod" => Token::Mod,
         "sin" => Token::UnaryFn(UnaryFunc::Sin),
         "cos" => Token::UnaryFn(UnaryFunc::Cos),
         "tan" => Token::UnaryFn(UnaryFunc::Tan),
