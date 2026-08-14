@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=COSMIC Calculator
+GenericName=Calculator
+Comment=Scientific calculator for the COSMIC desktop
+Exec=cosmic-calc
+Icon=io.github.eandmsz.CosmicCalc
+Terminal=false
+Categories=Utility;Calculator;
+Keywords=calculator;scientific;math;arithmetic;
+StartupNotify=true
+StartupWMClass=cosmic-calc
