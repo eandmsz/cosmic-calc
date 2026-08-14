@@ -4,8 +4,8 @@ use crate::color::Rgba;
 #[test]
 fn cosmic_preset_has_expected_colours() {
     let t = ThemeKind::Cosmic.get();
-    assert_eq!(t.app_bg, Rgba::from_hex(0x1b_1b_1b_FF));
-    assert_eq!(t.basicop_button, Rgba::from_hex(0x61_cd_dc_FF));
+    assert_eq!(t.app_bg, Rgba::from_hex(0x1B_1B_1B_FF));
+    assert_eq!(t.basicop_button, Rgba::from_hex(0x61_CD_DC_FF));
 }
 
 #[test]

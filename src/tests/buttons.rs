@@ -281,8 +281,10 @@ fn second_button_does_not_dismiss_error_message() {
 
 #[test]
 fn scientific_button_ignored_in_basic_mode() {
-    let mut c = Config::default();
-    c.mode = Mode::Basic;
+    let c = Config {
+        mode: Mode::Basic,
+        ..Config::default()
+    };
     let mut e = Engine::default();
     let mut s = UiState::default();
     apply_button(&mut e, &mut s, &c, Button::Sin);
@@ -499,4 +501,104 @@ fn sin_after_equals_wraps_the_result() {
         after.starts_with("sin(") && after.contains(&result) && after.ends_with(')'),
         "expected sin-wrapped result, got {after}"
     );
+}
+
+// --- regressions -----------------------------------------------------
+
+#[test]
+fn recalled_number_starts_a_new_operand() {
+    // The per-item auto-mul helper saw a digit arriving after a digit,
+    // called them one numeric run, and concatenated: with `5` typed,
+    // recalling 42 produced `542`.
+    let (mut e, mut s, c) = fresh();
+    apply_button(&mut e, &mut s, &c, Button::Num(5));
+    insert_number_string(&mut e, "42");
+    assert_eq!(e.input.display_string(), "5×42");
+}
+
+#[test]
+fn recalled_negative_number_is_parenthesised() {
+    // A bare leading `-` reads as subtraction, so `5` then a recall of
+    // -3 evaluated as 5 - 3 = 2.
+    let (mut e, mut s, c) = fresh();
+    apply_button(&mut e, &mut s, &c, Button::Num(5));
+    insert_number_string(&mut e, "-3");
+    assert_eq!(e.input.display_string(), "5×(-3)");
+}
+
+#[test]
+fn recalled_number_into_empty_buffer_keeps_its_sign() {
+    let (mut e, _s, _c) = fresh();
+    insert_number_string(&mut e, "-3");
+    assert_eq!(e.input.display_string(), "-3");
+}
+
+#[test]
+fn rand_after_a_digit_does_not_glue_onto_it() {
+    let (mut e, mut s, c) = fresh();
+    apply_button(&mut e, &mut s, &c, Button::Num(5));
+    apply_button(&mut e, &mut s, &c, Button::Rand);
+    let shown = e.input.display_string();
+    assert!(shown.starts_with("5×"), "got {shown}");
+}
+
+#[test]
+fn mod_needs_a_left_operand() {
+    // Mod inserted unconditionally while every other binary operator
+    // guarded, so a press on an empty buffer left a stray operator.
+    let (mut e, mut s, c) = fresh();
+    apply_button(&mut e, &mut s, &c, Button::Mod);
+    assert!(e.input.is_empty());
+}
+
+#[test]
+fn modulo_by_a_negative_is_expressible() {
+    // Modulo and percent both serialised to `%`, so the tokenizer had
+    // to guess which was meant from the following character: anything
+    // after `mod` that was not a digit, paren or letter flipped the
+    // whole expression to the percent reading, and a negative right
+    // operand could not be written at all.
+    let (mut e, mut s, c) = fresh();
+    for b in [Button::Num(7), Button::Mod, Button::Num(3), Button::Negate] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert_eq!(e.input.display_string(), "7 mod (-3)");
+    assert_eq!(e.evaluate().expect("evaluates").display, "1");
+}
+
+#[test]
+fn mod_and_percent_stay_distinct_through_the_buffer() {
+    let (mut e, mut s, c) = fresh();
+    for b in [Button::Num(7), Button::Mod, Button::Num(3)] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert_eq!(e.input.ascii_expression(), "7 mod 3");
+
+    let (mut e, mut s, c) = fresh();
+    for b in [Button::Num(7), Button::Percent] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert_eq!(e.input.ascii_expression(), "7%");
+}
+
+#[test]
+fn shipped_defaults_do_not_show_float_noise() {
+    // The end-to-end path a user actually takes, at Config::default().
+    for (keys, expected) in [
+        (vec![Button::Num(8), Button::Decimal, Button::Num(2), Button::Add,
+              Button::Num(8), Button::Decimal, Button::Num(2)], "16.4"),
+        (vec![Button::Num(3), Button::Decimal, Button::Num(3), Button::Mul,
+              Button::Num(3)], "9.9"),
+        (vec![Button::Num(9), Button::Decimal, Button::Num(9), Button::Mul,
+              Button::Num(9), Button::Decimal, Button::Num(9)], "98.01"),
+    ] {
+        let config = Config::default();
+        let mut e = Engine::new(config.significant_digits);
+        let mut s = UiState::default();
+        for b in keys {
+            apply_button(&mut e, &mut s, &config, b);
+        }
+        apply_button(&mut e, &mut s, &config, Button::Equals);
+        assert_eq!(e.input.display_string(), expected);
+    }
 }

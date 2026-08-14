@@ -7,7 +7,7 @@ fn uniform_unit_stays_in_half_open_unit_interval() {
     let mut rng = StdRng::seed_from_u64(42);
     for _ in 0..10_000 {
         let x = uniform_unit_from(&mut rng);
-        assert!(x >= 0.0 && x < 1.0, "out of range: {x}");
+        assert!((0.0..1.0).contains(&x), "out of range: {x}");
     }
 }
 
@@ -16,7 +16,7 @@ fn rand_value_respects_bounds() {
     let mut rng = StdRng::seed_from_u64(7);
     for _ in 0..5_000 {
         let v = rand_value_with(&mut rng, -4.0, 9.5, 3);
-        assert!(v >= -4.0 && v < 9.5, "out of bounds: {v}");
+        assert!((-4.0..9.5).contains(&v), "out of bounds: {v}");
     }
 }
 
@@ -40,7 +40,7 @@ fn rand_value_with_zero_decimals_is_integer() {
     for _ in 0..2_000 {
         let v = rand_value_with(&mut rng, 0.0, 10.0, 0);
         assert_eq!(v.fract(), 0.0, "expected integer, got {v}");
-        assert!(v >= 0.0 && v <= 9.0);
+        assert!((0.0..=9.0).contains(&v));
     }
 }
 
@@ -50,7 +50,7 @@ fn rand_value_falls_back_on_bad_range() {
     let mut rng = StdRng::seed_from_u64(1);
     for _ in 0..200 {
         let v = rand_value_with(&mut rng, 7.0, 3.0, 4);
-        assert!(v >= 0.0 && v < 1.0, "fallback broken: {v}");
+        assert!((0.0..1.0).contains(&v), "fallback broken: {v}");
     }
 }
 
@@ -66,8 +66,8 @@ fn os_rng_smoke_test_produces_distinct_values() {
     // Two real OS draws should almost never collide in 64 bits.
     let a = rand_value(0.0, 1.0, 9);
     let b = rand_value(0.0, 1.0, 9);
-    assert!(a >= 0.0 && a < 1.0);
-    assert!(b >= 0.0 && b < 1.0);
+    assert!((0.0..1.0).contains(&a));
+    assert!((0.0..1.0).contains(&b));
     // Flaky? The probability of collision is 10⁻⁹; comfortably
     // below one in a million test runs.
     assert_ne!(a, b);

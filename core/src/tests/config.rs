@@ -134,10 +134,12 @@ fn load_or_create_default_creates_missing_file() {
 #[test]
 fn save_and_reload_round_trip() {
     let path = scratch_path("roundtrip");
-    let mut cfg = Config::default();
-    cfg.significant_digits = 9;
-    cfg.window_startup_width = 444;
-    cfg.mode = Mode::Basic;
+    let mut cfg = Config {
+        significant_digits: 9,
+        window_startup_width: 444,
+        mode: Mode::Basic,
+        ..Config::default()
+    };
     cfg.apply_theme_preset(ThemeKind::RedmondDark);
     cfg.save_at(&path).expect("save");
 

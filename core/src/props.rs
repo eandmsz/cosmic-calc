@@ -157,7 +157,7 @@ pub fn is_prime(n: u64) -> bool {
     if n < 4 {
         return true; // 2, 3
     }
-    if n % 2 == 0 {
+    if n.is_multiple_of(2) {
         return false;
     }
 
@@ -199,7 +199,7 @@ pub fn is_harshad(n: u64) -> bool {
         sum += m % 10;
         m /= 10;
     }
-    n % sum == 0
+    n.is_multiple_of(sum)
 }
 
 /// Palindrome via a half-reversal – no heap, early-exit on trailing
@@ -209,7 +209,7 @@ pub fn is_palindrome(mut n: u64) -> bool {
     if n < 10 {
         return true;
     }
-    if n % 10 == 0 {
+    if n.is_multiple_of(10) {
         return false;
     }
     let mut rev: u64 = 0;

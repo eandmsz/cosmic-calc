@@ -67,17 +67,12 @@ pub const DEFAULT_FONT: &str = "Adwaita Sans";
 
 /// Keypad layout. `Scientific` exposes the full button grid;
 /// `Basic` drops the scientific-function column.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Mode {
     Basic,
+    #[default]
     Scientific,
-}
-
-impl Default for Mode {
-    fn default() -> Self {
-        Mode::Scientific
-    }
 }
 
 /// Preset button shapes. `Auto` defers to the cosmic system theme's
@@ -86,19 +81,14 @@ impl Default for Mode {
 /// look without juggling two numeric sliders. The radius/spacing
 /// pairs (in logical pixels) are: Round 15/2, SlightlyRound 5/2,
 /// Square 0/1.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ButtonShape {
+    #[default]
     Auto,
     Round,
     SlightlyRound,
     Square,
-}
-
-impl Default for ButtonShape {
-    fn default() -> Self {
-        ButtonShape::Auto
-    }
 }
 
 impl ButtonShape {

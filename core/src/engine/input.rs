@@ -259,7 +259,7 @@ impl InputBuffer {
                 InputItem::BinaryFunc(BinaryFunc::Root) => s.push_str("root("),
                 InputItem::LogN(n) => s.push_str(&format!("log{}(", n)),
                 InputItem::Constant(ConstKind::Pi) => s.push_str("pi"),
-                InputItem::Constant(ConstKind::E) => s.push_str("e"),
+                InputItem::Constant(ConstKind::E) => s.push('e'),
                 InputItem::LeftParen => s.push('('),
                 InputItem::RightParen => s.push(')'),
                 InputItem::Comma => s.push(','),

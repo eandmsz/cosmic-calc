@@ -1,4 +1,4 @@
-use crate::ui::app::{
+use crate::ui::display_metrics::{
     available_display_width, display_line_budgets, fit_display_text,
     fit_display_text_to_width,
 };

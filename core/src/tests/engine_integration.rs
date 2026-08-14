@@ -735,7 +735,7 @@ fn rad_cot_zero_at_pi_over_two() {
 fn deg_cos_almost_180() {
     // Spec: cos(179,99999) = -0,99999999999998
     let v = dval("cos(179,99999)");
-    assert!(close(v, -0.99999999999998477, 1e-14), "got {v}");
+    assert!(close(v, -0.999_999_999_999_984_8, 1e-14), "got {v}");
 }
 
 #[test]

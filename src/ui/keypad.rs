@@ -43,7 +43,7 @@ pub(crate) const MEMORY_ROW_HEIGHT_RATIO: f32 = 0.45;
 /// spacing) tracks the height, so the three numbers are solved
 /// together and the caller doesn't have to recompute them in lockstep.
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct KeypadMetrics {
+pub struct KeypadMetrics {
     pub button_height: f32,
     pub spacing: f32,
     pub radius: f32,
@@ -52,7 +52,7 @@ pub(crate) struct KeypadMetrics {
 /// Solve for `(button_height, spacing, radius)` such that
 /// `5 * button_height + 4 * spacing == target_height`, applying the
 /// per-shape rule for spacing/radius.
-pub(crate) fn keypad_metrics_for_area(target_height: f32, config: &Config) -> KeypadMetrics {
+pub fn keypad_metrics_for_area(target_height: f32, config: &Config) -> KeypadMetrics {
     let target = target_height.max(1.0);
     match config.button_shape {
         // Round: radius = h/2, spacing = radius/4 = h/8.
@@ -84,7 +84,7 @@ pub(crate) fn keypad_metrics_for_area(target_height: f32, config: &Config) -> Ke
 
 /// Metrics for the default keypad slice (`KEYPAD_HEIGHT_FRACTION` of the
 /// window height).
-pub(crate) fn keypad_metrics(window_height: f32, config: &Config) -> KeypadMetrics {
+pub fn keypad_metrics(window_height: f32, config: &Config) -> KeypadMetrics {
     keypad_metrics_for_area(window_height * KEYPAD_HEIGHT_FRACTION, config)
 }
 
@@ -94,11 +94,6 @@ pub(crate) fn keypad_metrics(window_height: f32, config: &Config) -> KeypadMetri
 /// edge padding line up across both elements.
 pub fn effective_spacing(window_height: f32, config: &Config) -> f32 {
     keypad_metrics(window_height, config).spacing
-}
-
-/// Public helper mirroring [`effective_spacing`] for the radius.
-pub fn effective_radius(window_height: f32, config: &Config) -> f32 {
-    keypad_metrics(window_height, config).radius
 }
 
 /// Height of the memory / DEG button row (shorter than keypad buttons).
@@ -152,18 +147,29 @@ pub fn label_font_size(button_height: f32, button_width: f32, label: &str) -> f3
         .min(from_width)
 }
 
+/// Size and shape of one button cell.
+#[derive(Debug, Clone, Copy)]
+pub struct CellGeometry {
+    pub corner_radius: f32,
+    pub height: f32,
+    pub width: f32,
+}
+
 /// Keypad or memory-row button with label sizing derived from the cell
 /// dimensions (same rules as the main grid).
 pub fn control_button(
     theme: &Theme,
     label: &'static str,
     button: Button,
-    corner_radius: f32,
-    button_height: f32,
-    cell_width: f32,
+    cell: CellGeometry,
     toggled: bool,
     flashing: bool,
 ) -> Element<'static, Message> {
+    let CellGeometry {
+        corner_radius,
+        height: button_height,
+        width: cell_width,
+    } = cell;
     let font_size = label_font_size(button_height, cell_width, label);
     let label_el: Element<'static, Message> = widget::text(label).size(font_size).into();
     let centred = widget::container(label_el)
@@ -236,6 +242,21 @@ pub fn min_window_size(config: &Config) -> (f32, f32) {
     (min_window_w.max(360.0), min_window_h)
 }
 
+/// Everything the keypad needs to lay itself out for one frame.
+/// Bundled because the geometry travels together through `render` into
+/// the per-grid builders, which otherwise took ten positional
+/// arguments each and were easy to transpose.
+pub struct KeypadLayout<'a> {
+    pub theme: &'a Theme,
+    pub config: &'a Config,
+    /// Window inner width in logical pixels, for the cell width.
+    pub window_width: f32,
+    /// Vertical slice the buttons plus inter-row spacing must fill.
+    pub area_height: f32,
+    pub metrics: KeypadMetrics,
+    pub edge_padding: f32,
+}
+
 /// Top-level entry point. Dispatches on `Mode` and lays out the
 /// appropriate grid, styling each cell from `theme`. `clear_label` is
 /// threaded through so the Clear cell can show `"AC"` on an empty
@@ -245,39 +266,14 @@ pub fn min_window_size(config: &Config) -> (f32, f32) {
 /// the user-tunable spacing (button gap) so the grid honours the
 /// settings-panel button-shape choice.
 pub fn render(
-    mode: Mode,
-    theme: &Theme,
-    config: &Config,
+    layout: &KeypadLayout<'_>,
     clear_label: &'static str,
     second_mode: bool,
-    window_width: f32,
-    keypad_area_height: f32,
-    keypad_metrics: KeypadMetrics,
-    edge_padding: f32,
     flashing: Option<Button>,
 ) -> Element<'static, Message> {
-    match mode {
-        Mode::Basic => basic_grid(
-            theme,
-            config,
-            clear_label,
-            window_width,
-            keypad_area_height,
-            keypad_metrics,
-            edge_padding,
-            flashing,
-        ),
-        Mode::Scientific => scientific_grid(
-            theme,
-            config,
-            clear_label,
-            second_mode,
-            window_width,
-            keypad_area_height,
-            keypad_metrics,
-            edge_padding,
-            flashing,
-        ),
+    match layout.config.mode {
+        Mode::Basic => basic_grid(layout, clear_label, flashing),
+        Mode::Scientific => scientific_grid(layout, clear_label, second_mode, flashing),
     }
 }
 
@@ -285,26 +281,12 @@ pub fn render(
 /// only when the user switches to Scientific mode, and they are added
 /// on the LEFT so the basic columns keep their muscle-memory positions.
 fn basic_grid(
-    theme: &Theme,
-    config: &Config,
+    layout: &KeypadLayout<'_>,
     clear_label: &'static str,
-    window_width: f32,
-    keypad_area_height: f32,
-    keypad_metrics: KeypadMetrics,
-    edge_padding: f32,
     flashing: Option<Button>,
 ) -> Element<'static, Message> {
-    grid(
-        theme,
-        config,
-        basic_rows(clear_label, decimal_label(config)).as_slice(),
-        window_width,
-        keypad_area_height,
-        keypad_metrics,
-        edge_padding,
-        false,
-        flashing,
-    )
+    let rows = basic_rows(clear_label, decimal_label(layout.config));
+    grid(layout, rows.as_slice(), false, flashing)
 }
 
 fn decimal_label(config: &Config) -> &'static str {
@@ -354,45 +336,40 @@ fn basic_rows(clear_label: &'static str, decimal: &'static str) -> Vec<Vec<Cell>
 /// retain their muscle memory. √, ∛ and ʸ√x are reachable through the
 /// 2nd toggle on the corresponding x², x³ and xʸ buttons.
 fn scientific_grid(
-    theme: &Theme,
-    config: &Config,
+    layout: &KeypadLayout<'_>,
     clear_label: &'static str,
     second_mode: bool,
-    window_width: f32,
-    keypad_area_height: f32,
-    keypad_metrics: KeypadMetrics,
-    edge_padding: f32,
     flashing: Option<Button>,
 ) -> Element<'static, Message> {
-    let basic = basic_rows(clear_label, decimal_label(config));
+    let basic = basic_rows(clear_label, decimal_label(layout.config));
     let sci: Vec<Vec<Cell>> = vec![
         vec![
-            Cell::with_label(if second_mode { "∛" } else { "x³" }, Button::Cube),
+            Cell::new(if second_mode { "∛" } else { "x³" }, Button::Cube),
             Cell::new("2nd", Button::Second),
-            Cell::with_label(if second_mode { "sin⁻¹" } else { "sin" }, Button::Sin),
-            Cell::with_label(if second_mode { "cos⁻¹" } else { "cos" }, Button::Cos),
-            Cell::with_label(if second_mode { "tan⁻¹" } else { "tan" }, Button::Tan),
+            Cell::new(if second_mode { "sin⁻¹" } else { "sin" }, Button::Sin),
+            Cell::new(if second_mode { "cos⁻¹" } else { "cos" }, Button::Cos),
+            Cell::new(if second_mode { "tan⁻¹" } else { "tan" }, Button::Tan),
         ],
         vec![
             Cell::new("ʸ√x", Button::YRootX),
             Cell::new("π", Button::Pi),
-            Cell::with_label(if second_mode { "sinh⁻¹" } else { "sinh" }, Button::Sinh),
-            Cell::with_label(if second_mode { "cosh⁻¹" } else { "cosh" }, Button::Cosh),
-            Cell::with_label(if second_mode { "tanh⁻¹" } else { "tanh" }, Button::Tanh),
+            Cell::new(if second_mode { "sinh⁻¹" } else { "sinh" }, Button::Sinh),
+            Cell::new(if second_mode { "cosh⁻¹" } else { "cosh" }, Button::Cosh),
+            Cell::new(if second_mode { "tanh⁻¹" } else { "tanh" }, Button::Tanh),
         ],
         vec![
             Cell::new("logᵧ", Button::LogY),
             Cell::new("𝑒", Button::Euler),
-            Cell::with_label(if second_mode { "𝑒ˣ" } else { "ln" }, Button::Ln),
-            Cell::with_label(if second_mode { "10ˣ" } else { "log" }, Button::Log10),
-            Cell::with_label(if second_mode { "2ˣ" } else { "log₂" }, Button::Log2),
+            Cell::new(if second_mode { "𝑒ˣ" } else { "ln" }, Button::Ln),
+            Cell::new(if second_mode { "10ˣ" } else { "log" }, Button::Log10),
+            Cell::new(if second_mode { "2ˣ" } else { "log₂" }, Button::Log2),
         ],
         vec![
             Cell::new("mod", Button::Mod),
             Cell::new("(", Button::LeftParen),
             Cell::new(")", Button::RightParen),
-            Cell::with_label(if second_mode { "√" } else { "x²" }, Button::Square),
-            Cell::with_label(if second_mode { "ʸ√x" } else { "xʸ" }, Button::XPowY),
+            Cell::new(if second_mode { "√" } else { "x²" }, Button::Square),
+            Cell::new(if second_mode { "ʸ√x" } else { "xʸ" }, Button::XPowY),
         ],
         vec![
             Cell::new("←", Button::CursorLeft),
@@ -410,17 +387,7 @@ fn scientific_grid(
             a
         })
         .collect();
-    grid(
-        theme,
-        config,
-        combined.as_slice(),
-        window_width,
-        keypad_area_height,
-        keypad_metrics,
-        edge_padding,
-        second_mode,
-        flashing,
-    )
+    grid(layout, combined.as_slice(), second_mode, flashing)
 }
 
 /// One cell in the grid – label plus the button it emits.
@@ -432,12 +399,6 @@ struct Cell {
 
 impl Cell {
     const fn new(label: &'static str, button: Button) -> Self {
-        Self { label, button }
-    }
-
-    /// Construct a cell with an explicit label that may differ from the
-    /// button's default glyph – used for the second-mode label swaps.
-    const fn with_label(label: &'static str, button: Button) -> Self {
         Self { label, button }
     }
 
@@ -455,9 +416,11 @@ impl Cell {
             theme,
             self.label,
             self.button,
-            corner_radius,
-            height,
-            cell_width,
+            CellGeometry {
+                corner_radius,
+                height,
+                width: cell_width,
+            },
             second_mode,
             flashing,
         )
@@ -469,21 +432,18 @@ impl Cell {
 /// radius come from the active config so the settings panel's
 /// button-shape choice is honoured.
 fn grid(
-    theme: &Theme,
-    config: &Config,
+    layout: &KeypadLayout<'_>,
     rows: &[Vec<Cell>],
-    window_width: f32,
-    keypad_area_height: f32,
-    metrics: KeypadMetrics,
-    edge_padding: f32,
     second_mode: bool,
     flashing: Option<Button>,
 ) -> Element<'static, Message> {
+    let metrics = layout.metrics;
     let height = metrics.button_height;
     let spacing = metrics.spacing;
     let radius = metrics.radius;
     let columns = rows.first().map(|r| r.len()).unwrap_or(1);
-    let cell_width = button_cell_width(window_width, columns, spacing, edge_padding);
+    let cell_width =
+        button_cell_width(layout.window_width, columns, spacing, layout.edge_padding);
     let mut column = widget::column::with_capacity(rows.len())
         .spacing(spacing)
         .width(Length::Fill)
@@ -496,7 +456,7 @@ fn grid(
         for cell in row.iter() {
             let is_flashed = flashing == Some(cell.button);
             row_widget = row_widget.push(cell.into_element(
-                theme,
+                layout.theme,
                 radius,
                 height,
                 cell_width,
@@ -513,7 +473,7 @@ fn grid(
     // doesn't shrink the buttons. The left/right/bottom edge gaps are
     // applied by the parent column's padding so every other button row
     // (top bar, memory row) lines up with the keypad columns.
-    let total_height = keypad_area_height;
+    let total_height = layout.area_height;
     widget::container(column)
         .width(Length::Fill)
         .height(Length::Fixed(total_height))

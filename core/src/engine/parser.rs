@@ -1,11 +1,11 @@
 //! Recursive-descent parser over the tokenizer's output.
 //! Precedence (lowest → highest):
-//!   + -
-//!   * / mod      (mod is the binary `%` form)
-//!   unary -
-//!   ^ (right-assoc)
-//!   ! %          (postfix)
-//!   primary      (numbers, constants, parens, function calls)
+//!   `+ -`
+//!   then `* / mod` (mod is the binary `%` form, or the word `mod`)
+//!   then unary `-`
+//!   then `^` (right-assoc)
+//!   then postfix `!` and `%`
+//!   then primary (numbers, constants, parens, function calls)
 //!
 //! The parser tolerates two classes of malformed input allowed by the
 //! spec: a trailing binary operator that lacks a right operand, and

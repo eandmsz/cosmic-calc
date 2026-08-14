@@ -284,11 +284,10 @@ fn write_with_thousands(out: &mut String, digits: &str, sep: char) {
         i = first_group;
     }
     while i < len {
-        if !out.is_empty() && i > 0 {
-            if !(first_group == 0 && i == 0) {
+        if !out.is_empty() && i > 0
+            && !(first_group == 0 && i == 0) {
                 out.push(sep);
             }
-        }
         out.push_str(std::str::from_utf8(&bytes[i..i + 3]).unwrap());
         i += 3;
     }

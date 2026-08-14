@@ -12,7 +12,7 @@
 use cosmic::iced::event::{self, Event};
 use cosmic::iced::keyboard::{key::Named, Event as KeyEvent, Key, Modifiers};
 use cosmic::iced::window::Event as WindowEvent;
-use cosmic::iced::{Subscription, Size};
+use cosmic::iced::{Size, Subscription};
 use cosmic::iced::keyboard::key::{Code, Physical};
 
 use crate::clipboard::ClipboardOp;
@@ -112,13 +112,6 @@ pub fn map_key(key: &Key, modifiers: Modifiers) -> Option<Button> {
         Key::Named(n) => map_named(*n, modifiers),
         Key::Unidentified => None,
     }
-}
-
-/// Size hint for the startup window – not strictly part of key
-/// handling, but kept here so `AppModel` has a single place to reach
-/// for windowing utilities.
-pub fn window_size_hint(width: u32, height: u32) -> Size {
-    Size::new(width as f32, height as f32)
 }
 
 pub(crate) fn map_char(c: char, modifiers: Modifiers) -> Option<Button> {
