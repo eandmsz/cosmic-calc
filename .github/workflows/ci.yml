@@ -49,3 +49,42 @@ jobs:
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets
       - run: cargo test --workspace
+
+  # Build a downloadable binary so nobody has to compile locally just to
+  # try a change. Kept off the pull-request path because the release
+  # profile (lto, codegen-units=1) is slow and PRs do not need it.
+  binary:
+    name: release binary
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release
+      - name: Install libcosmic build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            libxkbcommon-dev libwayland-dev pkg-config
+      - run: cargo build --release
+      # The binary carries a glibc floor from whatever runner built it,
+      # so record it next to the artifact rather than leaving whoever
+      # downloads it to discover the hard way that it will not start.
+      - name: Record build provenance
+        run: |
+          mkdir -p dist
+          cp target/release/cosmic-calc dist/
+          {
+            echo "commit:  ${GITHUB_SHA}"
+            echo "built:   $(date -u +%Y-%m-%dT%H:%M:%SZ) on $(. /etc/os-release && echo "$PRETTY_NAME")"
+            echo "glibc:   requires >= $(objdump -T target/release/cosmic-calc \
+                   | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -1 | cut -d_ -f2)"
+            echo "arch:    x86-64"
+          } > dist/BUILD-INFO.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cosmic-calc-x86_64-linux
+          path: dist/
+          retention-days: 30
