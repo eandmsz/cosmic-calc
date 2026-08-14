@@ -396,10 +396,15 @@ fn item_opens_paren(item: &InputItem) -> bool {
 /// Length of the `e[+-]?<digits>` run starting at `i`, when it should
 /// be read as a decimal exponent rather than as Euler's number: the
 /// item before it has to close a numeric literal, and at least one
-/// digit has to follow. Returns `None` otherwise, so `2𝑒` and `𝑒3`
+/// digit has to follow. Returns `None` otherwise, so `2e` and `e3`
 /// still mean multiplication by the constant.
+///
+/// Only the plain ASCII `e` is eligible. The italic `𝑒` is the
+/// calculator's symbol for Euler's number and always means the
+/// constant, so `2𝑒3` is 2·𝑒·3 while `2e3` is 2000 — which is how the
+/// two forms are written in the README's compatibility examples.
 fn exponent_suffix_len(chars: &[char], i: usize, out: &[InputItem]) -> Option<usize> {
-    if !matches!(chars.get(i), Some('e') | Some('𝑒')) {
+    if chars.get(i) != Some(&'e') {
         return None;
     }
     if !matches!(

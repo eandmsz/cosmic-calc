@@ -100,3 +100,25 @@ fn insert_all_appends_sequence() {
     assert_eq!(b.items().len(), 2);
     assert_eq!(b.cursor(), 2);
 }
+
+#[test]
+fn euler_between_digits_round_trips_as_the_constant() {
+    // Reachable by typing `35`, moving the cursor left and pressing
+    // the 𝑒 key. Serialising the constant as a bare `e` produced
+    // "3e5", which the tokenizer's number scanner read as 300000
+    // while the display showed 3𝑒5.
+    let mut buf = InputBuffer::new();
+    buf.replace(vec![
+        InputItem::Digit('3'),
+        InputItem::Constant(ConstKind::E),
+        InputItem::Digit('5'),
+    ]);
+    assert_eq!(buf.display_string(), "3𝑒5");
+    let shown = crate::engine::evaluate_to_string(
+        &buf.ascii_expression(),
+        crate::engine::AngleMode::Deg,
+        15,
+    );
+    // 3 · e · 5 = 15e ≈ 40.7742274268857
+    assert!(shown.starts_with("40.7742274268857"), "got {shown}");
+}

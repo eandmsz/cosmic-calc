@@ -259,7 +259,13 @@ impl InputBuffer {
                 InputItem::BinaryFunc(BinaryFunc::Root) => s.push_str("root("),
                 InputItem::LogN(n) => s.push_str(&format!("log{}(", n)),
                 InputItem::Constant(ConstKind::Pi) => s.push_str("pi"),
-                InputItem::Constant(ConstKind::E) => s.push('e'),
+                // The italic `𝑒`, not a bare ASCII `e`. The tokenizer
+                // accepts both, but its number scanner absorbs
+                // `<digits>e<digits>` as an exponent — so a buffer of
+                // [3, 𝑒, 5] serialised to "3e5" and evaluated as
+                // 300000 while the display read 3·𝑒·5. `𝑒` is only ever
+                // the constant, so the round-trip cannot go wrong.
+                InputItem::Constant(ConstKind::E) => s.push('𝑒'),
                 InputItem::LeftParen => s.push('('),
                 InputItem::RightParen => s.push(')'),
                 InputItem::Comma => s.push(','),

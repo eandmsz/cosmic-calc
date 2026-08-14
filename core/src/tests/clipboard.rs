@@ -202,3 +202,22 @@ fn buffer_ascii(items: &[InputItem]) -> String {
     buf.replace(items.to_vec());
     buf.ascii_expression()
 }
+
+#[test]
+fn italic_euler_is_never_an_exponent() {
+    // `𝑒` is the calculator's symbol for Euler's number; only the
+    // plain ASCII `e` between digits introduces an exponent.
+    let items = items_from_paste("2𝑒3").expect("representable");
+    assert_eq!(
+        items,
+        vec![
+            InputItem::Digit('2'),
+            InputItem::Constant(ConstKind::E),
+            InputItem::Digit('3'),
+        ]
+    );
+    // 2 · e · 3 ≈ 16.31, not 2000.
+    let shown =
+        crate::engine::evaluate_to_string(&buffer_ascii(&items), crate::engine::AngleMode::Deg, 15);
+    assert!(shown.starts_with("16.309690970754"), "got {shown}");
+}
