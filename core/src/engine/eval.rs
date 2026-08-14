@@ -5,13 +5,11 @@
 use std::f64::consts::{E, PI};
 
 use crate::engine::ast::Node;
-use crate::engine::errors::{CalcError, classify};
+use crate::engine::errors::{classify, CalcError};
 use crate::engine::gamma::factorial;
 use crate::engine::item::{BinOp, BinaryFunc, ConstKind, UnaryFunc};
 
-#[derive(
-    Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize,
-)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum AngleMode {
     #[default]

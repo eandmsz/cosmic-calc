@@ -125,11 +125,9 @@ impl ThousandsSeparator {
 /// `.` – over-inclusion would flip the default for users we have
 /// no confidence about.
 const COMMA_LANGS: &[&str] = &[
-    "af", "az", "be", "bg", "bs", "ca", "cs", "da", "de", "el",
-    "es", "et", "eu", "fi", "fr", "gl", "hr", "hu", "hy", "is",
-    "it", "ka", "kk", "ky", "lt", "lv", "mk", "mn", "nb", "nl",
-    "no", "pl", "pt", "ro", "ru", "sk", "sl", "sq", "sr", "sv",
-    "tr", "uk", "uz", "vi",
+    "af", "az", "be", "bg", "bs", "ca", "cs", "da", "de", "el", "es", "et", "eu", "fi", "fr", "gl",
+    "hr", "hu", "hy", "is", "it", "ka", "kk", "ky", "lt", "lv", "mk", "mn", "nb", "nl", "no", "pl",
+    "pt", "ro", "ru", "sk", "sl", "sq", "sr", "sv", "tr", "uk", "uz", "vi",
 ];
 
 /// Detect the OS-level default decimal separator. Falls back to

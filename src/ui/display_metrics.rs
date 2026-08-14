@@ -69,7 +69,8 @@ pub fn fit_display_text(
     size: f32,
     line_h: f32,
 ) -> (f32, f32) {
-    let (mut size, mut line_h) = fit_display_text_to_width(width_units, available_width, size, line_h);
+    let (mut size, mut line_h) =
+        fit_display_text_to_width(width_units, available_width, size, line_h);
     if max_line_h > 1.0 && line_h > 0.0 && line_h < max_line_h {
         let grow = max_line_h / line_h;
         size *= grow;
@@ -133,8 +134,7 @@ pub fn display_line_budgets(
         return (0.0, display_height.max(1.0));
     }
     let content = (display_height - row_spacing).max(1.0);
-    let total_portions =
-        MAIN_HEIGHT_PORTION as f32 + CAPTION_HEIGHT_PORTION as f32;
+    let total_portions = MAIN_HEIGHT_PORTION as f32 + CAPTION_HEIGHT_PORTION as f32;
     let main_h = content * MAIN_HEIGHT_PORTION as f32 / total_portions;
     let caption_h = content * CAPTION_HEIGHT_PORTION as f32 / total_portions;
     (caption_h, main_h)

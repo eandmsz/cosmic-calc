@@ -3,8 +3,14 @@ use serde::{Deserialize, Serialize};
 
 #[test]
 fn separator_chars_round_trip() {
-    assert_eq!(DecimalSeparator::from_char('.'), Some(DecimalSeparator::Dot));
-    assert_eq!(DecimalSeparator::from_char(','), Some(DecimalSeparator::Comma));
+    assert_eq!(
+        DecimalSeparator::from_char('.'),
+        Some(DecimalSeparator::Dot)
+    );
+    assert_eq!(
+        DecimalSeparator::from_char(','),
+        Some(DecimalSeparator::Comma)
+    );
     assert_eq!(DecimalSeparator::from_char(';'), None);
     assert_eq!(DecimalSeparator::Dot.to_char(), '.');
     assert_eq!(DecimalSeparator::Comma.to_char(), ',');
@@ -36,7 +42,9 @@ fn serde_round_trip_through_toml() {
     struct Wrap {
         sep: DecimalSeparator,
     }
-    let w = Wrap { sep: DecimalSeparator::Comma };
+    let w = Wrap {
+        sep: DecimalSeparator::Comma,
+    };
     let s = toml::to_string(&w).unwrap();
     assert!(s.contains("\",\""), "{s}");
     let back: Wrap = toml::from_str(&s).unwrap();

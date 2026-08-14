@@ -25,10 +25,7 @@ fn last_operand_range_finds_digit_run() {
 
 #[test]
 fn last_operand_range_skips_postfix() {
-    let b = buf(&[
-        InputItem::Digit('5'),
-        InputItem::Factorial,
-    ]);
+    let b = buf(&[InputItem::Digit('5'), InputItem::Factorial]);
     assert_eq!(b.last_operand_range(), Some((0, 2)));
 }
 

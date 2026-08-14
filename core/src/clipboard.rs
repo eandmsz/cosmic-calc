@@ -255,9 +255,9 @@ fn is_allowed(ch: char) -> bool {
 fn is_letter_on_allowlist(ch: char) -> bool {
     match ch {
         c if !c.is_ascii_alphabetic() => true,
-        'h' | 'H' | 'c' | 'C' | 't' | 'T' | 's' | 'S' | 'o' | 'O' | 'a' | 'A' | 'l' | 'L'
-        | 'g' | 'G' | 'n' | 'N' | 'm' | 'M' | 'd' | 'D' | 'q' | 'Q' | 'r' | 'R' | 'b' | 'B'
-        | 'p' | 'P' | 'i' | 'I' | 'e' | 'E' => true,
+        'h' | 'H' | 'c' | 'C' | 't' | 'T' | 's' | 'S' | 'o' | 'O' | 'a' | 'A' | 'l' | 'L' | 'g'
+        | 'G' | 'n' | 'N' | 'm' | 'M' | 'd' | 'D' | 'q' | 'Q' | 'r' | 'R' | 'b' | 'B' | 'p'
+        | 'P' | 'i' | 'I' | 'e' | 'E' => true,
         _ => false,
     }
 }
@@ -300,7 +300,9 @@ fn substitute_char(ch: char) -> Option<&'static str> {
         // Pi.
         '𝛑' | '𝜋' | '𝝅' | '𝝿' => "π",
         // Euler e.
-        'ℯ' | 'ｅ' | '𝐞' | '𝒆' | '𝓮' | '𝖾' | '𝗲' | '𝘦' | '𝙚' | '𝚎' => "𝑒",
+        'ℯ' | 'ｅ' | '𝐞' | '𝒆' | '𝓮' | '𝖾' | '𝗲' | '𝘦' | '𝙚' | '𝚎' => {
+            "𝑒"
+        }
         // Everything else: copy verbatim.
         _ => return None,
     })
@@ -330,8 +332,7 @@ fn rewrite_function_names(input: &str) -> String {
         // to index by byte for the prefix check.
         for (from, to) in RULES {
             let from_bytes = from.as_bytes();
-            if i + from_bytes.len() <= bytes.len()
-                && &bytes[i..i + from_bytes.len()] == from_bytes
+            if i + from_bytes.len() <= bytes.len() && &bytes[i..i + from_bytes.len()] == from_bytes
             {
                 out.push_str(to);
                 i += from_bytes.len();

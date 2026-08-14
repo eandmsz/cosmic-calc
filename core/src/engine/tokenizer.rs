@@ -56,9 +56,7 @@ pub fn tokenize(src: &str) -> Result<Vec<Token>, TokenizeError> {
         }
 
         let in_sep_mode = sep_mode_stack.last().copied().unwrap_or(false);
-        let at_num_start = c.is_ascii_digit()
-            || c == '.'
-            || (c == ',' && !in_sep_mode);
+        let at_num_start = c.is_ascii_digit() || c == '.' || (c == ',' && !in_sep_mode);
         if at_num_start {
             let allow_comma = !in_sep_mode;
             let (n, consumed) = parse_number(&bytes, i, allow_comma)?;
@@ -68,11 +66,31 @@ pub fn tokenize(src: &str) -> Result<Vec<Token>, TokenizeError> {
         }
 
         match c {
-            '+' => { out.push(Token::Op(BinOp::Add)); i += 1; continue; }
-            '-' => { out.push(Token::Op(BinOp::Sub)); i += 1; continue; }
-            '*' | '×' => { out.push(Token::Op(BinOp::Mul)); i += 1; continue; }
-            '/' | '÷' => { out.push(Token::Op(BinOp::Div)); i += 1; continue; }
-            '^' => { out.push(Token::Op(BinOp::Pow)); i += 1; continue; }
+            '+' => {
+                out.push(Token::Op(BinOp::Add));
+                i += 1;
+                continue;
+            }
+            '-' => {
+                out.push(Token::Op(BinOp::Sub));
+                i += 1;
+                continue;
+            }
+            '*' | '×' => {
+                out.push(Token::Op(BinOp::Mul));
+                i += 1;
+                continue;
+            }
+            '/' | '÷' => {
+                out.push(Token::Op(BinOp::Div));
+                i += 1;
+                continue;
+            }
+            '^' => {
+                out.push(Token::Op(BinOp::Pow));
+                i += 1;
+                continue;
+            }
             '(' => {
                 // Decide whether `,` inside this paren will be a
                 // decimal point or an argument separator by looking at
@@ -103,13 +121,23 @@ pub fn tokenize(src: &str) -> Result<Vec<Token>, TokenizeError> {
                 i += 1;
                 continue;
             }
-            '!' => { out.push(Token::Factorial); i += 1; continue; }
+            '!' => {
+                out.push(Token::Factorial);
+                i += 1;
+                continue;
+            }
             '%' => {
                 let next = next_non_space(&bytes, i + 1);
                 let is_mod = match next {
-                    Some(nc) => nc.is_ascii_digit() || nc == '(' || nc == 'π' || nc == '𝑒'
-                        || nc == '.' || nc == ','
-                        || nc.is_ascii_alphabetic(),
+                    Some(nc) => {
+                        nc.is_ascii_digit()
+                            || nc == '('
+                            || nc == 'π'
+                            || nc == '𝑒'
+                            || nc == '.'
+                            || nc == ','
+                            || nc.is_ascii_alphabetic()
+                    }
                     None => false,
                 };
                 out.push(if is_mod { Token::Mod } else { Token::Percent });
@@ -124,10 +152,26 @@ pub fn tokenize(src: &str) -> Result<Vec<Token>, TokenizeError> {
                 i += 1;
                 continue;
             }
-            'π' => { out.push(Token::Const(ConstKind::Pi)); i += 1; continue; }
-            '𝑒' => { out.push(Token::Const(ConstKind::E)); i += 1; continue; }
-            '√' => { out.push(Token::UnaryFn(UnaryFunc::Sqrt)); i += 1; continue; }
-            '∛' => { out.push(Token::UnaryFn(UnaryFunc::Cbrt)); i += 1; continue; }
+            'π' => {
+                out.push(Token::Const(ConstKind::Pi));
+                i += 1;
+                continue;
+            }
+            '𝑒' => {
+                out.push(Token::Const(ConstKind::E));
+                i += 1;
+                continue;
+            }
+            '√' => {
+                out.push(Token::UnaryFn(UnaryFunc::Sqrt));
+                i += 1;
+                continue;
+            }
+            '∛' => {
+                out.push(Token::UnaryFn(UnaryFunc::Cbrt));
+                i += 1;
+                continue;
+            }
             _ => {}
         }
 
@@ -199,7 +243,11 @@ fn next_non_space(bytes: &[char], mut j: usize) -> Option<char> {
 /// Parse a numeric literal starting at `i`. Accepts a leading digit or
 /// decimal point, an optional fractional part (separator '.' or ','),
 /// and an optional exponent ('e'/'E') when preceded by digits.
-fn parse_number(bytes: &[char], i: usize, allow_comma: bool) -> Result<(f64, usize), TokenizeError> {
+fn parse_number(
+    bytes: &[char],
+    i: usize,
+    allow_comma: bool,
+) -> Result<(f64, usize), TokenizeError> {
     let mut j = i;
     let start = i;
     let mut has_digits = false;
@@ -238,7 +286,10 @@ fn parse_number(bytes: &[char], i: usize, allow_comma: bool) -> Result<(f64, usi
         }
     }
     // Build an f64. Normalise ',' → '.'.
-    let raw: String = bytes[start..j].iter().map(|c| if *c == ',' { '.' } else { *c }).collect();
+    let raw: String = bytes[start..j]
+        .iter()
+        .map(|c| if *c == ',' { '.' } else { *c })
+        .collect();
     let n: f64 = raw.parse().map_err(|_| TokenizeError)?;
     Ok((n, j - start))
 }

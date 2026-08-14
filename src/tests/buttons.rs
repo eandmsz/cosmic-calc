@@ -1,7 +1,7 @@
-use crate::ui::buttons::*;
 use crate::config::{Config, Mode};
-use crate::engine::{Engine};
 use crate::engine::item::{ConstKind, InputItem};
+use crate::engine::Engine;
+use crate::ui::buttons::*;
 
 fn fresh() -> (Engine, UiState, Config) {
     (Engine::default(), UiState::default(), Config::default())
@@ -450,11 +450,11 @@ fn rand_repeat_replaces_only_the_random() {
     // The buffer must still start with the original `5+` items.
     assert!(e.input.items().len() > prefix_len);
     let head: Vec<_> = e.input.items().iter().take(prefix_len).collect();
-    let original_head: Vec<_> = vec![InputItem::Digit('5'), InputItem::BinOp(crate::engine::item::BinOp::Add)];
-    assert_eq!(
-        head.into_iter().cloned().collect::<Vec<_>>(),
-        original_head
-    );
+    let original_head: Vec<_> = vec![
+        InputItem::Digit('5'),
+        InputItem::BinOp(crate::engine::item::BinOp::Add),
+    ];
+    assert_eq!(head.into_iter().cloned().collect::<Vec<_>>(), original_head);
 }
 
 #[test]
@@ -585,12 +585,40 @@ fn mod_and_percent_stay_distinct_through_the_buffer() {
 fn shipped_defaults_do_not_show_float_noise() {
     // The end-to-end path a user actually takes, at Config::default().
     for (keys, expected) in [
-        (vec![Button::Num(8), Button::Decimal, Button::Num(2), Button::Add,
-              Button::Num(8), Button::Decimal, Button::Num(2)], "16.4"),
-        (vec![Button::Num(3), Button::Decimal, Button::Num(3), Button::Mul,
-              Button::Num(3)], "9.9"),
-        (vec![Button::Num(9), Button::Decimal, Button::Num(9), Button::Mul,
-              Button::Num(9), Button::Decimal, Button::Num(9)], "98.01"),
+        (
+            vec![
+                Button::Num(8),
+                Button::Decimal,
+                Button::Num(2),
+                Button::Add,
+                Button::Num(8),
+                Button::Decimal,
+                Button::Num(2),
+            ],
+            "16.4",
+        ),
+        (
+            vec![
+                Button::Num(3),
+                Button::Decimal,
+                Button::Num(3),
+                Button::Mul,
+                Button::Num(3),
+            ],
+            "9.9",
+        ),
+        (
+            vec![
+                Button::Num(9),
+                Button::Decimal,
+                Button::Num(9),
+                Button::Mul,
+                Button::Num(9),
+                Button::Decimal,
+                Button::Num(9),
+            ],
+            "98.01",
+        ),
     ] {
         let config = Config::default();
         let mut e = Engine::new(config.significant_digits);

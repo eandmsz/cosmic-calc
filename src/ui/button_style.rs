@@ -68,9 +68,9 @@ pub fn category_for(button: Button) -> Category {
         Equals => Category::Equals,
         Add | Sub | Mul | Div => Category::BasicOp,
         Second => Category::Second,
-        Clear | Backspace | LeftParen | RightParen | CursorLeft | CursorRight
-        | ToggleMode | ToggleAngleMode | ToggleHistoryPanel | ToggleSettingsPanel
-        | MemClear | MemRecall | MemAdd | MemSub => Category::TopRow,
+        Clear | Backspace | LeftParen | RightParen | CursorLeft | CursorRight | ToggleMode
+        | ToggleAngleMode | ToggleHistoryPanel | ToggleSettingsPanel | MemClear | MemRecall
+        | MemAdd | MemSub => Category::TopRow,
         _ => Category::Science,
     }
 }

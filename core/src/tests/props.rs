@@ -13,8 +13,8 @@ fn parse_accepts_simple_non_negative_integers() {
 #[test]
 fn parse_rejects_anything_non_trivial() {
     for s in [
-        "", "   ", "-5", "+5", "3.14", "3,14", "1+2", "2*3",
-        "(7)", "sqrt(9)", "π", "9!", "1e3", "0x1F",
+        "", "   ", "-5", "+5", "3.14", "3,14", "1+2", "2*3", "(7)", "sqrt(9)", "π", "9!", "1e3",
+        "0x1F",
     ] {
         assert_eq!(parse_simple_nonneg_int(s), None, "should reject {s:?}");
     }
@@ -59,8 +59,8 @@ fn prime_classic_carmichael_numbers() {
 fn prime_large_cases_stay_correct() {
     // Known large primes and composites, including some near the
     // top of u64.
-    assert!(is_prime(999_999_999_989));     // 12-digit prime
-    assert!(is_prime(67_280_421_310_721));  // 14-digit prime
+    assert!(is_prime(999_999_999_989)); // 12-digit prime
+    assert!(is_prime(67_280_421_310_721)); // 14-digit prime
     assert!(is_prime(18_446_744_073_709_551_557)); // largest prime < 2^64
     assert!(!is_prime(18_446_744_073_709_551_615)); // 2^64 - 1 (composite)
     assert!(!is_prime(999_999_999_989 * 2)); // obvious composite
@@ -70,7 +70,9 @@ fn prime_large_cases_stay_correct() {
 
 #[test]
 fn harshad_cases() {
-    for &n in &[1u64, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 18, 20, 21, 24, 27, 100, 1729] {
+    for &n in &[
+        1u64, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 18, 20, 21, 24, 27, 100, 1729,
+    ] {
         assert!(is_harshad(n), "{n} should be harshad");
     }
     for &n in &[0u64, 11, 13, 14, 16, 17, 19, 22, 23, 25] {
@@ -98,8 +100,17 @@ fn palindrome_cases() {
 
 #[test]
 fn perfect_square_cases() {
-    for &n in &[0u64, 1, 4, 9, 16, 25, 10_000, 100_000_000,
-                999_999_000_000_250_000u64] {
+    for &n in &[
+        0u64,
+        1,
+        4,
+        9,
+        16,
+        25,
+        10_000,
+        100_000_000,
+        999_999_000_000_250_000u64,
+    ] {
         assert!(is_perfect_square(n), "{n} should be a perfect square");
     }
     for &n in &[2u64, 3, 5, 10, 99, 101, 1_000_000_000_000_001] {
@@ -120,8 +131,9 @@ fn perfect_square_near_u64_max() {
 
 #[test]
 fn triangular_cases() {
-    for &n in &[0u64, 1, 3, 6, 10, 15, 21, 28, 36, 45, 55, 66, 78, 91, 105,
-                5050, 500_500] {
+    for &n in &[
+        0u64, 1, 3, 6, 10, 15, 21, 28, 36, 45, 55, 66, 78, 91, 105, 5050, 500_500,
+    ] {
         assert!(is_triangular(n), "{n} should be triangular");
     }
     for &n in &[2u64, 4, 5, 7, 8, 9, 11, 12, 13, 14] {
@@ -133,8 +145,23 @@ fn triangular_cases() {
 
 #[test]
 fn fibonacci_cases() {
-    for &n in &[0u64, 1, 2, 3, 5, 8, 13, 21, 34, 55, 89, 144, 233, 377,
-                7540113804746346429] {
+    for &n in &[
+        0u64,
+        1,
+        2,
+        3,
+        5,
+        8,
+        13,
+        21,
+        34,
+        55,
+        89,
+        144,
+        233,
+        377,
+        7540113804746346429,
+    ] {
         assert!(is_fibonacci(n), "{n} should be Fibonacci");
     }
     for &n in &[4u64, 6, 7, 9, 10, 11, 12, 14, 20, 22, 100, 1000] {

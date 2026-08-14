@@ -36,10 +36,16 @@ pub struct DisplaySegment {
 
 impl DisplaySegment {
     fn active(text: impl Into<String>) -> Self {
-        Self { text: text.into(), active: true }
+        Self {
+            text: text.into(),
+            active: true,
+        }
     }
     pub(crate) fn inactive(text: impl Into<String>) -> Self {
-        Self { text: text.into(), active: false }
+        Self {
+            text: text.into(),
+            active: false,
+        }
     }
 }
 
@@ -78,10 +84,7 @@ pub fn render_expression(
         let constant_after_non_digit = prev_value_end
             && i > 0
             && matches!(here, InputItem::Constant(_))
-            && !matches!(
-                items[i - 1],
-                InputItem::Digit(_) | InputItem::DecimalPoint
-            );
+            && !matches!(items[i - 1], InputItem::Digit(_) | InputItem::DecimalPoint);
 
         if prev_value_end && (begins_value_here || constant_after_non_digit) {
             segments.push(DisplaySegment::inactive("×"));
@@ -239,12 +242,7 @@ fn extract_numeric_run(items: &[InputItem]) -> (String, usize) {
 /// integer part and replacing the raw `.` with `decimal`. Runs that
 /// start with `.` have no integer part and are emitted unchanged.
 /// `thousands` is `None` when the user disables digit grouping.
-fn write_formatted_number(
-    out: &mut String,
-    run: &str,
-    decimal: char,
-    thousands: Option<char>,
-) {
+fn write_formatted_number(out: &mut String, run: &str, decimal: char, thousands: Option<char>) {
     let dot_pos = run.find('.');
     let (int_part, frac_part) = match dot_pos {
         Some(p) => (&run[..p], Some(&run[p + 1..])),
@@ -284,10 +282,9 @@ fn write_with_thousands(out: &mut String, digits: &str, sep: char) {
         i = first_group;
     }
     while i < len {
-        if !out.is_empty() && i > 0
-            && !(first_group == 0 && i == 0) {
-                out.push(sep);
-            }
+        if !out.is_empty() && i > 0 && !(first_group == 0 && i == 0) {
+            out.push(sep);
+        }
         out.push_str(std::str::from_utf8(&bytes[i..i + 3]).unwrap());
         i += 3;
     }

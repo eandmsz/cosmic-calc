@@ -27,7 +27,10 @@ struct Parser {
 pub fn parse(toks: Vec<Token>) -> Result<Node, CalcError> {
     let mut p = Parser { toks, pos: 0 };
     // Drop any trailing binary operator (e.g., user ended with "+").
-    while matches!(p.toks.last(), Some(Token::Op(_)) | Some(Token::Mod) | Some(Token::Comma)) {
+    while matches!(
+        p.toks.last(),
+        Some(Token::Op(_)) | Some(Token::Mod) | Some(Token::Comma)
+    ) {
         p.toks.pop();
     }
     if p.toks.is_empty() {
@@ -232,7 +235,11 @@ impl Parser {
             self.advance();
             let b = self.parse_expr()?;
             self.eat_rparen();
-            return Ok(Node::BinaryFn(BinaryFunc::LogBase, Box::new(a), Box::new(b)));
+            return Ok(Node::BinaryFn(
+                BinaryFunc::LogBase,
+                Box::new(a),
+                Box::new(b),
+            ));
         }
         self.eat_rparen();
         Ok(Node::UnaryFn(UnaryFunc::Log, Box::new(a)))
@@ -248,7 +255,11 @@ impl Parser {
         }
         let b = self.parse_expr()?;
         self.eat_rparen();
-        Ok(Node::BinaryFn(BinaryFunc::LogBase, Box::new(a), Box::new(b)))
+        Ok(Node::BinaryFn(
+            BinaryFunc::LogBase,
+            Box::new(a),
+            Box::new(b),
+        ))
     }
 
     fn parse_root_call(&mut self) -> Result<Node, CalcError> {

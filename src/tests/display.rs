@@ -1,6 +1,6 @@
-use crate::ui::display::*;
-use crate::locale::DecimalSeparator;
 use crate::engine::item::{BinOp, ConstKind, InputItem, UnaryFunc};
+use crate::locale::DecimalSeparator;
+use crate::ui::display::*;
 
 fn digits(s: &str) -> Vec<InputItem> {
     s.chars()

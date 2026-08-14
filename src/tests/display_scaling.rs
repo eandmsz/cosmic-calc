@@ -1,6 +1,5 @@
 use crate::ui::display_metrics::{
-    available_display_width, display_line_budgets, fit_display_text,
-    fit_display_text_to_width,
+    available_display_width, display_line_budgets, fit_display_text, fit_display_text_to_width,
 };
 use crate::ui::keypad::{label_width_units, LABEL_CHAR_WIDTH_RATIO};
 
@@ -23,9 +22,11 @@ fn display_line_budgets_give_main_full_height_without_caption() {
 
 #[test]
 fn fit_display_text_grows_to_fill_tall_slot_after_width_shrink() {
-    let (fitted_size, fitted_line_h) =
-        fit_display_text(1.0, 200.0, 120.0, 44.0, 62.0);
-    assert!((fitted_line_h - 120.0).abs() < 0.5, "line_h={fitted_line_h}");
+    let (fitted_size, fitted_line_h) = fit_display_text(1.0, 200.0, 120.0, 44.0, 62.0);
+    assert!(
+        (fitted_line_h - 120.0).abs() < 0.5,
+        "line_h={fitted_line_h}"
+    );
     assert!(fitted_size > 44.0);
 }
 
@@ -36,8 +37,7 @@ fn fit_display_text_shrinks_when_tall_window_boosts_font() {
     let line_h = 62.0_f32 * 0.7 * 2.2;
     let units = 12.0;
     let available = available_display_width(320.0, 8.0);
-    let (fitted_size, _) =
-        fit_display_text_to_width(units, available, size, line_h);
+    let (fitted_size, _) = fit_display_text_to_width(units, available, size, line_h);
     assert!(fitted_size < size);
     let estimated = units * fitted_size * LABEL_CHAR_WIDTH_RATIO;
     assert!(

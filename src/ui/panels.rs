@@ -12,12 +12,12 @@ use cosmic::Element;
 use crate::config::{
     max_decimals_for_rand_max, ButtonShape, Config, MAX_SIGNIFICANT_DIGITS, MIN_SIGNIFICANT_DIGITS,
 };
-use crate::ui::font::available_fonts_with_faces;
 use crate::history::History;
 use crate::locale::{DecimalSeparator, ThousandsSeparator};
 use crate::memory::Memory;
 use crate::theme::ThemeKind;
 use crate::ui::app::Message;
+use crate::ui::font::available_fonts_with_faces;
 
 /// Left-hand history + memory panel. Newest entries first. Clicking
 /// a row emits `Message::RecallHistory(idx)` which rewrites the
@@ -185,9 +185,7 @@ pub fn settings_panel<'a>(
         .iter()
         .map(|s| s.display_name().to_string())
         .collect();
-    let shape_idx = shape_options
-        .iter()
-        .position(|s| *s == config.button_shape);
+    let shape_idx = shape_options.iter().position(|s| *s == config.button_shape);
     let shape_dropdown = widget::dropdown(shape_labels, shape_idx, move |i| {
         Message::SetButtonShape(shape_options[i])
     });
@@ -223,8 +221,7 @@ pub fn settings_panel<'a>(
             .on_press(Message::SetFont(name.clone()));
         font_list = font_list.push(btn);
     }
-    let font_selector = widget::scrollable(font_list)
-        .height(Length::Fixed(220.0));
+    let font_selector = widget::scrollable(font_list).height(Length::Fixed(220.0));
 
     // Random number config: two text inputs for the bounds + a slider
     // for the decimal count. The bounds are kept as raw text in
@@ -240,13 +237,13 @@ pub fn settings_panel<'a>(
         min_invalid,
         max_invalid,
     } = rand_bounds_validity(config, rand_min_text, rand_max_text);
-    let mut rand_min_input = widget::text_input("0", rand_min_text.to_string())
-        .on_input(Message::SetRandMinText);
+    let mut rand_min_input =
+        widget::text_input("0", rand_min_text.to_string()).on_input(Message::SetRandMinText);
     if min_invalid {
         rand_min_input = rand_min_input.error("min must be smaller than max");
     }
-    let mut rand_max_input = widget::text_input("1", rand_max_text.to_string())
-        .on_input(Message::SetRandMaxText);
+    let mut rand_max_input =
+        widget::text_input("1", rand_max_text.to_string()).on_input(Message::SetRandMaxText);
     if max_invalid {
         rand_max_input = rand_max_input.error("max must be larger than min");
     }

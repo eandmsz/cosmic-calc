@@ -174,14 +174,13 @@ impl AppModel {
     /// Re-evaluate the number-property panel against the current
     /// ASCII expression.
     fn refresh_property_results(&mut self) {
-        self.property_results = if self.config.mode == Mode::Scientific
-            && self.config.property_testing
-        {
-            parse_simple_nonneg_int(&self.engine.input.ascii_expression())
-                .map(|n| (n, check_all(n)))
-        } else {
-            None
-        };
+        self.property_results =
+            if self.config.mode == Mode::Scientific && self.config.property_testing {
+                parse_simple_nonneg_int(&self.engine.input.ascii_expression())
+                    .map(|n| (n, check_all(n)))
+            } else {
+                None
+            };
     }
 
     /// Read-only accessor exposed for tests and for the side panel.
@@ -263,10 +262,8 @@ impl AppModel {
                     // a stored 1e300 expanded to 301 literal digits.
                     // Go through the same formatter as every other
                     // number the app shows.
-                    let shown = crate::engine::format::format_result(
-                        v,
-                        self.engine.significant_digits,
-                    );
+                    let shown =
+                        crate::engine::format::format_result(v, self.engine.significant_digits);
                     insert_number_string(&mut self.engine, &shown);
                 }
             }
@@ -288,9 +285,7 @@ impl AppModel {
         self.ui.context_menu_open = false;
         match op {
             ClipboardOp::Copy => {
-                let text = crate::clipboard::copy_text_for(
-                    &self.engine.input.ascii_expression(),
-                );
+                let text = crate::clipboard::copy_text_for(&self.engine.input.ascii_expression());
                 cosmic::iced::clipboard::write(text)
             }
             ClipboardOp::Paste => cosmic::iced::clipboard::read()
@@ -328,7 +323,6 @@ impl AppModel {
         self.ui.just_evaluated = false;
         self.refresh_property_results();
     }
-
 }
 
 impl Application for AppModel {
@@ -539,8 +533,7 @@ impl Application for AppModel {
         let top_bar = self.render_top_bar();
         let display_metrics = self.compute_display_metrics(&layout);
         let display = self.render_display(&layout, &display_metrics);
-        let status_visible =
-            self.config.mode == Mode::Scientific && self.config.property_testing;
+        let status_visible = self.config.mode == Mode::Scientific && self.config.property_testing;
         let status_bar = if status_visible {
             Some(self.render_status_bar())
         } else {
@@ -693,8 +686,7 @@ impl AppModel {
             )
             .push(widget::Space::new().width(Length::Fill))
             .push(
-                widget::button::standard(mode_label)
-                    .on_press(Message::Button(Button::ToggleMode)),
+                widget::button::standard(mode_label).on_press(Message::Button(Button::ToggleMode)),
             )
             .push(widget::Space::new().width(Length::Fill))
             .push(
@@ -720,8 +712,7 @@ impl AppModel {
         let spacing_metrics = crate::ui::keypad::keypad_metrics(window_height, config);
         let row_spacing = spacing_metrics.spacing;
         let edge = row_spacing;
-        let status_visible =
-            config.mode == Mode::Scientific && config.property_testing;
+        let status_visible = config.mode == Mode::Scientific && config.property_testing;
         let status_h = if status_visible {
             PROPERTY_STATUS_HEIGHT
         } else {
@@ -741,8 +732,7 @@ impl AppModel {
             .min((window_height - chrome_without_keypad - MIN_DISPLAY_HEIGHT).max(1.0));
         let display_budget =
             (window_height - chrome_without_keypad - keypad_area_height).max(MIN_DISPLAY_HEIGHT);
-        let keypad_metrics =
-            crate::ui::keypad::keypad_metrics_for_area(keypad_area_height, config);
+        let keypad_metrics = crate::ui::keypad::keypad_metrics_for_area(keypad_area_height, config);
         MainColumnLayout {
             display_budget,
             keypad_area_height,
@@ -797,8 +787,7 @@ impl AppModel {
             main_line_h,
         );
         let (caption_size, caption_line_h) = if has_caption {
-            let caption_units =
-                crate::ui::keypad::label_width_units(&self.ui.last_expression);
+            let caption_units = crate::ui::keypad::label_width_units(&self.ui.last_expression);
             let (size, line_h) = display_metrics::scale_caption_text_size(
                 self.ui.last_expression.chars().count(),
                 self.window_width,
@@ -841,9 +830,7 @@ impl AppModel {
         let caption_size = metrics.caption_size;
         let caption_line_h = metrics.caption_line_h;
 
-        let main_inner: Element<'_, Message> = if let Some(err) =
-            self.ui.error_message.as_deref()
-        {
+        let main_inner: Element<'_, Message> = if let Some(err) = self.ui.error_message.as_deref() {
             widget::text::title1(err.to_string())
                 .size(main_size)
                 .font(display_font)
@@ -1005,8 +992,7 @@ impl AppModel {
             AngleMode::Deg => "DEG",
             AngleMode::Rad => "RAD",
         };
-        let cell_w =
-            crate::ui::keypad::button_cell_width(self.window_width, 5, spacing, edge);
+        let cell_w = crate::ui::keypad::button_cell_width(self.window_width, 5, spacing, edge);
         widget::row::with_capacity(5)
             .push(mem_btn(
                 &t,
@@ -1016,10 +1002,38 @@ impl AppModel {
                 btn_height,
                 cell_w,
             ))
-            .push(mem_btn(&t, "MC", Button::MemClear, radius, btn_height, cell_w))
-            .push(mem_btn(&t, "MR", Button::MemRecall, radius, btn_height, cell_w))
-            .push(mem_btn(&t, "M+", Button::MemAdd, radius, btn_height, cell_w))
-            .push(mem_btn(&t, "M-", Button::MemSub, radius, btn_height, cell_w))
+            .push(mem_btn(
+                &t,
+                "MC",
+                Button::MemClear,
+                radius,
+                btn_height,
+                cell_w,
+            ))
+            .push(mem_btn(
+                &t,
+                "MR",
+                Button::MemRecall,
+                radius,
+                btn_height,
+                cell_w,
+            ))
+            .push(mem_btn(
+                &t,
+                "M+",
+                Button::MemAdd,
+                radius,
+                btn_height,
+                cell_w,
+            ))
+            .push(mem_btn(
+                &t,
+                "M-",
+                Button::MemSub,
+                radius,
+                btn_height,
+                cell_w,
+            ))
             .spacing(spacing)
             .width(Length::Fill)
             .height(Length::Fixed(btn_height))

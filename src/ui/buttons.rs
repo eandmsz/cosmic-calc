@@ -324,9 +324,7 @@ pub fn apply_button(
             // closers that users reported in Phase-5 testing.
             insert_with_auto_mul(engine, InputItem::LeftParen);
             engine.input.insert(InputItem::RightParen);
-            engine
-                .input
-                .move_cursor(crate::engine::CursorMove::Left);
+            engine.input.move_cursor(crate::engine::CursorMove::Left);
             state.clear_mode = ClearMode::Single;
             ButtonEffect::None
         }
@@ -473,10 +471,9 @@ pub fn apply_button(
         }
         Button::TwoPowX => {
             ensure_auto_mul_before_new_run(engine);
-            engine.input.insert_all([
-                InputItem::Digit('2'),
-                InputItem::BinOp(BinOp::Pow),
-            ]);
+            engine
+                .input
+                .insert_all([InputItem::Digit('2'), InputItem::BinOp(BinOp::Pow)]);
             ButtonEffect::None
         }
         Button::EPowX => {
@@ -964,7 +961,9 @@ fn toggle_negate(engine: &mut Engine) {
         engine.input.set_cursor(cur.saturating_sub(3));
     } else {
         engine.input.insert_at(start, InputItem::LeftParen);
-        engine.input.insert_at(start + 1, InputItem::BinOp(BinOp::Sub));
+        engine
+            .input
+            .insert_at(start + 1, InputItem::BinOp(BinOp::Sub));
         engine.input.insert_at(end + 2, InputItem::RightParen);
     }
 }

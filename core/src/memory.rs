@@ -3,7 +3,7 @@
 //! The displayed memory value sits above the history side panel. It
 //! is not persisted across restarts.
 
-use crate::engine::format::{DEFAULT_SIGNIFICANT_DIGITS, format_result};
+use crate::engine::format::{format_result, DEFAULT_SIGNIFICANT_DIGITS};
 
 /// An f64 accumulator with a dirty flag: `has_value` is false until
 /// the user stores something via M+ / M−, and goes back to false on

@@ -1,5 +1,5 @@
-use crate::theme::*;
 use crate::color::Rgba;
+use crate::theme::*;
 
 #[test]
 fn cosmic_preset_has_expected_colours() {

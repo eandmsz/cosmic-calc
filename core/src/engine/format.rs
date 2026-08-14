@@ -144,7 +144,11 @@ fn trim_number(s: &str) -> String {
     };
 
     let int_trimmed = int_part.trim_start_matches('0');
-    let int_final = if int_trimmed.is_empty() { "0" } else { int_trimmed };
+    let int_final = if int_trimmed.is_empty() {
+        "0"
+    } else {
+        int_trimmed
+    };
 
     match frac_part {
         Some(frac) => {

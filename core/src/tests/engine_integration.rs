@@ -14,8 +14,8 @@
 //! replaces.
 
 use crate::engine::{
-    AngleMode, CalcError, DEFAULT_SIGNIFICANT_DIGITS, ERR_INDETERMINATE, ERR_OVERFLOW,
-    ERR_UNDEFINED, evaluate_expression, evaluate_to_string,
+    evaluate_expression, evaluate_to_string, AngleMode, CalcError, DEFAULT_SIGNIFICANT_DIGITS,
+    ERR_INDETERMINATE, ERR_OVERFLOW, ERR_UNDEFINED,
 };
 
 const DEC: u8 = DEFAULT_SIGNIFICANT_DIGITS;
@@ -97,10 +97,7 @@ fn order_of_ops_missing_close_paren_and_trailing_div() {
 fn order_of_ops_big_mixed_expression() {
     // Spec: `(2^2×-2^2×3^(3+4)÷(-2)^2+(√16-2)!×5÷2+4×` = -8739
     // Trailing `×` dropped; one missing `)` tolerated.
-    assert_eq!(
-        deg("(2^2×-2^2×3^(3+4)÷(-2)^2+(√16-2)!×5÷2+4×"),
-        "-8739"
-    );
+    assert_eq!(deg("(2^2×-2^2×3^(3+4)÷(-2)^2+(√16-2)!×5÷2+4×"), "-8739");
 }
 
 #[test]
@@ -338,7 +335,10 @@ fn factorial_of_negative_fraction() {
     assert!(close(v, 2.218159543757688, 1e-12), "got {v}");
     // -0,6! evaluates as -(0.6!) = -Γ(1.6).
     let stripped = dval("-0,6!");
-    assert!(close(stripped, -0.6_f64.gamma_via_libm(), 1e-12), "got {stripped}");
+    assert!(
+        close(stripped, -0.6_f64.gamma_via_libm(), 1e-12),
+        "got {stripped}"
+    );
 }
 
 #[test]
@@ -463,7 +463,10 @@ fn exp_ten_to_minus_309_underflows() {
 fn exp_two_to_1023() {
     // Spec: 2^1023 = 8,98846567431158e+307
     let s = deg("2^1023");
-    assert!(s.starts_with("8.98846567431158") && s.contains("e307"), "got {s}");
+    assert!(
+        s.starts_with("8.98846567431158") && s.contains("e307"),
+        "got {s}"
+    );
 }
 
 #[test]
@@ -475,14 +478,20 @@ fn exp_two_to_1024_overflows() {
 fn exp_two_to_minus_1022() {
     // Spec: 2^-1022 = 2,2250738585072e-308
     let s = deg("2^-1022");
-    assert!(s.starts_with("2.2250738585072") && s.contains("e-308"), "got {s}");
+    assert!(
+        s.starts_with("2.2250738585072") && s.contains("e-308"),
+        "got {s}"
+    );
 }
 
 #[test]
 fn exp_pi_over_tiny_denom() {
     // Spec: π÷10^-307 = 3.141592653589793e307
     let s = deg("π÷10^-307");
-    assert!(s.starts_with("3.1415926535897") && s.contains("e307"), "got {s}");
+    assert!(
+        s.starts_with("3.1415926535897") && s.contains("e307"),
+        "got {s}"
+    );
 }
 
 #[test]

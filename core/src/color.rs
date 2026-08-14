@@ -26,8 +26,8 @@ impl Rgba {
     /// defaults to `FF` when omitted).
     pub fn parse_hex_str(s: &str) -> Result<Self, String> {
         let hex = s.trim().trim_start_matches('#');
-        let value = u32::from_str_radix(hex, 16)
-            .map_err(|_| format!("invalid hex colour: {s:?}"))?;
+        let value =
+            u32::from_str_radix(hex, 16).map_err(|_| format!("invalid hex colour: {s:?}"))?;
         Ok(match hex.len() {
             6 => Self {
                 r: ((value >> 16) & 0xFF) as u8,
@@ -198,7 +198,11 @@ pub fn hover(base: Rgba) -> Rgba {
     let shift = signum(diff) * scale.min(diff.abs());
     let h_new = (hsv.h + shift).rem_euclid(360.0);
 
-    let (rn, gn, bn) = hsv_to_rgb(Hsv { h: h_new, s: hsv.s, v: v_new });
+    let (rn, gn, bn) = hsv_to_rgb(Hsv {
+        h: h_new,
+        s: hsv.s,
+        v: v_new,
+    });
     Rgba::from_f32(rn, gn, bn, a)
 }
 
@@ -231,12 +235,7 @@ impl<'de> Deserialize<'de> for Rgba {
         #[serde(untagged)]
         enum Repr {
             Hex(String),
-            Legacy {
-                r: u8,
-                g: u8,
-                b: u8,
-                a: u8,
-            },
+            Legacy { r: u8, g: u8, b: u8, a: u8 },
         }
         match Repr::deserialize(deserializer)? {
             Repr::Hex(s) => Self::parse_hex_str(&s).map_err(serde::de::Error::custom),

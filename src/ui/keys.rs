@@ -10,10 +10,10 @@
 //! them (e.g. Alt-F4 closes the window).
 
 use cosmic::iced::event::{self, Event};
+use cosmic::iced::keyboard::key::{Code, Physical};
 use cosmic::iced::keyboard::{key::Named, Event as KeyEvent, Key, Modifiers};
 use cosmic::iced::window::Event as WindowEvent;
 use cosmic::iced::{Size, Subscription};
-use cosmic::iced::keyboard::key::{Code, Physical};
 
 use crate::clipboard::ClipboardOp;
 use crate::ui::app::Message;
@@ -46,9 +46,7 @@ pub fn subscription() -> Subscription<Message> {
             physical_key,
             modifiers,
             ..
-        }) if status == event::Status::Ignored => {
-            route_release(&key, physical_key, modifiers)
-        }
+        }) if status == event::Status::Ignored => route_release(&key, physical_key, modifiers),
         // Window-resize events feed the responsive font sizing on the
         // main display. `Opened` fires once at startup so the very
         // first frame already has a real width to scale against, not

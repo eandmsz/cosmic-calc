@@ -235,7 +235,7 @@ impl InputBuffer {
     /// tokenizer/parser pipeline. '×' becomes '*', '÷' becomes '/', π
     /// becomes 'pi', 𝑒 becomes 'e', √/∛ become function calls.
     pub fn ascii_expression(&self) -> String {
-        use crate::engine::item::{BinOp, BinaryFunc, ConstKind, UnaryFunc, unary_func_name};
+        use crate::engine::item::{unary_func_name, BinOp, BinaryFunc, ConstKind, UnaryFunc};
         let mut s = String::new();
         for it in &self.items {
             match it {

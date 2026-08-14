@@ -127,15 +127,9 @@ fn items_from_paste_handles_sin_minus_one() {
 #[test]
 fn items_from_paste_recognises_pi_and_e() {
     let items = items_from_paste("π+𝑒").expect("representable");
-    assert!(matches!(
-        items[0],
-        InputItem::Constant(ConstKind::Pi)
-    ));
+    assert!(matches!(items[0], InputItem::Constant(ConstKind::Pi)));
     assert!(matches!(items[1], InputItem::BinOp(BinOp::Add)));
-    assert!(matches!(
-        items[2],
-        InputItem::Constant(ConstKind::E)
-    ));
+    assert!(matches!(items[2], InputItem::Constant(ConstKind::E)));
 }
 
 #[test]
@@ -155,11 +149,7 @@ fn paste_keeps_root_and_its_argument_separator() {
     assert!(matches!(items[0], InputItem::BinaryFunc(BinaryFunc::Root)));
     assert!(items.contains(&InputItem::Comma));
     assert_eq!(
-        crate::engine::evaluate_to_string(
-            &buffer_ascii(&items),
-            crate::engine::AngleMode::Deg,
-            15
-        ),
+        crate::engine::evaluate_to_string(&buffer_ascii(&items), crate::engine::AngleMode::Deg, 15),
         "2"
     );
 }
@@ -189,7 +179,10 @@ fn paste_expands_scientific_notation_instead_of_faking_euler() {
     );
     // A bare `e` with no exponent digits is still Euler's number.
     let items = items_from_paste("2𝑒").expect("representable");
-    assert!(matches!(items.last(), Some(InputItem::Constant(ConstKind::E))));
+    assert!(matches!(
+        items.last(),
+        Some(InputItem::Constant(ConstKind::E))
+    ));
 }
 
 #[test]
@@ -197,11 +190,7 @@ fn paste_negative_exponent_is_parenthesised() {
     let items = items_from_paste("1e-4").expect("representable");
     assert!(items.contains(&InputItem::LeftParen));
     assert_eq!(
-        crate::engine::evaluate_to_string(
-            &buffer_ascii(&items),
-            crate::engine::AngleMode::Deg,
-            15
-        ),
+        crate::engine::evaluate_to_string(&buffer_ascii(&items), crate::engine::AngleMode::Deg, 15),
         "0.0001"
     );
 }

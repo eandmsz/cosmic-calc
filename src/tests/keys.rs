@@ -1,5 +1,5 @@
-use crate::ui::keys::*;
 use crate::ui::buttons::Button;
+use crate::ui::keys::*;
 use cosmic::iced::keyboard::key::Named;
 use cosmic::iced::keyboard::Modifiers;
 

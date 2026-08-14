@@ -4,7 +4,15 @@ use serde::{Deserialize, Serialize};
 #[test]
 fn from_hex_round_trip() {
     let c = Rgba::from_hex(0x12_34_56_78);
-    assert_eq!(c, Rgba { r: 0x12, g: 0x34, b: 0x56, a: 0x78 });
+    assert_eq!(
+        c,
+        Rgba {
+            r: 0x12,
+            g: 0x34,
+            b: 0x56,
+            a: 0x78
+        }
+    );
 }
 
 #[test]
@@ -23,7 +31,15 @@ fn rgba_serializes_as_hex_string() {
 #[test]
 fn rgba_deserializes_legacy_table() {
     let c: Rgba = toml::from_str("r = 1\ng = 2\nb = 3\na = 255").unwrap();
-    assert_eq!(c, Rgba { r: 1, g: 2, b: 3, a: 255 });
+    assert_eq!(
+        c,
+        Rgba {
+            r: 1,
+            g: 2,
+            b: 3,
+            a: 255
+        }
+    );
 }
 
 #[test]
@@ -69,7 +85,12 @@ fn hover_shifts_hue_when_clipped() {
 
 #[test]
 fn hover_preserves_alpha() {
-    let base = Rgba { r: 0x30, g: 0x60, b: 0x90, a: 0xAB };
+    let base = Rgba {
+        r: 0x30,
+        g: 0x60,
+        b: 0x90,
+        a: 0xAB,
+    };
     let hov = hover(base);
     assert_eq!(hov.a, 0xAB);
 }

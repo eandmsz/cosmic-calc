@@ -61,7 +61,11 @@ pub fn keypad_metrics_for_area(target_height: f32, config: &Config) -> KeypadMet
             let h = target / 5.5;
             let spacing = h * 0.125;
             let radius = h * 0.5;
-            KeypadMetrics { button_height: h, spacing, radius }
+            KeypadMetrics {
+                button_height: h,
+                spacing,
+                radius,
+            }
         }
         // SlightlyRound: radius = h/4, spacing = radius/4 = h/16.
         // Solve `5h + 4(h/16) == target` → h * 5.25 = target.
@@ -69,7 +73,11 @@ pub fn keypad_metrics_for_area(target_height: f32, config: &Config) -> KeypadMet
             let h = target / 5.25;
             let radius = h * 0.25;
             let spacing = radius * 0.25;
-            KeypadMetrics { button_height: h, spacing, radius }
+            KeypadMetrics {
+                button_height: h,
+                spacing,
+                radius,
+            }
         }
         // Square / Auto fall back to whatever the user (or the preset)
         // configured statically.
@@ -77,7 +85,11 @@ pub fn keypad_metrics_for_area(target_height: f32, config: &Config) -> KeypadMet
             let spacing = config.effective_button_spacing();
             let radius = config.effective_button_corner_radius();
             let h = (target - spacing * (ROW_COUNT as f32 - 1.0)) / ROW_COUNT as f32;
-            KeypadMetrics { button_height: h, spacing, radius }
+            KeypadMetrics {
+                button_height: h,
+                spacing,
+                radius,
+            }
         }
     }
 }
@@ -442,8 +454,7 @@ fn grid(
     let spacing = metrics.spacing;
     let radius = metrics.radius;
     let columns = rows.first().map(|r| r.len()).unwrap_or(1);
-    let cell_width =
-        button_cell_width(layout.window_width, columns, spacing, layout.edge_padding);
+    let cell_width = button_cell_width(layout.window_width, columns, spacing, layout.edge_padding);
     let mut column = widget::column::with_capacity(rows.len())
         .spacing(spacing)
         .width(Length::Fill)

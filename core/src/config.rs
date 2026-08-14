@@ -250,9 +250,7 @@ impl Config {
     /// repaired rather than rejected – we'd rather the app start
     /// than insist on a perfect file.
     pub fn validate_and_clamp(&mut self) {
-        self.button_corner_radius = self
-            .button_corner_radius
-            .clamp(0.0, MAX_CORNER_RADIUS);
+        self.button_corner_radius = self.button_corner_radius.clamp(0.0, MAX_CORNER_RADIUS);
         self.button_spacing = self.button_spacing.clamp(0.0, MAX_BUTTON_SPACING);
 
         if !(self.rand_min_incl.is_finite()
@@ -444,4 +442,3 @@ impl Config {
         }
     }
 }
-

@@ -1,5 +1,5 @@
-use crate::config::*;
 use crate::color::Rgba;
+use crate::config::*;
 use crate::theme::ThemeKind;
 use std::path::PathBuf;
 
@@ -199,11 +199,7 @@ fn max_decimals_for_rand_max_handles_non_positive_max() {
 fn load_clamps_out_of_range_values() {
     let path = scratch_path("clamp");
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-    std::fs::write(
-        &path,
-        "significant_digits = 42\nwindow_startup_width = 2\n",
-    )
-    .unwrap();
+    std::fs::write(&path, "significant_digits = 42\nwindow_startup_width = 2\n").unwrap();
 
     let cfg = Config::load_or_create_default_at(&path).expect("load");
     assert_eq!(cfg.significant_digits, MAX_SIGNIFICANT_DIGITS);
