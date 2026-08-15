@@ -18,10 +18,14 @@
 //! by using `iced::clipboard::read()` which returns `None` in that
 //! case.
 //!
-//! The one thing that is dropped rather than refused is a letter that
-//! is on the allow-list but starts no keyword — the list only admits
-//! letters that appear in function names, so a leftover one is a stray
-//! character. `l root(5, 4)` is `root(5, 4)`.
+//! A letter that is on the allow-list but starts no keyword is dropped
+//! rather than refused — the list only admits letters that appear in
+//! function names, so a leftover one is a stray character and
+//! `l root(5, 4)` is `root(5, 4)`. That only holds for a run of letters
+//! nothing at all was read from, though: a run that is *partly*
+//! understood is a word we half-read, and refuses the paste. Otherwise
+//! `hello` would drop four letters, keep its `e`, and quietly evaluate
+//! to 2.718.
 
 use crate::engine::item::{BinOp, BinaryFunc, ConstKind, InputItem, UnaryFunc};
 
@@ -61,7 +65,9 @@ pub const MAX_PASTE_CHARS: usize = 255;
 /// live and therefore go untested.
 pub fn paste_items(payload: Option<&str>) -> Option<Vec<InputItem>> {
     let raw = payload?;
-    let clean = sanitize_paste(raw)?;
+    // Spaces are kept here and skipped by `items_from_paste`, which
+    // needs them to tell one run of letters from the next.
+    let clean = canonicalise(raw)?;
     let items = items_from_paste(&clean)?;
     if items.is_empty() {
         return None;
@@ -84,6 +90,17 @@ pub fn copy_text_for(ascii_expression: &str) -> String {
 /// be silently dropped (non-ASCII character, length > 255, or a char
 /// not on the allow-list).
 pub fn sanitize_paste(raw: &str) -> Option<String> {
+    Some(drop_spaces(&canonicalise(raw)?))
+}
+
+/// Everything `sanitize_paste` does except dropping spaces.
+///
+/// `items_from_paste` works from this form and skips the spaces itself,
+/// because they mark where one run of letters ends and the next begins.
+/// Without them `l root(5, 4)` is one run, `lroot`, and the
+/// partly-understood check below would refuse a paste that should just
+/// lose its stray `l`.
+fn canonicalise(raw: &str) -> Option<String> {
     // Pass 1: length cap + whitelist check.
     let mut kept = String::new();
     for (i, ch) in raw.chars().enumerate() {
@@ -111,26 +128,26 @@ pub fn sanitize_paste(raw: &str) -> Option<String> {
     // still intact — see `mark_euler_constants`.
     let eulered = mark_euler_constants(&canonical);
 
-    // Pass 4: space handling – drop every ' ' except those preceded
-    // by ','.
-    let mut spaced = String::with_capacity(eulered.len());
+    // Pass 4: function-name rewrites. Longer names first to avoid
+    // `asinh` being eaten as `asin` + trailing `h`.
+    Some(rewrite_function_names(&eulered))
+}
+
+/// Drop every space except one directly after a `,`.
+fn drop_spaces(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
     let mut prev: Option<char> = None;
-    for ch in eulered.chars() {
+    for ch in s.chars() {
         if ch == ' ' {
             if prev == Some(',') {
-                spaced.push(' ');
+                out.push(' ');
             }
         } else {
-            spaced.push(ch);
+            out.push(ch);
         }
         prev = Some(ch);
     }
-
-    // Pass 5: function-name rewrites. Longer names first to avoid
-    // `asinh` being eaten as `asin` + trailing `h`.
-    let functional = rewrite_function_names(&spaced);
-
-    Some(functional)
+    out
 }
 
 /// Rewrite each ASCII `e` that cannot be a decimal exponent into the
@@ -189,9 +206,22 @@ pub fn items_from_paste(s: &str) -> Option<Vec<InputItem>> {
     // stack in the engine tokenizer.
     let mut arg_sep_stack: Vec<bool> = Vec::new();
     let mut i = 0usize;
+    // Whether the run of letters currently being walked has produced
+    // any token, and whether any of its letters had to be dropped. A
+    // run that is only *partly* understood is a word we half-read, not
+    // a stray character, and rejects the paste — otherwise `hello`
+    // would quietly evaluate to 2.718 by way of its `e`.
+    let mut run_read = false;
+    let mut run_dropped = false;
 
     while i < chars.len() {
         let c = chars[i];
+
+        // Any non-letter ends the current run.
+        if !c.is_ascii_alphabetic() {
+            run_read = false;
+            run_dropped = false;
+        }
 
         // `sanitize_paste` only keeps spaces after a comma, where they
         // carry no meaning of their own.
@@ -208,6 +238,10 @@ pub fn items_from_paste(s: &str) -> Option<Vec<InputItem>> {
         if let Some(len) = exponent_suffix_len(&chars, i, &out) {
             push_exponent(&mut out, &chars[i + 1..i + len]);
             i += len;
+            run_read = true;
+            if run_dropped {
+                return None;
+            }
             continue;
         }
 
@@ -219,6 +253,10 @@ pub fn items_from_paste(s: &str) -> Option<Vec<InputItem>> {
         if let Some((base, len)) = log_base_suffix_len(&chars, i) {
             out.push(InputItem::LogN(base));
             i += len;
+            run_read = true;
+            if run_dropped {
+                return None;
+            }
             if chars.get(i) == Some(&'(') {
                 i += 1;
             }
@@ -227,6 +265,10 @@ pub fn items_from_paste(s: &str) -> Option<Vec<InputItem>> {
         }
 
         if let Some((item, len)) = match_keyword(&chars, i) {
+            run_read = true;
+            if run_dropped {
+                return None;
+            }
             let takes_arg_list = matches!(
                 item,
                 InputItem::BinaryFunc(_) | InputItem::UnaryFunc(UnaryFunc::Log)
@@ -275,12 +317,24 @@ pub fn items_from_paste(s: &str) -> Option<Vec<InputItem>> {
             '√' => InputItem::UnaryFunc(UnaryFunc::Sqrt),
             '∛' => InputItem::UnaryFunc(UnaryFunc::Cbrt),
             'π' => InputItem::Constant(ConstKind::Pi),
-            '𝑒' | 'e' => InputItem::Constant(ConstKind::E),
+            '𝑒' | 'e' => {
+                if c == 'e' {
+                    run_read = true;
+                    if run_dropped {
+                        return None;
+                    }
+                }
+                InputItem::Constant(ConstKind::E)
+            }
             // A letter that starts no keyword is dropped. The
             // allow-list only admits letters that appear in function
             // names, so this is a stray character rather than a token
             // we failed to understand — `l root(5, 4)` is `root(5, 4)`.
             c if c.is_ascii_alphabetic() => {
+                run_dropped = true;
+                if run_read {
+                    return None;
+                }
                 i += 1;
                 continue;
             }

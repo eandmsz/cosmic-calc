@@ -346,3 +346,30 @@ fn a_stray_allowlisted_letter_is_dropped() {
     assert_eq!(paste_and_eval("2+3n").unwrap(), "5");
     assert_eq!(paste_items(Some("2+3z")), None);
 }
+
+#[test]
+fn a_half_understood_word_rejects_the_paste() {
+    // `hello` is made only of allow-listed letters, and its `e` is a
+    // valid token on its own — so dropping the rest would have left
+    // Euler's number and evaluated to 2.718. A run of letters has to be
+    // understood completely or not at all.
+    for word in ["hello", "chat", "cost", "moral", "digital", "salmon"] {
+        assert_eq!(
+            paste_items(Some(word)),
+            None,
+            "{word:?} is not an expression and must be refused"
+        );
+    }
+    // Still true of a word embedded in a real expression.
+    assert_eq!(paste_items(Some("2+hello")), None);
+}
+
+#[test]
+fn a_stray_letter_is_still_dropped_next_to_a_real_one() {
+    // The space is what separates `l` from `root`, so the two are
+    // different runs: one wholly unread, one wholly read.
+    assert_eq!(paste_and_eval("l root(5, 4)").unwrap(), "1.49534878122122");
+    assert_eq!(paste_and_eval("2+3n").unwrap(), "5");
+    // Glued together they are one run, half of which was understood.
+    assert_eq!(paste_items(Some("lroot(5, 4)")), None);
+}
