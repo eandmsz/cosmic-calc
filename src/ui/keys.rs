@@ -10,10 +10,10 @@
 //! them (e.g. Alt-F4 closes the window).
 
 use cosmic::iced::event::{self, Event};
+use cosmic::iced::keyboard::key::{Code, Physical};
 use cosmic::iced::keyboard::{key::Named, Event as KeyEvent, Key, Modifiers};
 use cosmic::iced::window::Event as WindowEvent;
-use cosmic::iced::{Subscription, Size};
-use cosmic::iced::keyboard::key::{Code, Physical};
+use cosmic::iced::{Size, Subscription};
 
 use crate::clipboard::ClipboardOp;
 use crate::ui::app::Message;
@@ -46,9 +46,7 @@ pub fn subscription() -> Subscription<Message> {
             physical_key,
             modifiers,
             ..
-        }) if status == event::Status::Ignored => {
-            route_release(&key, physical_key, modifiers)
-        }
+        }) if status == event::Status::Ignored => route_release(&key, physical_key, modifiers),
         // Window-resize events feed the responsive font sizing on the
         // main display. `Opened` fires once at startup so the very
         // first frame already has a real width to scale against, not
@@ -114,13 +112,6 @@ pub fn map_key(key: &Key, modifiers: Modifiers) -> Option<Button> {
     }
 }
 
-/// Size hint for the startup window – not strictly part of key
-/// handling, but kept here so `AppModel` has a single place to reach
-/// for windowing utilities.
-pub fn window_size_hint(width: u32, height: u32) -> Size {
-    Size::new(width as f32, height as f32)
-}
-
 pub(crate) fn map_char(c: char, modifiers: Modifiers) -> Option<Button> {
     // Shift combinations that land on a printable char first: we let
     // them through so '+' coming from Shift+= still routes to Add.
@@ -164,6 +155,8 @@ pub(crate) fn map_named(named: Named, _modifiers: Modifiers) -> Option<Button> {
         Named::Escape => Some(Button::Clear),
         Named::ArrowLeft => Some(Button::CursorLeft),
         Named::ArrowRight => Some(Button::CursorRight),
+        Named::Home => Some(Button::CursorHome),
+        Named::End => Some(Button::CursorEnd),
         _ => None,
     }
 }

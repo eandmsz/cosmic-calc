@@ -12,7 +12,6 @@ use cosmic::widget;
 use cosmic::{Application, Element};
 
 use crate::clipboard::ClipboardOp;
-use crate::color::Rgba;
 use crate::config::{ButtonShape, Config, Mode};
 use crate::engine::{AngleMode, Engine};
 use crate::history::History;
@@ -25,22 +24,7 @@ use crate::ui::buttons::{
     ClearMode, MemoryOp, UiState,
 };
 use crate::ui::cosmic_bridge::override_from_cosmic;
-
-/// Which palette slot a `Message::EditThemeColor` is aimed at.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ColorField {
-    AppBg,
-    SidepanelBg,
-    TextActive,
-    ScienceButton,
-    SecondButton,
-    ToprowButton,
-    BasicopButton,
-    EqualsButton,
-    NegateButton,
-    DecimalButton,
-    NumberButton,
-}
+use crate::ui::display_metrics;
 
 /// Messages emitted by the UI. The keypad emits `Button(_)`; the
 /// settings panel keeps dedicated variants so persist-on-mutation is
@@ -60,13 +44,11 @@ pub enum Message {
 
     // --- settings panel -------------------------------------------------
     SetTheme(ThemeKind),
-    EditThemeColor { field: ColorField, color: Rgba },
-    SetMode(Mode),
     SetDecimalSeparator(DecimalSeparator),
     SetThousandsSeparator(ThousandsSeparator),
     SetButtonShape(ButtonShape),
     SetFont(String),
-    SetRoundingDecimals(u8),
+    SetSignificantDigits(u8),
     /// Raw text from the rand-min input. Parsed and validated by the
     /// handler; the text is preserved verbatim while the user is still
     /// typing (e.g. mid-entry of `1.` or `-`).
@@ -74,7 +56,6 @@ pub enum Message {
     SetRandMaxText(String),
     SetRandDecimals(u8),
     SetPropertyTesting(bool),
-    SetDebugMode(bool),
 
     // --- history / memory / clipboard ----------------------------------
     RecallHistory(usize),
@@ -98,7 +79,9 @@ pub enum Message {
     /// height drives the keypad's 62%-of-window target so the buttons
     /// grow with the window instead of staying at a fixed pixel height.
     WindowResized(f32, f32),
-    Noop,
+    /// Timer tick that writes a pending config change to disk. See
+    /// `AppModel::config_dirty`.
+    PersistConfig,
 }
 
 /// Application state. Engine owns the input buffer; `ui` holds the
@@ -135,6 +118,12 @@ pub struct AppModel {
     /// keyboard equivalent. Set on `KeyboardPressed`, cleared on
     /// `KeyboardReleased`. `None` when no key is held.
     flashing_button: Option<Button>,
+    /// Set when the config has changed but has not reached disk yet.
+    /// Every settings mutation used to serialise the whole file and
+    /// write it synchronously on the UI thread, so dragging a slider
+    /// wrote `config.toml` dozens of times a second. A timer coalesces
+    /// those into one write, and the close handler flushes.
+    config_dirty: bool,
 }
 
 impl AppModel {
@@ -150,10 +139,33 @@ impl AppModel {
         }
     }
 
-    /// Persist the current config to disk. Errors are logged rather
-    /// than propagated – the settings panel keeps working even if the
-    /// filesystem is read-only.
-    fn persist(&self) {
+    /// Mark the config as needing a write. The actual save happens on
+    /// the next `PersistConfig` tick, so a burst of changes (a slider
+    /// drag, a run of keystrokes in a text field) costs one write
+    /// rather than one per event.
+    fn persist(&mut self) {
+        self.config_dirty = true;
+    }
+
+    /// Flush from a `&self` context (the close handler). Skips the
+    /// dirty-flag reset because the process is about to end.
+    fn save_pending_config(&self) {
+        if !self.config_dirty {
+            return;
+        }
+        if let Err(e) = self.config.save() {
+            eprintln!("cosmic-calc: failed to save config: {e}");
+        }
+    }
+
+    /// Write the config out if anything is pending. Errors are logged
+    /// rather than propagated – the settings panel keeps working even
+    /// if the filesystem is read-only.
+    fn flush_config(&mut self) {
+        if !self.config_dirty {
+            return;
+        }
+        self.config_dirty = false;
         if let Err(e) = self.config.save() {
             eprintln!("cosmic-calc: failed to save config: {e}");
         }
@@ -162,14 +174,13 @@ impl AppModel {
     /// Re-evaluate the number-property panel against the current
     /// ASCII expression.
     fn refresh_property_results(&mut self) {
-        self.property_results = if self.config.mode == Mode::Scientific
-            && self.config.property_testing
-        {
-            parse_simple_nonneg_int(&self.engine.input.ascii_expression())
-                .map(|n| (n, check_all(n)))
-        } else {
-            None
-        };
+        self.property_results =
+            if self.config.mode == Mode::Scientific && self.config.property_testing {
+                parse_simple_nonneg_int(&self.engine.input.ascii_expression())
+                    .map(|n| (n, check_all(n)))
+            } else {
+                None
+            };
     }
 
     /// Read-only accessor exposed for tests and for the side panel.
@@ -179,23 +190,15 @@ impl AppModel {
 
     /// True when the live rand-bound inputs would commit cleanly (or
     /// are blank, in which case the persisted config values stand).
-    /// Mirrors the red-border logic in `panels::settings_panel` so the
-    /// Rand button reacts to the same notion of "valid" as the user
-    /// sees.
+    /// Shares one implementation with the red-border rule the settings
+    /// panel draws, so the Rand key and the indicator cannot disagree.
     fn rand_inputs_valid(&self) -> bool {
-        let parsed_min: Option<f64> = self.rand_min_text.parse().ok().filter(|v: &f64| v.is_finite());
-        let parsed_max: Option<f64> = self.rand_max_text.parse().ok().filter(|v: &f64| v.is_finite());
-        let effective_max = parsed_max.unwrap_or(self.config.rand_max_excl);
-        let effective_min = parsed_min.unwrap_or(self.config.rand_min_incl);
-        let min_invalid = match parsed_min {
-            Some(v) => v >= effective_max,
-            None => !self.rand_min_text.trim().is_empty(),
-        };
-        let max_invalid = match parsed_max {
-            Some(v) => v <= effective_min,
-            None => !self.rand_max_text.trim().is_empty(),
-        };
-        !min_invalid && !max_invalid
+        let v = crate::ui::panels::rand_bounds_validity(
+            &self.config,
+            &self.rand_min_text,
+            &self.rand_max_text,
+        );
+        !v.min_invalid && !v.max_invalid
     }
 
     /// Expose the UI-state flags (panel toggles, clear mode) so the
@@ -255,7 +258,13 @@ impl AppModel {
             ButtonEffect::MemoryClear => self.memory.clear(),
             ButtonEffect::MemoryRecall => {
                 if let Some(v) = self.memory.recall() {
-                    insert_number_string(&mut self.engine, &format!("{v}"));
+                    // `format!("{v}")` never uses exponent notation, so
+                    // a stored 1e300 expanded to 301 literal digits.
+                    // Go through the same formatter as every other
+                    // number the app shows.
+                    let shown =
+                        crate::engine::format::format_result(v, self.engine.significant_digits);
+                    insert_number_string(&mut self.engine, &shown);
                 }
             }
             ButtonEffect::MemoryStore(op) => {
@@ -276,9 +285,7 @@ impl AppModel {
         self.ui.context_menu_open = false;
         match op {
             ClipboardOp::Copy => {
-                let text = crate::clipboard::copy_text_for(
-                    &self.engine.input.ascii_expression(),
-                );
+                let text = crate::clipboard::copy_text_for(&self.engine.input.ascii_expression());
                 cosmic::iced::clipboard::write(text)
             }
             ClipboardOp::Paste => cosmic::iced::clipboard::read()
@@ -290,17 +297,13 @@ impl AppModel {
     /// empty or held non-text data; `Some(raw)` goes through the
     /// sanitiser and, on success, replaces the buffer.
     fn handle_paste_delivered(&mut self, payload: Option<String>) {
-        let raw = match payload {
-            Some(text) => text,
-            None => return,
-        };
-        let Some(clean) = crate::clipboard::sanitize_paste(&raw) else {
+        // Every rejection rule lives in `paste_items`: a non-text
+        // clipboard (which arrives as `None`), the length cap, the
+        // character allow-list, and anything the buffer cannot
+        // represent faithfully. All of them mean "ignore this paste".
+        let Some(items) = crate::clipboard::paste_items(payload.as_deref()) else {
             return;
         };
-        let items = crate::clipboard::items_from_paste(&clean);
-        if items.is_empty() {
-            return;
-        }
         self.engine.input.replace(items);
         self.ui.last_result.clear();
         self.ui.last_result_value = None;
@@ -310,33 +313,18 @@ impl AppModel {
         self.ui.just_evaluated = false;
         self.refresh_property_results();
     }
-
-    /// Mutate one palette slot in-place and flip the active preset
-    /// to Custom. Called from `Message::EditThemeColor`.
-    fn apply_color_edit(&mut self, field: ColorField, color: Rgba) {
-        match field {
-            ColorField::AppBg => self.config.theme.app_bg = color,
-            ColorField::SidepanelBg => self.config.theme.sidepanel_bg = color,
-            ColorField::TextActive => self.config.theme.text_active = color,
-            ColorField::ScienceButton => self.config.theme.science_button = color,
-            ColorField::SecondButton => self.config.theme.second_button = color,
-            ColorField::ToprowButton => self.config.theme.toprow_button = color,
-            ColorField::BasicopButton => self.config.theme.basicop_button = color,
-            ColorField::EqualsButton => self.config.theme.equals_button = color,
-            ColorField::NegateButton => self.config.theme.negate_button = color,
-            ColorField::DecimalButton => self.config.theme.decimal_button = color,
-            ColorField::NumberButton => self.config.theme.number_button = color,
-        }
-        self.config.mark_theme_custom();
-    }
 }
 
 impl Application for AppModel {
     type Executor = cosmic::executor::Default;
-    type Flags = ();
+    /// The already-loaded config, handed over by `main`.
+    type Flags = Config;
     type Message = Message;
 
-    const APP_ID: &'static str = "com.system76.CosmicCalc";
+    // Third-party app: `com.system76.*` is System76's own reverse-DNS
+    // namespace and using it here would both collide with upstream
+    // COSMIC apps and imply an endorsement that doesn't exist.
+    const APP_ID: &'static str = "io.github.eandmsz.CosmicCalc";
 
     fn core(&self) -> &Core {
         &self.core
@@ -346,25 +334,25 @@ impl Application for AppModel {
         &mut self.core
     }
 
-    fn init(mut core: Core, _flags: Self::Flags) -> (Self, Task<Self::Message>) {
+    fn init(mut core: Core, config: Self::Flags) -> (Self, Task<Self::Message>) {
         // libcosmic adds 7-8px of horizontal padding around the user's
         // view() output when `content_container` is true; turning it off
         // lets the keypad reach the window edges so buttons fill the
         // window width as the user resizes it.
         core.window.content_container = false;
-        let config = Config::load_or_create_default().unwrap_or_else(|e| {
-            eprintln!("cosmic-calc: config load failed ({e}); using defaults");
-            Config::default()
-        });
         // Push the persisted font into libcosmic's global font slot so
         // every widget that consults `crate::font::default()` (buttons,
         // dropdowns, sliders, ...) uses it from the very first frame
         // instead of falling back to the system default.
         crate::ui::font::apply_interface_font(&config.font);
-        let mut engine = Engine::new(config.rounding_decimals);
+        let mut engine = Engine::new(config.significant_digits);
         engine.angle_mode = config.angle_mode;
         let rand_min_text = format_f64_for_input(config.rand_min_incl);
         let rand_max_text = format_f64_for_input(config.rand_max_excl);
+        // Seed the window size from the config so the first frame lays
+        // out against the real geometry; `Window::Opened` confirms it.
+        let window_width = config.window_startup_width as f32;
+        let window_height = config.window_startup_height as f32;
         let mut model = AppModel {
             core,
             engine,
@@ -375,11 +363,10 @@ impl Application for AppModel {
             property_results: None,
             rand_min_text,
             rand_max_text,
-            // Conservative default; the first `Window::Resized` event
-            // overrides this with the real value.
-            window_width: 480.0,
-            window_height: 720.0,
+            window_width,
+            window_height,
             flashing_button: None,
+            config_dirty: false,
         };
         model.refresh_property_results();
         (model, Task::none())
@@ -400,15 +387,6 @@ impl Application for AppModel {
 
             Message::SetTheme(kind) => {
                 self.config.apply_theme_preset(kind);
-                self.persist();
-            }
-            Message::EditThemeColor { field, color } => {
-                self.apply_color_edit(field, color);
-                self.persist();
-            }
-            Message::SetMode(mode) => {
-                self.config.mode = mode;
-                self.refresh_property_results();
                 self.persist();
             }
             Message::SetDecimalSeparator(sep) => {
@@ -436,10 +414,10 @@ impl Application for AppModel {
                 crate::ui::font::apply_interface_font(&self.config.font);
                 self.persist();
             }
-            Message::SetRoundingDecimals(n) => {
-                self.config.rounding_decimals = n;
+            Message::SetSignificantDigits(n) => {
+                self.config.significant_digits = n;
                 self.config.validate_and_clamp();
-                self.engine.rounding_decimals = self.config.rounding_decimals;
+                self.engine.significant_digits = self.config.significant_digits;
                 self.persist();
             }
             Message::SetRandMinText(s) => {
@@ -486,17 +464,16 @@ impl Application for AppModel {
                 self.refresh_property_results();
                 self.persist();
             }
-            Message::SetDebugMode(flag) => {
-                self.config.debug_mode = flag;
-                self.persist();
-            }
             Message::RecallHistory(idx) => {
-                if let Some(entry) = self.history.get_newest_first(idx) {
-                    let items = if entry.items.is_empty() {
-                        crate::clipboard::items_from_paste(&entry.expression)
-                    } else {
-                        entry.items.clone()
-                    };
+                // Every entry carries the items it was built from, so
+                // recall never has to re-derive them from the rendered
+                // string.
+                if let Some(entry) = self
+                    .history
+                    .get_newest_first(idx)
+                    .filter(|e| !e.items.is_empty())
+                {
+                    let items = entry.items.clone();
                     self.engine.input.replace(items);
                     self.ui.last_expression.clear();
                     self.ui.last_expression_items.clear();
@@ -536,7 +513,7 @@ impl Application for AppModel {
                 self.window_width = w;
                 self.window_height = h;
             }
-            Message::Noop => {}
+            Message::PersistConfig => self.flush_config(),
         }
         Task::none()
     }
@@ -546,8 +523,7 @@ impl Application for AppModel {
         let top_bar = self.render_top_bar();
         let display_metrics = self.compute_display_metrics(&layout);
         let display = self.render_display(&layout, &display_metrics);
-        let status_visible =
-            self.config.mode == Mode::Scientific && self.config.property_testing;
+        let status_visible = self.config.mode == Mode::Scientific && self.config.property_testing;
         let status_bar = if status_visible {
             Some(self.render_status_bar())
         } else {
@@ -559,16 +535,18 @@ impl Application for AppModel {
             crate::ui::buttons::ClearMode::AllClear => "AC",
             crate::ui::buttons::ClearMode::Single => "C",
         };
+        let keypad_layout = crate::ui::keypad::KeypadLayout {
+            theme: &active_theme,
+            config: &self.config,
+            window_width: self.window_width,
+            area_height: layout.keypad_area_height,
+            metrics: layout.keypad_metrics,
+            edge_padding: layout.edge_spacing,
+        };
         let keypad = crate::ui::keypad::render(
-            self.config.mode,
-            &active_theme,
-            &self.config,
+            &keypad_layout,
             clear_label,
             self.ui.second_mode,
-            self.window_width,
-            layout.keypad_area_height,
-            layout.keypad_metrics,
-            layout.edge_spacing,
             self.flashing_button,
         );
         // Memory row is shorter than keypad buttons; reclaimed height
@@ -614,6 +592,7 @@ impl Application for AppModel {
             row = row.push(crate::ui::panels::history_panel(
                 &self.history,
                 &self.memory,
+                self.config.significant_digits,
             ));
         }
         row = row.push(main_column);
@@ -631,7 +610,17 @@ impl Application for AppModel {
     }
 
     fn subscription(&self) -> cosmic::iced::Subscription<Self::Message> {
-        crate::ui::keys::subscription()
+        // The timer only runs while a write is actually pending, so an
+        // idle calculator stays idle.
+        if self.config_dirty {
+            cosmic::iced::Subscription::batch([
+                crate::ui::keys::subscription(),
+                cosmic::iced::time::every(std::time::Duration::from_millis(400))
+                    .map(|_| Message::PersistConfig),
+            ])
+        } else {
+            crate::ui::keys::subscription()
+        }
     }
 
     /// Short-circuit graceful shutdown. Letting libcosmic / wgpu /
@@ -642,6 +631,7 @@ impl Application for AppModel {
     /// instantaneous. Persisted state (config) is already saved on
     /// every change, so there is nothing further to flush.
     fn on_close_requested(&self, _id: cosmic::iced::window::Id) -> Option<Self::Message> {
+        self.save_pending_config();
         std::process::exit(0);
     }
 
@@ -649,6 +639,7 @@ impl Application for AppModel {
     /// teardown path through some channel other than the explicit
     /// close request (e.g. last-window-closed bookkeeping).
     fn on_app_exit(&mut self) -> Option<Self::Message> {
+        self.flush_config();
         std::process::exit(0);
     }
 
@@ -686,8 +677,7 @@ impl AppModel {
             )
             .push(widget::Space::new().width(Length::Fill))
             .push(
-                widget::button::standard(mode_label)
-                    .on_press(Message::Button(Button::ToggleMode)),
+                widget::button::standard(mode_label).on_press(Message::Button(Button::ToggleMode)),
             )
             .push(widget::Space::new().width(Length::Fill))
             .push(
@@ -713,8 +703,7 @@ impl AppModel {
         let spacing_metrics = crate::ui::keypad::keypad_metrics(window_height, config);
         let row_spacing = spacing_metrics.spacing;
         let edge = row_spacing;
-        let status_visible =
-            config.mode == Mode::Scientific && config.property_testing;
+        let status_visible = config.mode == Mode::Scientific && config.property_testing;
         let status_h = if status_visible {
             PROPERTY_STATUS_HEIGHT
         } else {
@@ -734,8 +723,7 @@ impl AppModel {
             .min((window_height - chrome_without_keypad - MIN_DISPLAY_HEIGHT).max(1.0));
         let display_budget =
             (window_height - chrome_without_keypad - keypad_area_height).max(MIN_DISPLAY_HEIGHT);
-        let keypad_metrics =
-            crate::ui::keypad::keypad_metrics_for_area(keypad_area_height, config);
+        let keypad_metrics = crate::ui::keypad::keypad_metrics_for_area(keypad_area_height, config);
         MainColumnLayout {
             display_budget,
             keypad_area_height,
@@ -764,7 +752,7 @@ impl AppModel {
             segments.iter().map(|s| s.text.chars().count()).sum()
         };
         let available_width =
-            available_display_width(self.window_width, layout.edge_spacing);
+            display_metrics::available_display_width(self.window_width, layout.edge_spacing);
         let main_width_units = if let Some(err) = self.ui.error_message.as_deref() {
             crate::ui::keypad::label_width_units(err)
         } else if segments.is_empty() {
@@ -775,14 +763,14 @@ impl AppModel {
                 .map(|s| crate::ui::keypad::label_width_units(&s.text))
                 .sum()
         };
-        let (caption_slot_h, main_slot_h) = display_line_budgets(
+        let (caption_slot_h, main_slot_h) = display_metrics::display_line_budgets(
             layout.display_budget,
             layout.row_spacing,
             has_caption,
         );
         let (mut main_size, mut main_line_h) =
-            scale_main_text_size(main_chars, self.window_width, main_slot_h);
-        (main_size, main_line_h) = fit_display_text(
+            display_metrics::scale_main_text_size(main_chars, self.window_width, main_slot_h);
+        (main_size, main_line_h) = display_metrics::fit_display_text(
             main_width_units,
             available_width,
             main_slot_h,
@@ -790,14 +778,13 @@ impl AppModel {
             main_line_h,
         );
         let (caption_size, caption_line_h) = if has_caption {
-            let caption_units =
-                crate::ui::keypad::label_width_units(&self.ui.last_expression);
-            let (size, line_h) = scale_caption_text_size(
+            let caption_units = crate::ui::keypad::label_width_units(&self.ui.last_expression);
+            let (size, line_h) = display_metrics::scale_caption_text_size(
                 self.ui.last_expression.chars().count(),
                 self.window_width,
                 caption_slot_h,
             );
-            fit_display_text(
+            display_metrics::fit_display_text(
                 caption_units,
                 available_width,
                 caption_slot_h,
@@ -834,9 +821,7 @@ impl AppModel {
         let caption_size = metrics.caption_size;
         let caption_line_h = metrics.caption_line_h;
 
-        let main_inner: Element<'_, Message> = if let Some(err) =
-            self.ui.error_message.as_deref()
-        {
+        let main_inner: Element<'_, Message> = if let Some(err) = self.ui.error_message.as_deref() {
             widget::text::title1(err.to_string())
                 .size(main_size)
                 .font(display_font)
@@ -955,14 +940,12 @@ impl AppModel {
             return widget::Space::new().height(Length::Shrink).into();
         }
 
-        let mut row =
-            widget::row::with_capacity(NumberProperty::ALL.len());
+        let mut row = widget::row::with_capacity(NumberProperty::ALL.len());
 
-        // Property labels: always visible in Scientific + property_testing
-        // so the user has a stable reading. Each label is dimmed by
-        // default; flip to active when its property holds for the
+        // Every label stays visible so the reading is stable; a
+        // label is dimmed unless its property holds for the
         // currently-parsed integer.
-        if self.config.mode == Mode::Scientific && self.config.property_testing {
+        {
             let theme = self.active_theme();
             let inactive_color = {
                 let (r, g, b, a) = theme.text_active.inactive().to_f32();
@@ -1000,8 +983,7 @@ impl AppModel {
             AngleMode::Deg => "DEG",
             AngleMode::Rad => "RAD",
         };
-        let cell_w =
-            crate::ui::keypad::button_cell_width(self.window_width, 5, spacing, edge);
+        let cell_w = crate::ui::keypad::button_cell_width(self.window_width, 5, spacing, edge);
         widget::row::with_capacity(5)
             .push(mem_btn(
                 &t,
@@ -1011,10 +993,38 @@ impl AppModel {
                 btn_height,
                 cell_w,
             ))
-            .push(mem_btn(&t, "MC", Button::MemClear, radius, btn_height, cell_w))
-            .push(mem_btn(&t, "MR", Button::MemRecall, radius, btn_height, cell_w))
-            .push(mem_btn(&t, "M+", Button::MemAdd, radius, btn_height, cell_w))
-            .push(mem_btn(&t, "M-", Button::MemSub, radius, btn_height, cell_w))
+            .push(mem_btn(
+                &t,
+                "MC",
+                Button::MemClear,
+                radius,
+                btn_height,
+                cell_w,
+            ))
+            .push(mem_btn(
+                &t,
+                "MR",
+                Button::MemRecall,
+                radius,
+                btn_height,
+                cell_w,
+            ))
+            .push(mem_btn(
+                &t,
+                "M+",
+                Button::MemAdd,
+                radius,
+                btn_height,
+                cell_w,
+            ))
+            .push(mem_btn(
+                &t,
+                "M-",
+                Button::MemSub,
+                radius,
+                btn_height,
+                cell_w,
+            ))
             .spacing(spacing)
             .width(Length::Fill)
             .height(Length::Fixed(btn_height))
@@ -1064,159 +1074,6 @@ fn is_valid_rand_input(s: &str) -> bool {
     s.chars().count() <= 15 && s.chars().all(|c| c.is_ascii_digit())
 }
 
-/// Pick a (font size, line height) pair for the main display so a
-/// long expression shrinks rather than wrapping. The thresholds are
-/// tuned to the default 300px window: the title1 preset (35sp) fits
-/// roughly 12 chars, so once the rendered string exceeds that we step
-/// down through the libcosmic title2..title4 sizes and finally cap at
-/// the body size for genuinely long inputs. Line heights mirror the
-/// libcosmic preset ratios (~1.49) so vertical spacing tracks the
-/// font size cleanly.
-fn scale_main_text_size(chars: usize, window_width: f32, display_height: f32) -> (f32, f32) {
-    // Each tier was bumped a few points over the original libcosmic
-    // title1..title4 ladder so the answer reads more like a calculator
-    // result than a generic heading. The tallest tier in particular sits
-    // closer to the "huge digit" feel of dedicated calc apps without
-    // overflowing the 300px reference window.
-    let (base_size, base_line) = match chars {
-        0..=12 => (44.0, 62.0),
-        13..=16 => (36.0, 52.0),
-        17..=22 => (30.0, 44.0),
-        23..=30 => (24.0, 36.0),
-        _ => (20.0, 30.0),
-    };
-    let factor = window_width_scale_factor(window_width)
-        * display_height_scale_factor(display_height, chars);
-    (base_size * factor, base_line * factor)
-}
-
-/// Same idea for the caption above the main display – starts at the
-/// default caption size (10sp) and shrinks slightly for very long
-/// previously-evaluated expressions.
-fn scale_caption_text_size(chars: usize, window_width: f32, display_height: f32) -> (f32, f32) {
-    let (base_size, base_line) = match chars {
-        0..=24 => (10.0, 14.0),
-        25..=40 => (9.0, 13.0),
-        _ => (8.0, 12.0),
-    };
-    let factor = window_width_scale_factor(window_width)
-        * display_height_scale_factor(display_height, chars.saturating_add(8));
-    (base_size * factor, base_line * factor)
-}
-
-/// Map a window width (logical pixels) to a font-size multiplier so the
-/// main display and caption grow as the user enlarges the window. The
-/// reference width is 480px (the default startup size) – at that point
-/// the multiplier is 1.0; bigger windows scale up to a 2.0 cap and
-/// smaller windows scale down to 0.7 so the layout doesn't collapse.
-fn window_width_scale_factor(window_width: f32) -> f32 {
-    const REFERENCE_WIDTH: f32 = 480.0;
-    let raw = window_width / REFERENCE_WIDTH;
-    raw.clamp(0.7, 2.0)
-}
-
-/// Horizontal space for right-aligned display text after column padding.
-pub(crate) fn available_display_width(window_width: f32, edge_spacing: f32) -> f32 {
-    (window_width - 2.0 * edge_spacing).max(1.0)
-}
-
-/// Fit display text to both the slot height and available width.
-pub(crate) fn fit_display_text(
-    width_units: f32,
-    available_width: f32,
-    max_line_h: f32,
-    size: f32,
-    line_h: f32,
-) -> (f32, f32) {
-    let (mut size, mut line_h) = fit_display_text_to_width(width_units, available_width, size, line_h);
-    if max_line_h > 1.0 && line_h > 0.0 && line_h < max_line_h {
-        let grow = max_line_h / line_h;
-        size *= grow;
-        line_h = max_line_h;
-        (size, line_h) = fit_display_text_to_width(width_units, available_width, size, line_h);
-    }
-    let mut size = size;
-    let mut line_h = line_h;
-    fit_text_to_line_height(max_line_h, &mut size, &mut line_h);
-    (size, line_h)
-}
-
-/// Shrink `(size, line_h)` when the rendered string would extend past
-/// `available_width`. Uses the same width-per-glyph estimate as the
-/// keypad so tall, narrow windows do not clip after height-based scaling.
-pub(crate) fn fit_display_text_to_width(
-    width_units: f32,
-    available_width: f32,
-    size: f32,
-    line_h: f32,
-) -> (f32, f32) {
-    if width_units <= 0.0 || size <= 0.0 {
-        return (size, line_h);
-    }
-    let estimated = width_units * size * crate::ui::keypad::LABEL_CHAR_WIDTH_RATIO;
-    if estimated <= available_width {
-        return (size, line_h);
-    }
-    let scale = available_width / estimated;
-    (size * scale, line_h * scale)
-}
-
-/// Grow display fonts when the flexible display slice is taller than
-/// the reference layout, but cap the boost for long expressions so
-/// they still fit vertically.
-fn display_height_scale_factor(display_height: f32, chars: usize) -> f32 {
-    const REFERENCE_HEIGHT: f32 = 72.0;
-    let raw = display_height / REFERENCE_HEIGHT;
-    let cap = match chars {
-        0..=12 => 2.2,
-        13..=22 => 1.8,
-        23..=30 => 1.5,
-        _ => 1.2,
-    };
-    // Do not shrink below 1.0 when the window is short — per-slot fitting
-    // handles vertical overflow instead of scaling text away.
-    raw.clamp(1.0, cap)
-}
-
-/// Last-expression slot is always 60% of the main readout slot height.
-const CAPTION_TO_MAIN_HEIGHT_RATIO: f32 = 0.6;
-const MAIN_HEIGHT_PORTION: u16 = 100;
-const CAPTION_HEIGHT_PORTION: u16 =
-    (MAIN_HEIGHT_PORTION as f32 * CAPTION_TO_MAIN_HEIGHT_RATIO) as u16;
-
-/// Split the fixed display column into caption and main line heights.
-pub(crate) fn display_line_budgets(
-    display_height: f32,
-    row_spacing: f32,
-    has_caption: bool,
-) -> (f32, f32) {
-    if !has_caption {
-        return (0.0, display_height.max(1.0));
-    }
-    let content = (display_height - row_spacing).max(1.0);
-    let total_portions =
-        MAIN_HEIGHT_PORTION as f32 + CAPTION_HEIGHT_PORTION as f32;
-    let main_h = content * MAIN_HEIGHT_PORTION as f32 / total_portions;
-    let caption_h = content * CAPTION_HEIGHT_PORTION as f32 / total_portions;
-    (caption_h, main_h)
-}
-
-/// Clamp font metrics to a single line slot.
-fn fit_text_to_line_height(max_line_h: f32, size: &mut f32, line_h: &mut f32) {
-    if max_line_h <= 1.0 {
-        *line_h = 1.0;
-        *size = 1.0;
-        return;
-    }
-    if *line_h > max_line_h {
-        let scale = max_line_h / *line_h;
-        *line_h *= scale;
-        *size *= scale;
-    }
-    *line_h = (*line_h).min(max_line_h);
-    *size = (*size).min(*line_h);
-}
-
 /// Small helper for the 5-way memory button row. Paints each key in
 /// the active theme's top-row slot so it matches the other control
 /// buttons.
@@ -1232,9 +1089,11 @@ fn mem_btn(
         theme,
         label,
         button,
-        corner_radius,
-        height,
-        cell_width,
+        crate::ui::keypad::CellGeometry {
+            corner_radius,
+            height,
+            width: cell_width,
+        },
         false,
         false,
     ))

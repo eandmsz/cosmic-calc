@@ -1,14 +1,16 @@
-//! UI module root. Phase-1 provides a minimal libcosmic application
-//! so the binary compiles and launches; the visual keypad, history
-//! panel, and memory display are placeholders that a later phase will
-//! flesh out. The goal here is to keep the crate building end-to-end
-//! while the engine stabilises.
+//! UI module root: the libcosmic application, the keypad grid, the
+//! expression display, the side panels and the keyboard bindings.
+//!
+//! The calculation itself lives in `cosmic-calc-core`, which this crate
+//! re-exports; nothing under `ui` should hold state the core could own
+//! instead.
 
 pub mod app;
 pub mod button_style;
 pub mod buttons;
 pub mod cosmic_bridge;
 pub mod display;
+pub mod display_metrics;
 pub mod font;
 pub mod keypad;
 pub mod keys;

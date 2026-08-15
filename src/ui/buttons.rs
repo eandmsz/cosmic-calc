@@ -39,6 +39,10 @@ pub enum Button {
     RightParen,
     CursorLeft,
     CursorRight,
+    /// Jump the cursor to the start / end of the expression. Bound to
+    /// the Home and End keys; there is no keypad cell for either.
+    CursorHome,
+    CursorEnd,
 
     // --- operators ---
     Add,
@@ -324,9 +328,7 @@ pub fn apply_button(
             // closers that users reported in Phase-5 testing.
             insert_with_auto_mul(engine, InputItem::LeftParen);
             engine.input.insert(InputItem::RightParen);
-            engine
-                .input
-                .move_cursor(crate::engine::CursorMove::Left);
+            engine.input.move_cursor(crate::engine::CursorMove::Left);
             state.clear_mode = ClearMode::Single;
             ButtonEffect::None
         }
@@ -357,6 +359,14 @@ pub fn apply_button(
             engine.input.move_cursor(crate::engine::CursorMove::Right);
             ButtonEffect::None
         }
+        Button::CursorHome => {
+            engine.input.move_cursor(crate::engine::CursorMove::Home);
+            ButtonEffect::None
+        }
+        Button::CursorEnd => {
+            engine.input.move_cursor(crate::engine::CursorMove::End);
+            ButtonEffect::None
+        }
 
         Button::Add => {
             replace_or_insert_binop(engine, BinOp::Add);
@@ -379,14 +389,19 @@ pub fn apply_button(
             ButtonEffect::None
         }
         Button::Mod => {
-            engine.input.insert(InputItem::Percent);
+            // Same guard as the binary operators: modulo needs a left
+            // operand. Without it a press on an empty buffer left a
+            // stray operator behind.
+            if has_left_operand_at_cursor(engine) {
+                engine.input.insert(InputItem::Modulo);
+            }
             ButtonEffect::None
         }
         Button::Percent => {
             // % needs something to apply to. When the cursor isn't
             // sitting on a value-producing token we drop the press
             // silently, matching the behaviour of binary operators.
-            if has_left_operand_at_cursor(&engine) {
+            if has_left_operand_at_cursor(engine) {
                 engine.input.insert(InputItem::Percent);
             }
             ButtonEffect::None
@@ -398,7 +413,7 @@ pub fn apply_button(
             if engine.input.is_empty() {
                 engine.input.insert(InputItem::Digit('0'));
                 engine.input.insert(InputItem::Factorial);
-            } else if has_left_operand_at_cursor(&engine) {
+            } else if has_left_operand_at_cursor(engine) {
                 engine.input.insert(InputItem::Factorial);
             }
             ButtonEffect::None
@@ -408,7 +423,7 @@ pub fn apply_button(
             // the exponent next. Drops silently when the cursor isn't
             // on a value-producing token – there has to be a mantissa
             // for the EE to multiply against.
-            if has_left_operand_at_cursor(&engine) {
+            if has_left_operand_at_cursor(engine) {
                 engine.input.insert_all([
                     InputItem::BinOp(BinOp::Mul),
                     InputItem::Digit('1'),
@@ -468,10 +483,9 @@ pub fn apply_button(
         }
         Button::TwoPowX => {
             ensure_auto_mul_before_new_run(engine);
-            engine.input.insert_all([
-                InputItem::Digit('2'),
-                InputItem::BinOp(BinOp::Pow),
-            ]);
+            engine
+                .input
+                .insert_all([InputItem::Digit('2'), InputItem::BinOp(BinOp::Pow)]);
             ButtonEffect::None
         }
         Button::EPowX => {
@@ -604,8 +618,8 @@ fn insert_with_auto_mul(engine: &mut Engine, item: InputItem) {
     engine.input.insert(item);
 }
 
-/// Every scientific-only button. Anything NOT in this list is still
-/// reachable when `mode == Basic`; everything else silently no-ops.
+/// Every button reachable in Basic mode. Anything NOT in this list is
+/// scientific-only and silently no-ops while `mode == Basic`.
 fn available_in_basic(b: Button) -> bool {
     matches!(
         b,
@@ -619,6 +633,8 @@ fn available_in_basic(b: Button) -> bool {
             | Button::RightParen
             | Button::CursorLeft
             | Button::CursorRight
+            | Button::CursorHome
+            | Button::CursorEnd
             | Button::Add
             | Button::Sub
             | Button::Mul
@@ -647,7 +663,7 @@ fn resolve_second(button: Button, state: &mut UiState) -> Button {
     if !state.second_mode || matches!(button, Button::Second) {
         return button;
     }
-    let mapped = match button {
+    match button {
         Button::Sin => Button::Asin,
         Button::Cos => Button::Acos,
         Button::Tan => Button::Atan,
@@ -670,22 +686,13 @@ fn resolve_second(button: Button, state: &mut UiState) -> Button {
         Button::TwoPowX => Button::Log2,
         Button::Ln => Button::EPowX,
         Button::EPowX => Button::Ln,
-        Button::LogY => Button::YPowX_virtual(),
+        // `x^y` is the inverse of `log_y(x)`; there is no separate
+        // `YPowX` button to route to.
+        Button::LogY => Button::XPowY,
         Button::Pow => Button::YRootX,
         Button::XPowY => Button::YRootX,
         Button::YRootX => Button::Pow,
         other => other,
-    };
-    mapped
-}
-
-impl Button {
-    /// Placeholder alias so the `LogY ↔ YPowX` inverse can be written
-    /// symmetrically. `XPowY` already means the power shortcut, and
-    /// `YPowX` would duplicate it – so we collapse to `XPowY`.
-    #[allow(non_snake_case)]
-    fn YPowX_virtual() -> Button {
-        Button::XPowY
     }
 }
 
@@ -721,6 +728,8 @@ fn is_buffer_mutating_button(button: Button) -> bool {
         Button::Second
             | Button::CursorLeft
             | Button::CursorRight
+            | Button::CursorHome
+            | Button::CursorEnd
             | Button::MemClear
             | Button::MemAdd
             | Button::MemSub
@@ -968,18 +977,21 @@ fn toggle_negate(engine: &mut Engine) {
         engine.input.set_cursor(cur.saturating_sub(3));
     } else {
         engine.input.insert_at(start, InputItem::LeftParen);
-        engine.input.insert_at(start + 1, InputItem::BinOp(BinOp::Sub));
+        engine
+            .input
+            .insert_at(start + 1, InputItem::BinOp(BinOp::Sub));
         engine.input.insert_at(end + 2, InputItem::RightParen);
     }
 }
 
 /// Insert a binary operator. Three cases:
-///   1. Buffer empty → prepend `0` so pressing `+` first gives `0+`.
-///   2. Cursor sits immediately after another binop with no operand
-///      between → replace that trailing operator with the new one
-///      (so typing `5+` then `-` yields `5-`).
-///   3. Cursor sits where there is no left operand at all (after a
-///      `(`, function opener, etc.) → no action.
+/// 1. Buffer empty → prepend `0` so pressing `+` first gives `0+`.
+/// 2. Cursor sits immediately after another binop with no operand
+///    between → replace that trailing operator with the new one (so
+///    typing `5+` then `-` yields `5-`).
+/// 3. Cursor sits where there is no left operand at all (after a `(`,
+///    function opener, etc.) → no action.
+///
 /// Otherwise the operator is inserted normally.
 fn replace_or_insert_binop(engine: &mut Engine, op: BinOp) {
     if engine.input.is_empty() {
@@ -1109,17 +1121,13 @@ fn try_unwrap_reciprocal(engine: &mut Engine) -> bool {
 /// Append a constant sequence of items to the current operand. Used
 /// by Square (`^2`) and Cube (`^3`) – both postfix operations that
 /// only make sense when preceded by something.
+///
+/// Inserted unconditionally: with no operand to the left the parser
+/// will reject the result, but that beats silently dropping the
+/// keystroke with no feedback at all.
 fn append_suffix(engine: &mut Engine, suffix: &[InputItem]) -> ButtonEffect {
-    if engine.input.last_operand_range().is_some() {
-        for item in suffix {
-            engine.input.insert(item.clone());
-        }
-    } else {
-        // No operand → insert the suffix anyway; the parser will
-        // complain but at least the keystroke isn't silently lost.
-        for item in suffix {
-            engine.input.insert(item.clone());
-        }
+    for item in suffix {
+        engine.input.insert(item.clone());
     }
     ButtonEffect::None
 }
@@ -1214,10 +1222,36 @@ fn extract_repeat(items: &[InputItem]) -> Option<(BinOp, Vec<InputItem>)> {
     Some((op, operand))
 }
 
-/// Insert a formatted numeric string (as produced by `rand_value` or
-/// an `Ans` recall) into the buffer at the cursor. Handles the
-/// optional leading `-`, per-digit characters, and a single `.`.
+/// Insert a formatted numeric string (as produced by `rand_value`, a
+/// memory recall, or an `Ans` recall) into the buffer at the cursor.
+/// Handles the optional leading `-`, per-digit characters, and a
+/// single `.`.
+///
+/// The value always starts a *new* operand. Without that, the per-item
+/// auto-multiplication helper saw a digit landing after a digit,
+/// concluded they were the same numeric run, and concatenated: with `5`
+/// in the buffer, recalling a memory of 42 produced `542`, and pressing
+/// Rand produced `50.123…`.
 pub fn insert_number_string(engine: &mut Engine, s: &str) {
+    ensure_auto_mul_before_new_run(engine);
+    // A leading `-` on an empty buffer is just the sign of the value;
+    // anywhere else a bare `-` would read as subtraction, so the value
+    // is parenthesised the way the negate key does it.
+    if let Some(rest) = s.strip_prefix('-') {
+        if !engine.input.is_empty() {
+            engine.input.insert(InputItem::LeftParen);
+            engine.input.insert(InputItem::BinOp(BinOp::Sub));
+            insert_number_body(engine, rest);
+            engine.input.insert(InputItem::RightParen);
+            return;
+        }
+    }
+    insert_number_body(engine, s);
+}
+
+/// Digit-by-digit insertion shared by [`insert_number_string`] and its
+/// parenthesised-negative path.
+fn insert_number_body(engine: &mut Engine, s: &str) {
     let mut chars = s.chars().peekable();
     while let Some(c) = chars.next() {
         match c {

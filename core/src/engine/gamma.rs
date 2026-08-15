@@ -4,6 +4,7 @@
 //! non-integer arguments.
 
 use crate::engine::errors::CalcError;
+use crate::engine::eval::is_integer;
 
 /// Compute x! = Γ(x + 1). Returns Undefined for negative integers
 /// (where Γ has poles) and for overflow inputs.
@@ -22,9 +23,4 @@ pub fn factorial(x: f64) -> Result<f64, CalcError> {
         return Err(CalcError::Overflow);
     }
     Ok(y)
-}
-
-/// True when the f64 value represents an integer exactly.
-fn is_integer(x: f64) -> bool {
-    x.is_finite() && x.floor() == x
 }

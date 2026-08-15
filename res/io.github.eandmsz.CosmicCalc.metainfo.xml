@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.eandmsz.CosmicCalc</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-only</project_license>
+
+  <name>COSMIC Calculator</name>
+  <summary>Scientific calculator for the COSMIC desktop</summary>
+
+  <description>
+    <p>
+      A native scientific calculator for the COSMIC desktop, written in
+      Rust with no runtime dependency on another language.
+    </p>
+    <ul>
+      <li>IEEE 754 double precision, displayed to 15 significant digits</li>
+      <li>Stateful entry: only the equals key evaluates the expression</li>
+      <li>Automatic scientific layout in a landscape window</li>
+      <li>Follows the COSMIC theme, and inherits the accent colour from KDE, GNOME and XFCE</li>
+      <li>Decimal separator taken from the system locale</li>
+      <li>Live number properties: prime, harshad, palindrome, square, triangular, fibonacci</li>
+    </ul>
+  </description>
+
+  <launchable type="desktop-id">io.github.eandmsz.CosmicCalc.desktop</launchable>
+  <content_rating type="oars-1.1"/>
+
+  <url type="homepage">https://github.com/eandmsz/cosmic-calc</url>
+  <url type="bugtracker">https://github.com/eandmsz/cosmic-calc/issues</url>
+
+  <categories>
+    <category>Utility</category>
+    <category>Calculator</category>
+  </categories>
+
+  <releases>
+    <release version="0.1.0" date="2026-08-14"/>
+  </releases>
+</component>

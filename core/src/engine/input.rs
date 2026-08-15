@@ -41,12 +41,6 @@ impl InputBuffer {
         self.cursor += 1;
     }
 
-    /// Append an item at the end regardless of cursor position.
-    pub fn push(&mut self, item: InputItem) {
-        self.items.push(item);
-        self.cursor = self.items.len();
-    }
-
     /// Delete the item immediately before the cursor, if any.
     pub fn delete_before(&mut self) {
         if self.cursor > 0 {
@@ -235,7 +229,7 @@ impl InputBuffer {
     /// tokenizer/parser pipeline. '×' becomes '*', '÷' becomes '/', π
     /// becomes 'pi', 𝑒 becomes 'e', √/∛ become function calls.
     pub fn ascii_expression(&self) -> String {
-        use crate::engine::item::{BinOp, BinaryFunc, ConstKind, UnaryFunc, unary_func_name};
+        use crate::engine::item::{unary_func_name, BinOp, BinaryFunc, ConstKind, UnaryFunc};
         let mut s = String::new();
         for it in &self.items {
             match it {
@@ -247,6 +241,7 @@ impl InputBuffer {
                 InputItem::BinOp(BinOp::Div) => s.push('/'),
                 InputItem::BinOp(BinOp::Pow) => s.push('^'),
                 InputItem::Percent => s.push('%'),
+                InputItem::Modulo => s.push_str(" mod "),
                 InputItem::Factorial => s.push('!'),
                 InputItem::UnaryFunc(UnaryFunc::Sqrt) => s.push_str("sqrt("),
                 InputItem::UnaryFunc(UnaryFunc::Cbrt) => s.push_str("cbrt("),
@@ -258,7 +253,13 @@ impl InputBuffer {
                 InputItem::BinaryFunc(BinaryFunc::Root) => s.push_str("root("),
                 InputItem::LogN(n) => s.push_str(&format!("log{}(", n)),
                 InputItem::Constant(ConstKind::Pi) => s.push_str("pi"),
-                InputItem::Constant(ConstKind::E) => s.push_str("e"),
+                // The italic `𝑒`, not a bare ASCII `e`. The tokenizer
+                // accepts both, but its number scanner absorbs
+                // `<digits>e<digits>` as an exponent — so a buffer of
+                // [3, 𝑒, 5] serialised to "3e5" and evaluated as
+                // 300000 while the display read 3·𝑒·5. `𝑒` is only ever
+                // the constant, so the round-trip cannot go wrong.
+                InputItem::Constant(ConstKind::E) => s.push('𝑒'),
                 InputItem::LeftParen => s.push('('),
                 InputItem::RightParen => s.push(')'),
                 InputItem::Comma => s.push(','),

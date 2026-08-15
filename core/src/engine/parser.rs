@@ -1,11 +1,11 @@
 //! Recursive-descent parser over the tokenizer's output.
 //! Precedence (lowest → highest):
-//!   + -
-//!   * / mod      (mod is the binary `%` form)
-//!   unary -
-//!   ^ (right-assoc)
-//!   ! %          (postfix)
-//!   primary      (numbers, constants, parens, function calls)
+//!   `+ -`
+//!   then `* / mod` (mod is the binary `%` form, or the word `mod`)
+//!   then unary `-`
+//!   then `^` (right-assoc)
+//!   then postfix `!` and `%`
+//!   then primary (numbers, constants, parens, function calls)
 //!
 //! The parser tolerates two classes of malformed input allowed by the
 //! spec: a trailing binary operator that lacks a right operand, and
@@ -23,17 +23,27 @@ struct Parser {
 
 /// Parse a token stream into an AST. Returns Err(Undefined) on
 /// unrecoverable structural problems such as an empty stream after
-/// sanitisation.
+/// sanitisation, or on input the grammar cannot account for in full.
 pub fn parse(toks: Vec<Token>) -> Result<Node, CalcError> {
     let mut p = Parser { toks, pos: 0 };
     // Drop any trailing binary operator (e.g., user ended with "+").
-    while matches!(p.toks.last(), Some(Token::Op(_)) | Some(Token::Mod) | Some(Token::Comma)) {
+    while matches!(
+        p.toks.last(),
+        Some(Token::Op(_)) | Some(Token::Mod) | Some(Token::Comma)
+    ) {
         p.toks.pop();
     }
     if p.toks.is_empty() {
         return Err(CalcError::Undefined);
     }
     let node = p.parse_expr()?;
+    // Every token has to be accounted for. Without this check a stray
+    // closer silently truncates the expression – `1+2)*100` parsed as
+    // `1+2` and returned 3, with no indication that most of the input
+    // had been thrown away.
+    if p.pos != p.toks.len() {
+        return Err(CalcError::Undefined);
+    }
     Ok(node)
 }
 
@@ -54,6 +64,35 @@ impl Parser {
         }
     }
 
+    /// Parse a right-hand operand, distinguishing "the operator simply
+    /// has nothing after it" – which the spec tolerates – from "what
+    /// follows is malformed", which is a real error.
+    ///
+    /// The distinction needs the position restored first: a failed
+    /// parse has usually consumed tokens on its way down, so the
+    /// decision has to be made against the input as it stood before the
+    /// attempt. Without that, `5+()` looked identical to `5+` and
+    /// silently evaluated to 5.
+    fn parse_operand<F>(&mut self, mut parse: F) -> Result<Option<Node>, CalcError>
+    where
+        F: FnMut(&mut Self) -> Result<Node, CalcError>,
+    {
+        let start = self.pos;
+        match parse(self) {
+            Ok(node) => Ok(Some(node)),
+            Err(e) => {
+                self.pos = start;
+                // Nothing left, or only a closer: the operand is
+                // genuinely absent and the caller should stop here.
+                if matches!(self.peek(), None | Some(Token::RParen)) {
+                    Ok(None)
+                } else {
+                    Err(e)
+                }
+            }
+        }
+    }
+
     /// expr = term (('+' | '-') term)*
     fn parse_expr(&mut self) -> Result<Node, CalcError> {
         let mut left = self.parse_term()?;
@@ -64,9 +103,8 @@ impl Parser {
                 _ => break,
             };
             self.advance();
-            let right = match self.parse_term() {
-                Ok(n) => n,
-                Err(_) => break, // trailing operator: stop the loop
+            let Some(right) = self.parse_operand(Self::parse_term)? else {
+                break; // trailing operator: stop the loop
             };
             left = Node::Bin(op, Box::new(left), Box::new(right));
         }
@@ -84,9 +122,8 @@ impl Parser {
                 _ => break,
             };
             self.advance();
-            let right = match self.parse_unary() {
-                Ok(n) => n,
-                Err(_) => break,
+            let Some(right) = self.parse_operand(Self::parse_unary)? else {
+                break;
             };
             left = if is_mod {
                 Node::Mod(Box::new(left), Box::new(right))
@@ -119,9 +156,8 @@ impl Parser {
         let base = self.parse_postfix()?;
         if matches!(self.peek(), Some(Token::Op(BinOp::Pow))) {
             self.advance();
-            let exp = match self.parse_unary() {
-                Ok(n) => n,
-                Err(_) => return Ok(base),
+            let Some(exp) = self.parse_operand(Self::parse_unary)? else {
+                return Ok(base);
             };
             return Ok(Node::Bin(BinOp::Pow, Box::new(base), Box::new(exp)));
         }
@@ -199,7 +235,11 @@ impl Parser {
             self.advance();
             let b = self.parse_expr()?;
             self.eat_rparen();
-            return Ok(Node::BinaryFn(BinaryFunc::LogBase, Box::new(a), Box::new(b)));
+            return Ok(Node::BinaryFn(
+                BinaryFunc::LogBase,
+                Box::new(a),
+                Box::new(b),
+            ));
         }
         self.eat_rparen();
         Ok(Node::UnaryFn(UnaryFunc::Log, Box::new(a)))
@@ -215,7 +255,11 @@ impl Parser {
         }
         let b = self.parse_expr()?;
         self.eat_rparen();
-        Ok(Node::BinaryFn(BinaryFunc::LogBase, Box::new(a), Box::new(b)))
+        Ok(Node::BinaryFn(
+            BinaryFunc::LogBase,
+            Box::new(a),
+            Box::new(b),
+        ))
     }
 
     fn parse_root_call(&mut self) -> Result<Node, CalcError> {

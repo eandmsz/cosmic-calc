@@ -5,15 +5,14 @@
 //!
 //! The mapping follows the Phase-2 spec:
 //!
-//! * `bg_color`                  → window / app background
-//! * `primary_container_color`   → side-panel background
-//! * `on_bg_color`               → interface text
-//! * `primary_component_color`   → control-component tint (science /
-//!                                  second / top-row / negate buttons)
-//! * `accent_color`              → accent (equals / basic-op buttons)
-//! * `is_dark`                   → whether to darken (×0.8) or lighten
-//!                                  (×1.2) the number/decimal buttons
-//!                                  derived from the component tint
+//! * `bg_color` → window / app background
+//! * `primary_container_color` → side-panel background
+//! * `on_bg_color` → interface text
+//! * `primary_component_color` → control-component tint (science,
+//!   second, top-row and negate buttons)
+//! * `accent_color` → accent (equals / basic-op buttons)
+//! * `is_dark` → whether to darken (×0.8) or lighten (×1.2) the
+//!   number/decimal buttons derived from the component tint
 
 use cosmic::cosmic_theme;
 use cosmic::cosmic_theme::palette::Srgba;

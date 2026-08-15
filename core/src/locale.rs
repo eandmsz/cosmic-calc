@@ -8,6 +8,8 @@
 //! `decimal_separator` config field – this module only provides the
 //! default when the config has no explicit value.
 
+use std::sync::OnceLock;
+
 use serde::{Deserialize, Serialize};
 
 /// Which character introduces the fractional part of a number. Used
@@ -64,20 +66,15 @@ impl DecimalSeparator {
 /// decimal → space thousands). `None` disables grouping entirely.
 /// Concrete choices are constrained at render time so we never pick a
 /// glyph that collides with the current decimal separator.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ThousandsSeparator {
+    #[default]
     Auto,
     Space,
     Comma,
     Dot,
     None,
-}
-
-impl Default for ThousandsSeparator {
-    fn default() -> Self {
-        Self::Auto
-    }
 }
 
 impl ThousandsSeparator {
@@ -128,28 +125,33 @@ impl ThousandsSeparator {
 /// `.` – over-inclusion would flip the default for users we have
 /// no confidence about.
 const COMMA_LANGS: &[&str] = &[
-    "af", "az", "be", "bg", "bs", "ca", "cs", "da", "de", "el",
-    "es", "et", "eu", "fi", "fr", "gl", "hr", "hu", "hy", "is",
-    "it", "ka", "kk", "ky", "lt", "lv", "mk", "mn", "nb", "nl",
-    "no", "pl", "pt", "ro", "ru", "sk", "sl", "sq", "sr", "sv",
-    "tr", "uk", "uz", "vi",
+    "af", "az", "be", "bg", "bs", "ca", "cs", "da", "de", "el", "es", "et", "eu", "fi", "fr", "gl",
+    "hr", "hu", "hy", "is", "it", "ka", "kk", "ky", "lt", "lv", "mk", "mn", "nb", "nl", "no", "pl",
+    "pt", "ro", "ru", "sk", "sl", "sq", "sr", "sv", "tr", "uk", "uz", "vi",
 ];
 
 /// Detect the OS-level default decimal separator. Falls back to
 /// `DecimalSeparator::Dot` when the locale cannot be read or the
 /// language is unknown.
+///
+/// Cached: `resolved` sits on the render path (the display formatter,
+/// the thousands-separator rule and the keypad's decimal label all call
+/// it), so this used to hit `sys_locale::get_locale` several times per
+/// frame. The OS locale does not change under a running process in any
+/// way the app can act on, so reading it once is enough.
 pub fn detect_decimal_separator() -> DecimalSeparator {
-    match sys_locale::get_locale() {
+    static CACHE: OnceLock<DecimalSeparator> = OnceLock::new();
+    *CACHE.get_or_init(|| match sys_locale::get_locale() {
         Some(loc) => classify(&loc),
         None => DecimalSeparator::Dot,
-    }
+    })
 }
 
 /// Pure classifier – takes a BCP-47 / POSIX locale tag and returns
 /// the separator. Exposed for testing.
 pub fn classify(locale: &str) -> DecimalSeparator {
     let lang = locale
-        .split(|c: char| c == '-' || c == '_' || c == '.')
+        .split(['-', '_', '.'])
         .next()
         .unwrap_or("")
         .to_lowercase();

@@ -1,19 +1,16 @@
-//! Library root. Re-exports the engine, history, memory, config, and
-//! clipboard modules so integration tests (and future embedders) can
-//! drive the calculator without touching the UI layer. The binary in
-//! `main.rs` depends on this same crate through its `cosmic_calc::*`
-//! paths.
+//! Library root for the GUI crate. The calculation core lives in the
+//! separate `cosmic-calc-core` package and is re-exported here, so UI
+//! modules keep referring to `crate::engine`, `crate::config`, and so
+//! on, and embedders get one import for the whole calculator.
+//!
+//! The split exists so the core can be tested without libcosmic: run
+//! `cargo test -p cosmic-calc-core` for the engine, formatter, config
+//! and clipboard suites, and `cargo test` for the UI on top.
 
-pub mod clipboard;
-pub mod color;
-pub mod config;
-pub mod engine;
-pub mod history;
-pub mod locale;
-pub mod memory;
-pub mod props;
-pub mod rng;
-pub mod theme;
+pub use cosmic_calc_core::{
+    clipboard, color, config, engine, history, locale, memory, props, rng, theme,
+};
+
 pub mod ui;
 
 #[cfg(test)]

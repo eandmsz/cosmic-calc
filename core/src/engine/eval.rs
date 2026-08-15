@@ -5,21 +5,16 @@
 use std::f64::consts::{E, PI};
 
 use crate::engine::ast::Node;
-use crate::engine::errors::{CalcError, classify};
+use crate::engine::errors::{classify, CalcError};
 use crate::engine::gamma::factorial;
 use crate::engine::item::{BinOp, BinaryFunc, ConstKind, UnaryFunc};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum AngleMode {
+    #[default]
     Deg,
     Rad,
-}
-
-impl Default for AngleMode {
-    fn default() -> Self {
-        AngleMode::Deg
-    }
 }
 
 /// Evaluate `node` under the given angle mode.
@@ -47,7 +42,10 @@ pub fn eval(node: &Node, mode: AngleMode) -> Result<f64, CalcError> {
             if r == 0.0 {
                 return Err(CalcError::Undefined);
             }
-            classify(l.rem_euclid_ieee(r))
+            // Truncated remainder (C's `fmod`): the result takes the
+            // sign of the dividend, so `-7 mod 3` is -1. Note this is
+            // deliberately NOT `f64::rem_euclid`, which would give 2.
+            classify(l % r)
         }
         Node::Bin(op, a, b) => eval_binary(*op, a, b, mode),
         Node::UnaryFn(f, x) => eval_unary_fn(*f, x, mode),
@@ -144,7 +142,7 @@ fn nth_root(x: f64, y: f64) -> Result<f64, CalcError> {
         return Ok(0.0);
     }
     if x < 0.0 {
-        if is_integer(y) && (y as i64) % 2 != 0 {
+        if is_odd_integer(y) {
             let v = -(-x).powf(1.0 / y);
             return classify(v);
         }
@@ -153,8 +151,23 @@ fn nth_root(x: f64, y: f64) -> Result<f64, CalcError> {
     classify(x.powf(1.0 / y))
 }
 
-/// True when `x` is an integer value.
-fn is_integer(x: f64) -> bool {
+/// True when `y` is an integer this f64 can still tell apart from its
+/// neighbours *and* that integer is odd.
+///
+/// Past 2^53 adjacent f64s differ by more than 1, so parity stops being
+/// a meaningful property of the value – and a plain `y as i64` cast
+/// saturates at `i64::MAX`, which is odd, so `root(-8, 1e30)` used to
+/// take the odd branch and return -1 instead of Undefined.
+fn is_odd_integer(y: f64) -> bool {
+    if !is_integer(y) || y.abs() > TRIG_SNAP_PRECISION_LIMIT {
+        return false;
+    }
+    (y as i64) % 2 != 0
+}
+
+/// True when `x` is an integer value. Shared with `gamma`, which needs
+/// the same test to spot the poles of Γ at the negative integers.
+pub(crate) fn is_integer(x: f64) -> bool {
     x.is_finite() && x.floor() == x
 }
 
@@ -392,17 +405,5 @@ fn is_cot_pole(x: f64, mode: AngleMode) -> bool {
     match mode {
         AngleMode::Deg => (x / 180.0).fract() == 0.0,
         AngleMode::Rad => (x / PI).fract() == 0.0,
-    }
-}
-
-/// IEEE 754 remainder used for modulo. Delegates to Rust's `%` which
-/// follows the sign of the dividend (`fmod` semantics).
-trait RemEuclidIeee {
-    fn rem_euclid_ieee(self, other: f64) -> f64;
-}
-
-impl RemEuclidIeee for f64 {
-    fn rem_euclid_ieee(self, other: f64) -> f64 {
-        self % other
     }
 }

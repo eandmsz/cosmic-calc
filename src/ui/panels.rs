@@ -9,20 +9,26 @@ use cosmic::iced::Length;
 use cosmic::widget;
 use cosmic::Element;
 
-use crate::config::{ButtonShape, Config, max_decimals_for_rand_max};
-use crate::ui::font::{available_fonts, font_for_name};
+use crate::config::{
+    max_decimals_for_rand_max, ButtonShape, Config, MAX_SIGNIFICANT_DIGITS, MIN_SIGNIFICANT_DIGITS,
+};
 use crate::history::History;
 use crate::locale::{DecimalSeparator, ThousandsSeparator};
 use crate::memory::Memory;
 use crate::theme::ThemeKind;
 use crate::ui::app::Message;
+use crate::ui::font::available_fonts_with_faces;
 
 /// Left-hand history + memory panel. Newest entries first. Clicking
 /// a row emits `Message::RecallHistory(idx)` which rewrites the
 /// display (but leaves the buffer alone, per spec).
-pub fn history_panel<'a>(history: &History, memory: &Memory) -> Element<'a, Message> {
+pub fn history_panel<'a>(
+    history: &History,
+    memory: &Memory,
+    significant_digits: u8,
+) -> Element<'a, Message> {
     let header = widget::text::title4("History");
-    let mem_label = match memory.display() {
+    let mem_label = match memory.display(significant_digits) {
         s if s.is_empty() => "Memory: (empty)".to_string(),
         s => format!("Memory: {s}"),
     };
@@ -56,6 +62,40 @@ pub fn history_panel<'a>(history: &History, memory: &Memory) -> Element<'a, Mess
     }
 
     column.width(Length::Fixed(280.0)).into()
+}
+
+/// Which of the two rand-bound inputs currently reads as invalid.
+/// Drives the red border here and the Rand key's refusal to fire in
+/// `AppModel`, which previously carried a hand-copied second version of
+/// these rules that had to be kept in step by eye.
+pub struct RandBoundsValidity {
+    pub min_invalid: bool,
+    pub max_invalid: bool,
+}
+
+/// Compare the parsed text of one bound against the other, falling back
+/// to the last-good config value when the other field cannot parse, so
+/// the indicator reacts to in-flight typing instead of waiting for a
+/// successful commit. Blank is valid: the persisted value stands.
+pub fn rand_bounds_validity(
+    config: &Config,
+    rand_min_text: &str,
+    rand_max_text: &str,
+) -> RandBoundsValidity {
+    let parsed_min: Option<f64> = rand_min_text.parse().ok().filter(|v: &f64| v.is_finite());
+    let parsed_max: Option<f64> = rand_max_text.parse().ok().filter(|v: &f64| v.is_finite());
+    let effective_max = parsed_max.unwrap_or(config.rand_max_excl);
+    let effective_min = parsed_min.unwrap_or(config.rand_min_incl);
+    RandBoundsValidity {
+        min_invalid: match parsed_min {
+            Some(v) => v >= effective_max,
+            None => !rand_min_text.trim().is_empty(),
+        },
+        max_invalid: match parsed_max {
+            Some(v) => v <= effective_min,
+            None => !rand_max_text.trim().is_empty(),
+        },
+    }
 }
 
 /// Right-hand settings panel. Mode switching intentionally lives on
@@ -149,9 +189,7 @@ pub fn settings_panel<'a>(
         .iter()
         .map(|s| s.display_name().to_string())
         .collect();
-    let shape_idx = shape_options
-        .iter()
-        .position(|s| *s == config.button_shape);
+    let shape_idx = shape_options.iter().position(|s| *s == config.button_shape);
     let shape_dropdown = widget::dropdown(shape_labels, shape_idx, move |i| {
         Message::SetButtonShape(shape_options[i])
     });
@@ -164,12 +202,6 @@ pub fn settings_panel<'a>(
         .on_toggle(Message::SetPropertyTesting)
         .spacing(8.0);
 
-    let debug_toggle = widget::button::standard(format!(
-        "Debug: {}",
-        if config.debug_mode { "on" } else { "off" }
-    ))
-    .on_press(Message::SetDebugMode(!config.debug_mode));
-
     // Font selector — enumerates every family fontdb finds installed on
     // the host. Each row renders the family's name in its own typeface
     // so the user can preview the look before committing. The currently
@@ -177,12 +209,10 @@ pub fn settings_panel<'a>(
     // stands out from the rest. The list is wrapped in a scrollable so
     // a host with hundreds of installed fonts doesn't push the rest of
     // the settings panel off-screen.
-    let fonts = available_fonts();
+    let fonts = available_fonts_with_faces();
     let mut font_list = widget::column::with_capacity(fonts.len()).spacing(2);
-    for name in fonts {
-        let preview = widget::text(name.clone())
-            .font(font_for_name(name))
-            .size(14);
+    for (name, face) in fonts {
+        let preview = widget::text(name.clone()).font(*face).size(14);
         let class = if name == &config.font {
             cosmic::theme::Button::Suggested
         } else {
@@ -195,8 +225,7 @@ pub fn settings_panel<'a>(
             .on_press(Message::SetFont(name.clone()));
         font_list = font_list.push(btn);
     }
-    let font_selector = widget::scrollable(font_list)
-        .height(Length::Fixed(220.0));
+    let font_selector = widget::scrollable(font_list).height(Length::Fixed(220.0));
 
     // Random number config: two text inputs for the bounds + a slider
     // for the decimal count. The bounds are kept as raw text in
@@ -208,25 +237,17 @@ pub fn settings_panel<'a>(
     // to the last-good config value when the other field can't parse —
     // so the indicator reacts to in-flight typing instead of waiting
     // for a successful commit.
-    let parsed_min: Option<f64> = rand_min_text.parse().ok().filter(|v: &f64| v.is_finite());
-    let parsed_max: Option<f64> = rand_max_text.parse().ok().filter(|v: &f64| v.is_finite());
-    let effective_max = parsed_max.unwrap_or(config.rand_max_excl);
-    let effective_min = parsed_min.unwrap_or(config.rand_min_incl);
-    let min_invalid = match parsed_min {
-        Some(v) => v >= effective_max,
-        None => !rand_min_text.trim().is_empty(),
-    };
-    let max_invalid = match parsed_max {
-        Some(v) => v <= effective_min,
-        None => !rand_max_text.trim().is_empty(),
-    };
-    let mut rand_min_input = widget::text_input("0", rand_min_text.to_string())
-        .on_input(Message::SetRandMinText);
+    let RandBoundsValidity {
+        min_invalid,
+        max_invalid,
+    } = rand_bounds_validity(config, rand_min_text, rand_max_text);
+    let mut rand_min_input =
+        widget::text_input("0", rand_min_text.to_string()).on_input(Message::SetRandMinText);
     if min_invalid {
         rand_min_input = rand_min_input.error("min must be smaller than max");
     }
-    let mut rand_max_input = widget::text_input("1", rand_max_text.to_string())
-        .on_input(Message::SetRandMaxText);
+    let mut rand_max_input =
+        widget::text_input("1", rand_max_text.to_string()).on_input(Message::SetRandMaxText);
     if max_invalid {
         rand_max_input = rand_max_input.error("max must be larger than min");
     }
@@ -245,6 +266,19 @@ pub fn settings_panel<'a>(
         max_decimals
     ));
 
+    // Display precision. The config field existed and the message was
+    // handled, but nothing ever emitted it, so the only way to change
+    // the precision was to hand-edit config.toml.
+    let significant_digits_slider = widget::slider(
+        MIN_SIGNIFICANT_DIGITS..=MAX_SIGNIFICANT_DIGITS,
+        config.significant_digits,
+        Message::SetSignificantDigits,
+    );
+    let significant_digits_label = widget::text::caption(format!(
+        "Displayed significant digits: {}",
+        config.significant_digits
+    ));
+
     widget::column::with_capacity(19)
         .push(header)
         .push(widget::text::caption("Theme"))
@@ -257,6 +291,8 @@ pub fn settings_panel<'a>(
         .push(thousands_dropdown)
         .push(widget::text::caption("Button shape"))
         .push(shape_dropdown)
+        .push(significant_digits_label)
+        .push(significant_digits_slider)
         .push(widget::text::caption("Random min (inclusive)"))
         .push(rand_min_input)
         .push(widget::text::caption("Random max (exclusive)"))
@@ -264,7 +300,6 @@ pub fn settings_panel<'a>(
         .push(rand_decimals_label)
         .push(rand_decimals_slider)
         .push(prop_toggle)
-        .push(debug_toggle)
         .spacing(8)
         .padding(12)
         .width(Length::Fixed(380.0))

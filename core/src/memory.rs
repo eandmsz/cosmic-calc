@@ -3,7 +3,7 @@
 //! The displayed memory value sits above the history side panel. It
 //! is not persisted across restarts.
 
-use crate::engine::format::{DEFAULT_ROUNDING_DECIMALS, format_result};
+use crate::engine::format::format_result;
 
 /// An f64 accumulator with a dirty flag: `has_value` is false until
 /// the user stores something via M+ / M−, and goes back to false on
@@ -46,10 +46,16 @@ impl Memory {
 
     /// Formatted representation for the side panel. Empty string when
     /// nothing is stored.
-    pub fn display(&self) -> String {
+    ///
+    /// Takes the precision rather than reaching for the default, so the
+    /// memory readout honours the user's setting like every other
+    /// number the app shows. It used to be pinned to the default, so
+    /// lowering the precision left the side panel disagreeing with the
+    /// main display about the same value.
+    pub fn display(&self, significant_digits: u8) -> String {
         if !self.has_value {
             return String::new();
         }
-        format_result(self.value, DEFAULT_ROUNDING_DECIMALS)
+        format_result(self.value, significant_digits)
     }
 }

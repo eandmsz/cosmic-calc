@@ -5,9 +5,8 @@
 //! values the user typed into their nearest legal equivalent so we
 //! never crash on a bad file.
 //!
-//! Defaults mirror the spec: rounding to 15 decimals, a 300 × 700
-//! startup window, the Cosmic theme, and an OS-detected decimal
-//! separator.
+//! Defaults: 15 significant digits on the display, a 300 × 700 startup
+//! window, the Cosmic theme, and an OS-detected decimal separator.
 
 use std::fs;
 use std::io;
@@ -23,9 +22,14 @@ use crate::theme::{Theme, ThemeKind};
 // Bounds
 // ---------------------------------------------------------------------
 
-pub const MIN_ROUNDING_DECIMALS: u8 = 1;
-pub const MAX_ROUNDING_DECIMALS: u8 = 15;
-pub const DEFAULT_ROUNDING_DECIMALS: u8 = 15;
+pub const MIN_SIGNIFICANT_DIGITS: u8 = 1;
+pub const MAX_SIGNIFICANT_DIGITS: u8 = 15;
+
+/// Re-exported so the formatter and the config agree by construction.
+/// These used to be two separate constants with two different values
+/// (14 and 15), which meant the test suite exercised a precision the
+/// shipped binary never used.
+pub use crate::engine::format::DEFAULT_SIGNIFICANT_DIGITS;
 
 pub const MIN_WINDOW_DIM: u32 = 10;
 pub const MAX_WINDOW_DIM: u32 = 34_560;
@@ -63,17 +67,12 @@ pub const DEFAULT_FONT: &str = "Adwaita Sans";
 
 /// Keypad layout. `Scientific` exposes the full button grid;
 /// `Basic` drops the scientific-function column.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Mode {
     Basic,
+    #[default]
     Scientific,
-}
-
-impl Default for Mode {
-    fn default() -> Self {
-        Mode::Scientific
-    }
 }
 
 /// Preset button shapes. `Auto` defers to the cosmic system theme's
@@ -82,19 +81,14 @@ impl Default for Mode {
 /// look without juggling two numeric sliders. The radius/spacing
 /// pairs (in logical pixels) are: Round 15/2, SlightlyRound 5/2,
 /// Square 0/1.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ButtonShape {
+    #[default]
     Auto,
     Round,
     SlightlyRound,
     Square,
-}
-
-impl Default for ButtonShape {
-    fn default() -> Self {
-        ButtonShape::Auto
-    }
 }
 
 impl ButtonShape {
@@ -167,9 +161,13 @@ pub struct Config {
     /// `[0, MAX_RAND_DECIMALS]`.
     pub rand_decimals: u8,
 
-    /// Digit count for the display formatter. Clamped to
-    /// `[MIN_ROUNDING_DECIMALS, MAX_ROUNDING_DECIMALS]`.
-    pub rounding_decimals: u8,
+    /// Significant digits kept by the display formatter. Clamped to
+    /// `[MIN_SIGNIFICANT_DIGITS, MAX_SIGNIFICANT_DIGITS]`. The old
+    /// `rounding_decimals` key is still accepted so existing config
+    /// files keep loading, though it now means significant digits
+    /// rather than digits after the point.
+    #[serde(alias = "rounding_decimals")]
+    pub significant_digits: u8,
 
     /// Startup window width in logical pixels. Clamped to
     /// `[MIN_WINDOW_DIM, MAX_WINDOW_DIM]`.
@@ -177,15 +175,11 @@ pub struct Config {
     /// Startup window height in logical pixels. Same range as the
     /// width.
     pub window_startup_height: u32,
-    /// If true, the live window size is written back to this file on
-    /// exit so next launch restores the same geometry.
-    pub window_size_saving: bool,
 
-    /// Enable the in-app property testing harness (for development).
+    /// Show the number-property row (prime / harshad / palindrome /
+    /// square / triangular / fibonacci) below the display in
+    /// Scientific mode.
     pub property_testing: bool,
-    /// Let the COSMIC desktop's transparency setting override the
-    /// theme's background alpha channels.
-    pub override_with_desktop_transparency: bool,
 
     /// Which named palette the user picked; `Custom` means the
     /// `theme` field was hand-edited and should be round-tripped
@@ -212,13 +206,8 @@ pub struct Config {
     /// concrete glyph (or `None` for no grouping).
     pub thousands_separator: ThousandsSeparator,
 
-    /// Trigonometric angle unit – not listed by the Phase-2 spec but
-    /// retained from Phase-1 so the runtime has somewhere to store
-    /// the DEG/RAD toggle.
+    /// Trigonometric angle unit backing the DEG/RAD toggle.
     pub angle_mode: AngleMode,
-
-    /// Extra logging and a dev-only footer. Off by default.
-    pub debug_mode: bool,
 }
 
 impl Default for Config {
@@ -232,14 +221,12 @@ impl Default for Config {
             rand_max_excl: 1.0,
             rand_decimals: 10,
 
-            rounding_decimals: DEFAULT_ROUNDING_DECIMALS,
+            significant_digits: DEFAULT_SIGNIFICANT_DIGITS,
 
             window_startup_width: DEFAULT_WINDOW_WIDTH,
             window_startup_height: DEFAULT_WINDOW_HEIGHT,
-            window_size_saving: true,
 
             property_testing: false,
-            override_with_desktop_transparency: false,
 
             theme_kind: ThemeKind::default(),
             theme: ThemeKind::default().get(),
@@ -252,8 +239,6 @@ impl Default for Config {
             thousands_separator: ThousandsSeparator::Auto,
 
             angle_mode: AngleMode::Deg,
-
-            debug_mode: false,
         }
     }
 }
@@ -265,9 +250,7 @@ impl Config {
     /// repaired rather than rejected – we'd rather the app start
     /// than insist on a perfect file.
     pub fn validate_and_clamp(&mut self) {
-        self.button_corner_radius = self
-            .button_corner_radius
-            .clamp(0.0, MAX_CORNER_RADIUS);
+        self.button_corner_radius = self.button_corner_radius.clamp(0.0, MAX_CORNER_RADIUS);
         self.button_spacing = self.button_spacing.clamp(0.0, MAX_BUTTON_SPACING);
 
         if !(self.rand_min_incl.is_finite()
@@ -279,9 +262,9 @@ impl Config {
         }
         self.rand_decimals = self.rand_decimals.min(MAX_RAND_DECIMALS);
 
-        self.rounding_decimals = self
-            .rounding_decimals
-            .clamp(MIN_ROUNDING_DECIMALS, MAX_ROUNDING_DECIMALS);
+        self.significant_digits = self
+            .significant_digits
+            .clamp(MIN_SIGNIFICANT_DIGITS, MAX_SIGNIFICANT_DIGITS);
 
         self.window_startup_width = self
             .window_startup_width
@@ -437,13 +420,25 @@ impl Config {
 
     /// Save to an explicit path. Exposed for tests and for callers
     /// that want to target a non-default location.
+    ///
+    /// Writes to a sibling temp file and renames it into place, so a
+    /// crash or power loss mid-write leaves the previous config intact
+    /// rather than a truncated file. `rename` is atomic within a
+    /// filesystem, and the temp file is a sibling to guarantee that.
     pub fn save_at(&self, path: &Path) -> Result<(), ConfigError> {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
         let body = toml::to_string_pretty(self)?;
-        fs::write(path, body)?;
-        Ok(())
+        let tmp = path.with_extension("toml.tmp");
+        fs::write(&tmp, body)?;
+        match fs::rename(&tmp, path) {
+            Ok(()) => Ok(()),
+            Err(e) => {
+                // Don't leave the scratch file behind on failure.
+                let _ = fs::remove_file(&tmp);
+                Err(e.into())
+            }
+        }
     }
 }
-
