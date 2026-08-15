@@ -1,9 +1,12 @@
 name: Release
 
-# Publishes a GitHub release with a prebuilt Linux binary whenever a
+# Publishes a GitHub release with a prebuilt Linux binary, either when a
 # version tag is pushed:
 #
-#     git tag v0.1 && git push origin v0.1
+#     git tag v0.1.0 && git push origin v0.1.0
+#
+# or by running this workflow from the Actions tab and giving it a
+# version, in which case the tag is created as part of publishing.
 #
 # The binary is built here rather than uploaded from a workstation, so
 # what people download is reproducible from the tagged commit and the
@@ -13,6 +16,12 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release, without the leading v (e.g. 0.1.0)"
+        required: true
+        type: string
 
 # `gh release create` needs to write to the repository.
 permissions:
@@ -46,9 +55,17 @@ jobs:
 
       - name: Package
         id: package
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
-          version="${GITHUB_REF_NAME#v}"
+          # Tag push gives the version in the ref; a manual run gives it
+          # as an input and the tag is created when publishing.
+          if [ -n "${INPUT_VERSION}" ]; then
+            version="${INPUT_VERSION#v}"
+          else
+            version="${GITHUB_REF_NAME#v}"
+          fi
           asset="cosmic-calc-${version}-x86_64-linux"
           mkdir -p dist
           cp target/release/cosmic-calc "dist/${asset}"
@@ -66,6 +83,7 @@ jobs:
           } > dist/BUILD-INFO.txt
           echo "asset=${asset}" >> "$GITHUB_OUTPUT"
           echo "glibc=${glibc}" >> "$GITHUB_OUTPUT"
+          echo "tag=v${version}" >> "$GITHUB_OUTPUT"
 
       - name: Write release notes
         run: |
@@ -101,8 +119,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "${GITHUB_REF_NAME}" \
-            --title "${GITHUB_REF_NAME}" \
+          # `--target` makes gh create the tag at this commit when a
+          # manual run supplied the version rather than a tag push.
+          gh release create "${{ steps.package.outputs.tag }}" \
+            --target "${GITHUB_SHA}" \
+            --title "${{ steps.package.outputs.tag }}" \
             --notes-file dist/NOTES.md \
             "dist/${{ steps.package.outputs.asset }}" \
             "dist/${{ steps.package.outputs.asset }}.sha256" \
