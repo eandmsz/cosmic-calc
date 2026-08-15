@@ -4,6 +4,7 @@
 //! seconds without the GUI dependency tree.
 
 mod clipboard;
+mod clipboard_spec;
 mod color;
 mod config;
 mod engine_input;

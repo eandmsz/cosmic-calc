@@ -206,3 +206,87 @@ fn load_clamps_out_of_range_values() {
     assert_eq!(cfg.window_startup_width, MIN_WINDOW_DIM);
     let _ = std::fs::remove_dir_all(path.parent().unwrap());
 }
+
+// =====================================================================
+// Colour storage format
+// =====================================================================
+
+#[test]
+fn colours_are_stored_as_compact_rgba_hex() {
+    let toml = toml::to_string_pretty(&Config::default()).expect("serialise");
+
+    // Structured: the palette is one named table, not eleven loose
+    // top-level keys.
+    assert!(
+        toml.contains("[theme]"),
+        "expected a [theme] table:\n{toml}"
+    );
+
+    // Compact: each colour is a single `#RRGGBBAA` string. The type
+    // also accepts the older `{ r, g, b, a }` table on the way in, so
+    // this asserts the *written* form has not regressed to it.
+    assert!(
+        toml.contains(r##"app_bg = "#1B1B1BFF""##),
+        "expected #RRGGBBAA hex:\n{toml}"
+    );
+    assert!(
+        !toml.contains("[theme.app_bg]"),
+        "colours must not expand into per-channel tables:\n{toml}"
+    );
+
+    // Every slot in the palette, uppercase hex, alpha always present.
+    let hex = regex_lite_hex_lines(&toml);
+    assert_eq!(hex.len(), 11, "expected 11 colour slots, got {hex:?}");
+    for line in &hex {
+        let value = line.split('=').nth(1).unwrap().trim().trim_matches('"');
+        assert_eq!(value.len(), 9, "{value:?} should be #RRGGBBAA");
+        assert!(value.starts_with('#'), "{value:?} should start with #");
+        assert!(
+            value[1..]
+                .chars()
+                .all(|c| c.is_ascii_hexdigit() && !c.is_lowercase()),
+            "{value:?} should be uppercase hex"
+        );
+    }
+}
+
+/// Collect the `key = "#RRGGBBAA"` lines without pulling in a regex
+/// crate for one assertion.
+fn regex_lite_hex_lines(toml: &str) -> Vec<&str> {
+    toml.lines().filter(|l| l.contains("= \"#")).collect()
+}
+
+#[test]
+fn colours_round_trip_through_the_hex_form() {
+    let mut cfg = Config::default();
+    cfg.apply_theme_preset(ThemeKind::CupertinoDark);
+    let toml = toml::to_string_pretty(&cfg).expect("serialise");
+    let back: Config = toml::from_str(&toml).expect("deserialise");
+    assert_eq!(back.theme, cfg.theme);
+}
+
+#[test]
+fn legacy_per_channel_colour_tables_still_load() {
+    // Older config files stored colours as a table of channels. They
+    // must keep loading, and get rewritten in the compact form on the
+    // next save.
+    let raw = r##"
+        [theme]
+        name = "Custom"
+        app_bg = { r = 27, g = 27, b = 27, a = 255 }
+        sidepanel_bg = "#272727FF"
+        text_active = "#E7E7E7FF"
+        science_button = "#636363FF"
+        second_button = "#636363FF"
+        toprow_button = "#636363FF"
+        basicop_button = "#61CDDCFF"
+        equals_button = "#61CDDCFF"
+        negate_button = "#636363FF"
+        decimal_button = "#4F4F4FFF"
+        number_button = "#4F4F4FFF"
+    "##;
+    let cfg: Config = toml::from_str(raw).expect("legacy form must deserialise");
+    assert_eq!(cfg.theme.app_bg, Rgba::from_hex(0x1B_1B_1B_FF));
+    let rewritten = toml::to_string_pretty(&cfg).expect("serialise");
+    assert!(rewritten.contains(r##"app_bg = "#1B1B1BFF""##));
+}

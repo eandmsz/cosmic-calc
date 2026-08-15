@@ -297,23 +297,13 @@ impl AppModel {
     /// empty or held non-text data; `Some(raw)` goes through the
     /// sanitiser and, on success, replaces the buffer.
     fn handle_paste_delivered(&mut self, payload: Option<String>) {
-        let raw = match payload {
-            Some(text) => text,
-            None => return,
-        };
-        let Some(clean) = crate::clipboard::sanitize_paste(&raw) else {
+        // Every rejection rule lives in `paste_items`: a non-text
+        // clipboard (which arrives as `None`), the length cap, the
+        // character allow-list, and anything the buffer cannot
+        // represent faithfully. All of them mean "ignore this paste".
+        let Some(items) = crate::clipboard::paste_items(payload.as_deref()) else {
             return;
         };
-        // `None` means the text held something the buffer cannot
-        // represent. Dropping the paste is the only safe answer –
-        // keeping the representable remainder would silently substitute
-        // a different expression.
-        let Some(items) = crate::clipboard::items_from_paste(&clean) else {
-            return;
-        };
-        if items.is_empty() {
-            return;
-        }
         self.engine.input.replace(items);
         self.ui.last_result.clear();
         self.ui.last_result_value = None;

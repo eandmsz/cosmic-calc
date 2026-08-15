@@ -37,6 +37,33 @@ pub enum ClipboardOp {
 /// this the whole paste is dropped.
 pub const MAX_PASTE_CHARS: usize = 255;
 
+/// The whole paste decision in one place: what the clipboard delivered
+/// in, the items to replace the buffer with out, or `None` when the
+/// paste must be silently ignored.
+///
+/// `None` is returned for every rejection the spec lists:
+///
+/// * the clipboard held something that is not text, which the UI
+///   surfaces as a `None` payload
+/// * the text ran past [`MAX_PASTE_CHARS`], or held a character outside
+///   the allow-list ([`sanitize_paste`])
+/// * the text held something the buffer cannot represent faithfully
+///   ([`items_from_paste`])
+/// * the text was empty, or reduced to nothing
+///
+/// Having one entry point keeps the policy testable without standing up
+/// a libcosmic application, which is where the not-text case used to
+/// live and therefore go untested.
+pub fn paste_items(payload: Option<&str>) -> Option<Vec<InputItem>> {
+    let raw = payload?;
+    let clean = sanitize_paste(raw)?;
+    let items = items_from_paste(&clean)?;
+    if items.is_empty() {
+        return None;
+    }
+    Some(items)
+}
+
 /// Render the engine buffer into the textual form that goes on the
 /// clipboard. Empty buffer is surfaced as `"0"` per spec.
 pub fn copy_text_for(ascii_expression: &str) -> String {
