@@ -302,3 +302,47 @@ fn the_readme_compatibility_examples_paste_and_evaluate() {
         );
     }
 }
+
+// =====================================================================
+// `e`: exponent or Euler's number
+// =====================================================================
+
+#[test]
+fn an_e_is_an_exponent_only_when_a_number_is_attached_on_both_sides() {
+    // Decided before whitespace is dropped, because the space is the
+    // only thing distinguishing the two readings once it is gone.
+    for (raw, expect) in [
+        ("2e8", "2e8"), // mantissa and exponent attached
+        ("2e3", "2e3"),
+        ("1e-4", "1e-4"), // a sign may sit between
+        ("2e+2", "2e+2"),
+        ("1,5e3", "1,5e3"), // decimal comma mantissa
+        ("2e", "2𝑒"),       // nothing after: the constant
+        ("2e +2", "2𝑒+2"),  // space after: the constant, then addition
+        ("2e 8", "2𝑒8"),    // space after: the constant, then 8
+    ] {
+        assert_eq!(&sanitize_paste(raw).unwrap(), expect, "reading of {raw:?}");
+    }
+    // A bare `e` with no mantissa before it is the constant already, so
+    // it is left alone and the spec's `E` -> `e` fold still holds.
+    assert_eq!(sanitize_paste("E").unwrap(), "e");
+    assert_eq!(sanitize_paste("3*e*5").unwrap(), "3×e×5");
+}
+
+#[test]
+fn the_two_readings_evaluate_differently() {
+    assert_eq!(paste_and_eval("2e+2").unwrap(), "200");
+    assert_eq!(paste_and_eval("2e +2").unwrap(), "7.43656365691809");
+    assert_eq!(paste_and_eval("2e8").unwrap(), "200000000");
+    assert_eq!(paste_and_eval("2e 8").unwrap(), "43.4925092553447");
+}
+
+#[test]
+fn a_stray_allowlisted_letter_is_dropped() {
+    // The allow-list only admits letters that appear in function names,
+    // so one that starts no keyword is a stray character. Anything off
+    // the list still rejects the whole paste.
+    assert_eq!(paste_and_eval("l root(5, 4)").unwrap(), "1.49534878122122");
+    assert_eq!(paste_and_eval("2+3n").unwrap(), "5");
+    assert_eq!(paste_items(Some("2+3z")), None);
+}

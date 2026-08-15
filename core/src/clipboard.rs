@@ -17,6 +17,11 @@
 //! silently dropped. We also reject non-text clipboard payloads simply
 //! by using `iced::clipboard::read()` which returns `None` in that
 //! case.
+//!
+//! The one thing that is dropped rather than refused is a letter that
+//! is on the allow-list but starts no keyword — the list only admits
+//! letters that appear in function names, so a leftover one is a stray
+//! character. `l root(5, 4)` is `root(5, 4)`.
 
 use crate::engine::item::{BinOp, BinaryFunc, ConstKind, InputItem, UnaryFunc};
 
@@ -91,11 +96,26 @@ pub fn sanitize_paste(raw: &str) -> Option<String> {
         kept.push(ch);
     }
 
-    // Pass 2: space handling – drop every ' ' except those preceded
-    // by ','.
-    let mut spaced = String::with_capacity(kept.len());
-    let mut prev: Option<char> = None;
+    // Pass 2: char-level substitutions (case fold, unicode glyphs).
+    // Runs before the exponent pass so a full-width `＋` is already an
+    // ASCII sign by the time an exponent is looked for.
+    let mut canonical = String::with_capacity(kept.len());
     for ch in kept.chars() {
+        match substitute_char(ch) {
+            Some(s) => canonical.push_str(s),
+            None => canonical.push(ch),
+        }
+    }
+
+    // Pass 3: settle what each ASCII `e` means while the spacing is
+    // still intact — see `mark_euler_constants`.
+    let eulered = mark_euler_constants(&canonical);
+
+    // Pass 4: space handling – drop every ' ' except those preceded
+    // by ','.
+    let mut spaced = String::with_capacity(eulered.len());
+    let mut prev: Option<char> = None;
+    for ch in eulered.chars() {
         if ch == ' ' {
             if prev == Some(',') {
                 spaced.push(' ');
@@ -106,20 +126,47 @@ pub fn sanitize_paste(raw: &str) -> Option<String> {
         prev = Some(ch);
     }
 
-    // Pass 3: char-level substitutions (case fold, unicode glyphs).
-    let mut canonical = String::with_capacity(spaced.len());
-    for ch in spaced.chars() {
-        match substitute_char(ch) {
-            Some(s) => canonical.push_str(s),
-            None => canonical.push(ch),
-        }
-    }
-
-    // Pass 4: function-name rewrites. Longer names first to avoid
+    // Pass 5: function-name rewrites. Longer names first to avoid
     // `asinh` being eaten as `asin` + trailing `h`.
-    let functional = rewrite_function_names(&canonical);
+    let functional = rewrite_function_names(&spaced);
 
     Some(functional)
+}
+
+/// Rewrite each ASCII `e` that cannot be a decimal exponent into the
+/// italic `𝑒`, which always means Euler's number.
+///
+/// An `e` is an exponent only when a mantissa sits directly before it
+/// and an optional sign plus at least one digit sits directly after it,
+/// with no space on either side. Whitespace is load-bearing here and
+/// nowhere else, which is why this runs before spaces are dropped:
+/// `2e8` is 2×10⁸, but `2e +2` is 2·𝑒 + 2, and once the space is gone
+/// the two are indistinguishable.
+fn mark_euler_constants(s: &str) -> String {
+    let chars: Vec<char> = s.chars().collect();
+    let mut out = String::with_capacity(s.len());
+    for (i, &c) in chars.iter().enumerate() {
+        if c != 'e' {
+            out.push(c);
+            continue;
+        }
+        let mantissa_before = i > 0 && matches!(chars.get(i - 1), Some('0'..='9') | Some('.'));
+        let mut j = i + 1;
+        if matches!(chars.get(j), Some('+') | Some('-')) {
+            j += 1;
+        }
+        let digits_after = matches!(chars.get(j), Some(d) if d.is_ascii_digit());
+        // Only the ambiguous shape is rewritten: an `e` that looks like
+        // it could continue a number but has no exponent after it. A
+        // bare `e` is left alone, so the spec's `E` -> `e` fold still
+        // holds and the tokenizer reads it as the constant either way.
+        if mantissa_before && !digits_after {
+            out.push('𝑒');
+        } else {
+            out.push('e');
+        }
+    }
+    out
 }
 
 /// Translate a sanitised paste string into the engine's
@@ -132,7 +179,8 @@ pub fn sanitize_paste(raw: &str) -> Option<String> {
 /// and its argument comma and became `(16.4)`, and `3pi` became `3`.
 /// A paste that cannot be represented is now dropped whole, the same
 /// way [`sanitize_paste`] already drops one containing a disallowed
-/// character.
+/// character. The exception is a stray allow-listed letter, which is
+/// skipped — see the module docs.
 pub fn items_from_paste(s: &str) -> Option<Vec<InputItem>> {
     let chars: Vec<char> = s.chars().collect();
     let mut out: Vec<InputItem> = Vec::new();
@@ -228,6 +276,14 @@ pub fn items_from_paste(s: &str) -> Option<Vec<InputItem>> {
             '∛' => InputItem::UnaryFunc(UnaryFunc::Cbrt),
             'π' => InputItem::Constant(ConstKind::Pi),
             '𝑒' | 'e' => InputItem::Constant(ConstKind::E),
+            // A letter that starts no keyword is dropped. The
+            // allow-list only admits letters that appear in function
+            // names, so this is a stray character rather than a token
+            // we failed to understand — `l root(5, 4)` is `root(5, 4)`.
+            c if c.is_ascii_alphabetic() => {
+                i += 1;
+                continue;
+            }
             // Anything else would have to be dropped to continue, and
             // dropping changes the meaning of the expression.
             _ => return None,

@@ -134,11 +134,14 @@ fn items_from_paste_recognises_pi_and_e() {
 
 #[test]
 fn paste_rejects_what_it_cannot_represent() {
-    // Dropping unrepresentable characters and keeping the rest turned a
-    // paste into a different expression. Rejecting the whole thing is
-    // the only safe answer.
-    assert_eq!(items_from_paste("xyz"), None);
-    assert_eq!(items_from_paste("2+abc"), None);
+    // Anything off the allow-list drops the whole paste; keeping the
+    // representable remainder would substitute a different expression.
+    // `x` never reaches this stage — `sanitize_paste` refuses it first.
+    assert_eq!(sanitize_paste("xyz"), None);
+    assert_eq!(sanitize_paste("2+wat"), None);
+    // Letters that *are* on the list but start no keyword are stray
+    // characters rather than unrepresentable ones, and get dropped.
+    assert!(items_from_paste("2+3").is_some());
 }
 
 #[test]

@@ -89,12 +89,14 @@ fn listed_expressions_paste_and_evaluate() {
 }
 
 #[test]
-fn a_stray_letter_rejects_the_paste() {
+fn a_stray_letter_is_stripped() {
     // `l` is on the allow-list (it starts `ln` and `log`) but on its
-    // own it is not a token. Keeping the rest would mean pasting
-    // `root(5, 4)` when the clipboard said something else, so the whole
-    // paste is dropped instead.
-    assert_eq!(paste_items(Some("l root(5, 4)")), None);
+    // own it is not a token, so it is dropped and the rest evaluates.
+    // Characters off the allow-list still reject the whole paste.
+    let (shown, value) = paste("l root(5, 4)");
+    assert_eq!(shown, "root(5,4)");
+    assert_eq!(value, "1.49534878122122");
+    assert_eq!(paste_items(Some("root(5, 4)x")), None);
 }
 
 #[test]
@@ -102,17 +104,18 @@ fn long_mixed_expressions_round_trip() {
     // Two stress strings mixing Unicode operators, uppercase names,
     // spelled-out constants, implicit multiplication and modulo.
     //
-    // Note `2e ＋2e8`: the space is dropped before anything else runs,
-    // leaving `2e+2e8`, and `e` between digits is an exponent — so this
-    // reads as 2×10² ×10⁸, not as the constant 𝑒. Writing 𝑒 gives the
-    // constant.
+    // They differ only in the space before `＋`, and that space decides
+    // what the `e` in front of it means. Here nothing is attached after
+    // the `e`, so it is the constant: `3π × 2𝑒 + 2×10⁸`.
     let (shown, value) = paste("2e8%3 sqrt(sin−1(1)＋atan(1))cbrt(8)rOOt(16, 4)3pi*2e ＋2e8%3");
     assert_eq!(
         shown,
-        "2×10^8%3√(sin-1(1)+tan-1(1))∛(8)root(16,4)3π×2×10^2×10^8%3"
+        "2×10^8%3√(sin-1(1)+tan-1(1))∛(8)root(16,4)3π×2𝑒+2×10^8%3"
     );
-    assert_eq!(value, "0.001953125");
+    assert_eq!(value, "4764.69177326513");
 
+    // With no space, `2e＋2` is a mantissa and a signed exponent, so the
+    // `e` stays a power of ten.
     let (shown, value) = paste("sqrt(sin−1(1)＋atan(1))cbrt(8)rOOt(16, 4)3pi*2e＋2e8 mod3");
     assert_eq!(
         shown,
