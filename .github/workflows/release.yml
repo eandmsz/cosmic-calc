@@ -1,0 +1,109 @@
+name: Release
+
+# Publishes a GitHub release with a prebuilt Linux binary whenever a
+# version tag is pushed:
+#
+#     git tag v0.1 && git push origin v0.1
+#
+# The binary is built here rather than uploaded from a workstation, so
+# what people download is reproducible from the tagged commit and the
+# glibc floor is a known property of the runner rather than of whatever
+# machine happened to build it.
+on:
+  push:
+    tags:
+      - "v*"
+
+# `gh release create` needs to write to the repository.
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: build and publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release
+
+      - name: Install libcosmic build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            libxkbcommon-dev libwayland-dev pkg-config
+
+      # A tag can point anywhere, so don't assume CI already vetted it.
+      - name: Test
+        run: cargo test --workspace
+
+      - name: Build
+        run: cargo build --release
+
+      - name: Package
+        id: package
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          asset="cosmic-calc-${version}-x86_64-linux"
+          mkdir -p dist
+          cp target/release/cosmic-calc "dist/${asset}"
+          # The binary refuses to start below the glibc it was linked
+          # against, which is the single thing most likely to go wrong
+          # for someone downloading it — so record it next to the asset.
+          glibc=$(objdump -T target/release/cosmic-calc \
+            | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -1 | cut -d_ -f2)
+          ( cd dist && sha256sum "${asset}" > "${asset}.sha256" )
+          {
+            echo "commit: ${GITHUB_SHA}"
+            echo "built:  $(date -u +%Y-%m-%dT%H:%M:%SZ) on $(. /etc/os-release && echo "$PRETTY_NAME")"
+            echo "glibc:  requires >= ${glibc}"
+            echo "arch:   x86-64"
+          } > dist/BUILD-INFO.txt
+          echo "asset=${asset}" >> "$GITHUB_OUTPUT"
+          echo "glibc=${glibc}" >> "$GITHUB_OUTPUT"
+
+      - name: Write release notes
+        run: |
+          cat > dist/NOTES.md <<EOF
+          Prebuilt calculator for **x86-64 Linux**, built from \`${GITHUB_SHA}\`.
+
+          ## Install
+
+          \`\`\`sh
+          chmod +x ${{ steps.package.outputs.asset }}
+          ./${{ steps.package.outputs.asset }}
+          \`\`\`
+
+          ## Before you download
+
+          This binary **requires glibc ${{ steps.package.outputs.glibc }} or newer** and will not
+          start below it. Check with \`ldd --version\`. That covers
+          Ubuntu/Pop!_OS 24.04+, Fedora 40+ and Debian 13+; on Pop!_OS
+          22.04 (glibc 2.35) you will need to build from source instead:
+
+          \`\`\`sh
+          cargo build --release
+          \`\`\`
+
+          Wayland, xkbcommon and a Vulkan driver are loaded at runtime
+          rather than linked, so they need to be present — on a working
+          COSMIC desktop they already are.
+
+          \`${{ steps.package.outputs.asset }}.sha256\` carries the checksum.
+          EOF
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            --title "${GITHUB_REF_NAME}" \
+            --notes-file dist/NOTES.md \
+            "dist/${{ steps.package.outputs.asset }}" \
+            "dist/${{ steps.package.outputs.asset }}.sha256" \
+            dist/BUILD-INFO.txt
