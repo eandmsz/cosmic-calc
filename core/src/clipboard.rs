@@ -179,20 +179,22 @@ pub fn items_from_paste(s: &str) -> Option<Vec<InputItem>> {
         }
 
         if let Some((item, len)) = match_keyword(&chars, i) {
-            let opens_paren = item_opens_paren(&item);
             let takes_arg_list = matches!(
                 item,
                 InputItem::BinaryFunc(_) | InputItem::UnaryFunc(UnaryFunc::Log)
             );
-            out.push(item);
-            i += len;
-            // Function items render their own `(`; consume a literal
-            // one that follows so we don't end up with two.
-            if opens_paren {
-                if chars.get(i) == Some(&'(') {
-                    i += 1;
-                }
-                arg_sep_stack.push(takes_arg_list);
+            if item_opens_paren(&item) {
+                i = open_function(
+                    &mut out,
+                    &chars,
+                    i + len,
+                    item,
+                    takes_arg_list,
+                    &mut arg_sep_stack,
+                );
+            } else {
+                out.push(item);
+                i += len;
             }
             continue;
         }
@@ -231,14 +233,9 @@ pub fn items_from_paste(s: &str) -> Option<Vec<InputItem>> {
             _ => return None,
         };
         // `√` and `∛` carry an implicit opener like the named
-        // functions do, so a literal `(` after them is redundant.
+        // functions do.
         if matches!(c, '√' | '∛') {
-            out.push(item);
-            i += 1;
-            if chars.get(i) == Some(&'(') {
-                i += 1;
-            }
-            arg_sep_stack.push(false);
+            i = open_function(&mut out, &chars, i + 1, item, false, &mut arg_sep_stack);
             continue;
         }
         out.push(item);
@@ -365,6 +362,21 @@ fn rewrite_function_names(input: &str) -> String {
         ("atan", "tan-1"),
         ("sqrt", "√"),
         ("cbrt", "∛"),
+        // `sin^-1` is the other spelling the README advertises for the
+        // inverse functions. Folding it to `sin-1` here means the
+        // keyword table below needs only the one form. Safe because a
+        // `^-1` only reaches this rule directly after a function name;
+        // `2^-1` keeps its caret and stays a power.
+        ("sin^-1", "sin-1"),
+        ("cos^-1", "cos-1"),
+        ("tan^-1", "tan-1"),
+        ("cot^-1", "cot-1"),
+        ("ctg^-1", "ctg-1"),
+        ("sinh^-1", "sinh-1"),
+        ("cosh^-1", "cosh-1"),
+        ("tanh^-1", "tanh-1"),
+        ("coth^-1", "coth-1"),
+        ("ctgh^-1", "ctgh-1"),
     ];
     let mut out = String::with_capacity(input.len());
     let bytes: &[u8] = input.as_bytes();
@@ -398,14 +410,17 @@ fn match_keyword(chars: &[char], i: usize) -> Option<(InputItem, usize)> {
         ("cosh-1", InputItem::UnaryFunc(U::Acosh)),
         ("tanh-1", InputItem::UnaryFunc(U::Atanh)),
         ("coth-1", InputItem::UnaryFunc(U::Acoth)),
+        ("ctgh-1", InputItem::UnaryFunc(U::Acoth)),
         ("sin-1", InputItem::UnaryFunc(U::Asin)),
         ("cos-1", InputItem::UnaryFunc(U::Acos)),
         ("tan-1", InputItem::UnaryFunc(U::Atan)),
         ("cot-1", InputItem::UnaryFunc(U::Acot)),
+        ("ctg-1", InputItem::UnaryFunc(U::Acot)),
         ("sinh", InputItem::UnaryFunc(U::Sinh)),
         ("cosh", InputItem::UnaryFunc(U::Cosh)),
         ("tanh", InputItem::UnaryFunc(U::Tanh)),
         ("coth", InputItem::UnaryFunc(U::Coth)),
+        ("ctgh", InputItem::UnaryFunc(U::Coth)),
         ("log10", InputItem::UnaryFunc(U::Log10)),
         ("log2", InputItem::UnaryFunc(U::Log2)),
         ("root", InputItem::BinaryFunc(BinaryFunc::Root)),
@@ -413,6 +428,7 @@ fn match_keyword(chars: &[char], i: usize) -> Option<(InputItem, usize)> {
         ("cos", InputItem::UnaryFunc(U::Cos)),
         ("tan", InputItem::UnaryFunc(U::Tan)),
         ("cot", InputItem::UnaryFunc(U::Cot)),
+        ("ctg", InputItem::UnaryFunc(U::Cot)),
         ("mod", InputItem::Modulo),
         ("ln", InputItem::UnaryFunc(U::Ln)),
         ("log", InputItem::UnaryFunc(U::Log)),
@@ -454,6 +470,85 @@ fn log_base_suffix_len(chars: &[char], i: usize) -> Option<(u32, usize)> {
         return None;
     }
     Some((base, j - i))
+}
+
+/// Push a function item and decide how its implicit `(` is closed.
+///
+/// A literal `(` in the source is consumed (the item renders its own)
+/// and the group stays open until the matching `)`. Without one, the
+/// function binds to just the operand that follows and the group is
+/// closed immediately — matching what the engine does with the same
+/// text, where `sqrt16-2` is `√(16) - 2` = 2. Treating the implicit
+/// opener as running to the next `)` instead turned `(√16-2)!` into
+/// `√(16-2)!`, quietly changing the expression.
+///
+/// Falls back to leaving the group open when what follows is not a
+/// plain operand, so `√log3(2)` still reads as `√(log₃2)`.
+fn open_function(
+    out: &mut Vec<InputItem>,
+    chars: &[char],
+    mut i: usize,
+    item: InputItem,
+    takes_arg_list: bool,
+    arg_sep_stack: &mut Vec<bool>,
+) -> usize {
+    out.push(item);
+    if chars.get(i) == Some(&'(') {
+        arg_sep_stack.push(takes_arg_list);
+        return i + 1;
+    }
+    if let Some(next) = push_bare_operand(out, chars, i) {
+        i = next;
+    } else {
+        arg_sep_stack.push(takes_arg_list);
+    }
+    i
+}
+
+/// Consume the single operand a parenthesis-less function applies to —
+/// a numeric run or a constant, plus any postfix `!` / `%` — and close
+/// the group after it. Returns `None` (having pushed nothing) when what
+/// follows is not such an operand.
+fn push_bare_operand(out: &mut Vec<InputItem>, chars: &[char], start: usize) -> Option<usize> {
+    let mark = out.len();
+    let mut i = start;
+    let mut seen_digit = false;
+    let mut seen_dot = false;
+    while let Some(&c) = chars.get(i) {
+        match c {
+            '0'..='9' => {
+                out.push(InputItem::Digit(c));
+                seen_digit = true;
+            }
+            '.' if !seen_dot => {
+                out.push(InputItem::DecimalPoint);
+                seen_dot = true;
+            }
+            _ => break,
+        }
+        i += 1;
+    }
+    if !seen_digit {
+        out.truncate(mark);
+        i = start;
+        match chars.get(i) {
+            Some('π') => out.push(InputItem::Constant(ConstKind::Pi)),
+            Some('𝑒') => out.push(InputItem::Constant(ConstKind::E)),
+            _ => return None,
+        }
+        i += 1;
+    }
+    // `sqrt16!` is sqrt(16!) in the engine, so postfixes bind inside.
+    while let Some(&c) = chars.get(i) {
+        match c {
+            '!' => out.push(InputItem::Factorial),
+            '%' => out.push(InputItem::Percent),
+            _ => break,
+        }
+        i += 1;
+    }
+    out.push(InputItem::RightParen);
+    Some(i)
 }
 
 /// True when the item renders its own opening paren.

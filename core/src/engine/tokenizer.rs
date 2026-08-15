@@ -322,10 +322,13 @@ fn parse_ident(bytes: &[char], i: usize) -> Result<(Token, usize), TokenizeError
         }
     }
 
-    // Detect `sin-1`, `cos-1`, `tan-1`, `cot-1`, `sinh-1`, `cosh-1`, `tanh-1`, `coth-1`.
+    // Detect `sin-1`, `cos-1`, `tan-1`, `cot-1`, `sinh-1`, `cosh-1`,
+    // `tanh-1`, `coth-1`, and the `sin^-1` spelling the README also
+    // advertises. A `^` only counts as part of the inverse suffix
+    // directly after a trig stem, so `2^-1` stays a power.
     let inverse_of = match name.as_str() {
         "sin" | "cos" | "tan" | "cot" | "ctg" | "sinh" | "cosh" | "tanh" | "coth" | "ctgh" => {
-            let k = j;
+            let k = if bytes.get(j) == Some(&'^') { j + 1 } else { j };
             if k + 1 < bytes.len() && bytes[k] == '-' && bytes[k + 1] == '1' {
                 consumed = (k + 2) - start;
                 Some(name.as_str())

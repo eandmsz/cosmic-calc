@@ -12,6 +12,7 @@ mod engine_integration;
 mod history;
 mod locale;
 mod memory;
+mod paste_expressions;
 mod props;
 mod rng;
 mod theme;
