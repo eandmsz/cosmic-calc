@@ -8,7 +8,7 @@
 //! and clipboard suites, and `cargo test` for the UI on top.
 
 pub use cosmic_calc_core::{
-    clipboard, color, config, engine, history, locale, memory, props, rng, theme,
+    clipboard, color, config, engine, history, layout, locale, memory, props, rng, theme,
 };
 
 pub mod ui;

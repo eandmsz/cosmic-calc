@@ -6,9 +6,14 @@
 //! event loop.
 //!
 //! Second-toggle handling lives here too – a [`Button::Second`] press
-//! flips `UiState::second_mode`, and pressing any button that has an
-//! inverse while that flag is on routes to the inverse variant
-//! (`Sin` → `Asin`, `Sqrt` → `Square`, …) and then clears the flag.
+//! flips `UiState::second_mode`. A keypad cell already knows what it
+//! does in either state (the keypad draws whichever of the user's two
+//! tables is armed), so those presses arrive pre-resolved through
+//! [`apply_resolved_button`]. A keystroke carries no such context, so
+//! [`apply_button`] puts it through the same second-function mapping
+//! the keypad is showing: the user's own `2nd` table where the key
+//! appears on it, the built-in inverse pairs (`Sin` → `Asin`,
+//! `Sqrt` → `Square`, …) otherwise.
 
 use crate::config::{Config, Mode};
 use crate::engine::item::{BinOp, BinaryFunc, ConstKind, InputItem, UnaryFunc};
@@ -223,19 +228,35 @@ pub enum MemoryOp {
     Sub,
 }
 
-/// Top-level dispatcher. Takes every piece of state the spec needs,
-/// mutates engine + ui state in place, and returns a [`ButtonEffect`]
-/// for the caller to act on.
+/// Top-level dispatcher for a press that still needs the `2nd`
+/// modifier applied — i.e. a keystroke, which carries no knowledge of
+/// which table the keypad is currently drawing.
 pub fn apply_button(
     engine: &mut Engine,
     state: &mut UiState,
     config: &Config,
     button: Button,
 ) -> ButtonEffect {
-    let button = resolve_second(button, state);
+    let resolved = resolve_for_keyboard(config, state, button);
+    apply_resolved_button(engine, state, config, resolved)
+}
 
-    // Scientific-only buttons are a no-op in Basic mode.
-    if config.mode == Mode::Basic && !available_in_basic(button) {
+/// Dispatcher for a press whose meaning is already settled: the keypad
+/// cell the user hit was drawn from the table that is armed, so it
+/// emits the action it shows. Running such a press through
+/// [`resolve_for_keyboard`] a second time would map it straight back
+/// to the function the key is *not* displaying.
+pub fn apply_resolved_button(
+    engine: &mut Engine,
+    state: &mut UiState,
+    config: &Config,
+    button: Button,
+) -> ButtonEffect {
+    // Scientific-only buttons are a no-op in Basic mode — unless the
+    // user put one on the Basic keypad themselves, in which case
+    // refusing it would make their own layout look broken.
+    if config.mode == Mode::Basic && !available_in_basic(button) && !placed_in_basic(config, button)
+    {
         return ButtonEffect::None;
     }
 
@@ -398,12 +419,7 @@ pub fn apply_button(
             ButtonEffect::None
         }
         Button::Percent => {
-            // % needs something to apply to. When the cursor isn't
-            // sitting on a value-producing token we drop the press
-            // silently, matching the behaviour of binary operators.
-            if has_left_operand_at_cursor(engine) {
-                engine.input.insert(InputItem::Percent);
-            }
+            press_percent(engine);
             ButtonEffect::None
         }
         Button::Factorial => {
@@ -650,13 +666,34 @@ fn available_in_basic(b: Button) -> bool {
     )
 }
 
-/// Translate `button` through the Second modifier. Returns the
-/// original button when Second is off OR the button has no inverse
-/// variant.
-fn resolve_second(button: Button, state: &mut UiState) -> Button {
+/// True when `button` sits somewhere in the user's Basic keypad.
+fn placed_in_basic(config: &Config, button: Button) -> bool {
+    crate::ui::keymap::name_for_button(button)
+        .map(|name| config.keypad.basic_contains(name))
+        .unwrap_or(false)
+}
+
+/// Translate `button` through the Second modifier. The user's own
+/// second-function table wins — that is what the keypad is showing —
+/// and the built-in inverse pairs cover keys their layout doesn't
+/// mention. Returns the original button when Second is off OR the
+/// button has no second function.
+///
+/// Public because the app layer needs the same answer to decide which
+/// keypad cell to flash when the keystroke lands.
+pub fn resolve_for_keyboard(config: &Config, state: &UiState, button: Button) -> Button {
     if !state.second_mode || matches!(button, Button::Second) {
         return button;
     }
+    if let Some(mapped) = crate::ui::keymap::second_of(config, config.mode, button) {
+        return mapped;
+    }
+    builtin_second(button)
+}
+
+/// The built-in inverse of a key, used where the configured layout has
+/// nothing to say.
+fn builtin_second(button: Button) -> Button {
     match button {
         Button::Sin => Button::Asin,
         Button::Cos => Button::Acos,
@@ -1008,6 +1045,41 @@ fn replace_or_insert_binop(engine: &mut Engine, op: BinOp) {
         return;
     }
     engine.input.insert(InputItem::BinOp(op));
+}
+
+/// The one `%` key, covering both readings. There is no separate
+/// `mod` cell any more, so the press has to serve percent *and*
+/// modulo:
+///
+/// * first press inserts the postfix `%`. On its own that is `x/100`,
+///   and against a leading operand it is the usual `200+10%` → 220;
+///   typed before another operand the tokenizer already reads `7%3` as
+///   `7 mod 3`, so the plain press covers the common modulo case too.
+/// * pressing `%` again on that same `%` converts it to an explicit
+///   ` mod `, which is what makes `7 mod (-3)` expressible — a bare
+///   `%` followed by a minus reads as percent-then-subtract. A third
+///   press flips back, so the key cycles rather than stranding the
+///   user in a state they cannot undo without backspacing.
+///
+/// Like the binary operators, a press with no operand to apply to is
+/// dropped rather than leaving a stray token behind.
+fn press_percent(engine: &mut Engine) {
+    let cur = engine.input.cursor();
+    match cur.checked_sub(1).map(|i| &engine.input.items()[i]) {
+        Some(InputItem::Percent) => {
+            engine.input.delete_before();
+            engine.input.insert(InputItem::Modulo);
+        }
+        Some(InputItem::Modulo) => {
+            engine.input.delete_before();
+            engine.input.insert(InputItem::Percent);
+        }
+        _ => {
+            if has_left_operand_at_cursor(engine) {
+                engine.input.insert(InputItem::Percent);
+            }
+        }
+    }
 }
 
 /// True when the item directly to the left of the cursor closes a

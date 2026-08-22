@@ -112,6 +112,15 @@ pub fn class_for_flashed(theme: &Theme, button: Button, corner_radius: f32) -> B
     class_flashed(cat.color(theme), theme.text_active, corner_radius)
 }
 
+/// Colour a latched toggle that is currently on. The button swaps to
+/// the palette's text colour with the app background as its label, so
+/// "armed" reads at a glance in every theme — the old treatment reused
+/// the pressed shade, a 10 % darkening that was easy to miss on the
+/// `2nd` key and impossible to tell from an ordinary press.
+pub fn class_for_toggled(theme: &Theme, corner_radius: f32) -> ButtonClass {
+    class(theme.text_active, theme.app_bg, corner_radius)
+}
+
 /// Like [`class`] but the active variant uses the pressed colour, so
 /// the button looks "held down" without any pointer interaction.
 fn class_flashed(base: Rgba, text: Rgba, corner_radius: f32) -> ButtonClass {

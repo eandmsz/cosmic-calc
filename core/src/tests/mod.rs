@@ -10,6 +10,7 @@ mod config;
 mod engine_input;
 mod engine_integration;
 mod history;
+mod layout;
 mod locale;
 mod memory;
 mod paste_expressions;

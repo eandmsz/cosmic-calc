@@ -323,6 +323,129 @@ fn scientific_button_ignored_in_basic_mode() {
     assert!(e.input.is_empty(), "Sin should no-op in Basic mode");
 }
 
+#[test]
+fn a_scientific_key_the_user_put_on_the_basic_keypad_works_there() {
+    // The gate exists so keyboard shortcuts for scientific functions
+    // stay inert in Basic mode. A key the user placed on the Basic
+    // keypad is a different matter: refusing it would make their own
+    // layout look broken.
+    let mut c = Config {
+        mode: Mode::Basic,
+        ..Config::default()
+    };
+    c.keypad.basic[0] = "sin backspace percent div".to_string();
+    let mut e = Engine::default();
+    let mut s = UiState::default();
+    apply_button(&mut e, &mut s, &c, Button::Sin);
+    assert_eq!(e.input.display_string(), "sin()");
+    // Everything they did not place stays gated.
+    let mut e = Engine::default();
+    apply_button(&mut e, &mut s, &c, Button::Tan);
+    assert!(e.input.is_empty(), "Tan is not on this keypad");
+}
+
+// --- percent / modulo ----------------------------------------------
+
+#[test]
+fn the_percent_key_covers_both_readings() {
+    // One key, no separate `mod` cell: against a following operand the
+    // tokenizer reads `%` as modulo, everywhere else as percent.
+    let (mut e, mut s, c) = fresh();
+    for b in [Button::Num(7), Button::Percent, Button::Num(3)] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert_eq!(e.input.ascii_expression(), "7%3");
+    assert_eq!(e.evaluate().expect("evaluates").display, "1");
+
+    let (mut e, mut s, c) = fresh();
+    for b in [Button::Num(5), Button::Num(0), Button::Percent] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert_eq!(e.evaluate().expect("evaluates").display, "0.5");
+
+    let (mut e, mut s, c) = fresh();
+    for b in [
+        Button::Num(2),
+        Button::Num(0),
+        Button::Num(0),
+        Button::Add,
+        Button::Num(1),
+        Button::Num(0),
+        Button::Percent,
+    ] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert_eq!(e.evaluate().expect("evaluates").display, "220");
+}
+
+#[test]
+fn a_second_percent_press_spells_modulo_out() {
+    // `%` followed by a minus reads as percent-then-subtract, so the
+    // explicit ` mod ` has to stay reachable now that its own key is
+    // gone: pressing `%` again on the `%` converts it.
+    let (mut e, mut s, c) = fresh();
+    for b in [Button::Num(7), Button::Percent, Button::Percent] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert_eq!(e.input.ascii_expression(), "7 mod ");
+    for b in [Button::Num(3), Button::Negate] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert_eq!(e.input.display_string(), "7 mod (-3)");
+    assert_eq!(e.evaluate().expect("evaluates").display, "1");
+}
+
+#[test]
+fn a_third_percent_press_goes_back_to_percent() {
+    let (mut e, mut s, c) = fresh();
+    for b in [
+        Button::Num(7),
+        Button::Percent,
+        Button::Percent,
+        Button::Percent,
+    ] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert_eq!(e.input.ascii_expression(), "7%");
+}
+
+#[test]
+fn percent_still_needs_something_to_apply_to() {
+    let (mut e, mut s, c) = fresh();
+    apply_button(&mut e, &mut s, &c, Button::Percent);
+    assert!(e.input.is_empty());
+}
+
+// --- keypad presses arrive pre-resolved ----------------------------
+
+#[test]
+fn a_keypad_press_is_not_second_mapped_a_second_time() {
+    // The keypad draws the armed table, so its cells already emit the
+    // second function. Running that through the mapping again would
+    // land back on the key the user is not looking at.
+    let (mut e, mut s, c) = fresh();
+    apply_resolved_button(&mut e, &mut s, &c, Button::Second);
+    assert!(s.second_mode);
+    apply_resolved_button(&mut e, &mut s, &c, Button::Asin);
+    assert!(e.input.display_string().contains("sin-1"));
+}
+
+#[test]
+fn a_keystroke_follows_the_users_own_second_table() {
+    let mut c = Config::default();
+    c.keypad.scientific_second[0] = "second rand cos tan clear backspace percent div".to_string();
+    let mut e = Engine::default();
+    let mut s = UiState::default();
+    apply_button(&mut e, &mut s, &c, Button::Second);
+    assert_eq!(
+        resolve_for_keyboard(&c, &s, Button::Sin),
+        Button::Rand,
+        "the sin cell now carries Rand in the second table"
+    );
+    apply_button(&mut e, &mut s, &c, Button::Sin);
+    assert!(!e.input.display_string().contains("sin"));
+}
+
 // --- memory effects ------------------------------------------------
 
 #[test]

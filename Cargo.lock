@@ -861,6 +861,7 @@ dependencies = [
  "cosmic-calc-core",
  "fontdb",
  "libcosmic",
+ "ttf-parser",
 ]
 
 [[package]]

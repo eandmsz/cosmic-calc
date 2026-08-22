@@ -12,10 +12,15 @@ pub mod cosmic_bridge;
 pub mod display;
 pub mod display_metrics;
 pub mod font;
+pub mod font_metrics;
+pub mod keymap;
 pub mod keypad;
 pub mod keys;
 pub mod panels;
 
 pub use app::AppModel;
-pub use buttons::{apply_button, Button, ButtonEffect, ClearMode, MemoryOp, UiState};
+pub use buttons::{
+    apply_button, apply_resolved_button, resolve_for_keyboard, Button, ButtonEffect, ClearMode,
+    MemoryOp, UiState,
+};
 pub use cosmic_bridge::override_from_cosmic;

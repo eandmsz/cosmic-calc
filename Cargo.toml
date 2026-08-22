@@ -11,6 +11,9 @@ license = "GPL-3.0-only"
 [dependencies]
 cosmic-calc-core = { path = "core" }
 fontdb = "0.23"
+# Reads the vertical metrics fontdb only indexes, so button labels can
+# be centred on their ink rather than on the font's line box.
+ttf-parser = "0.25"
 
 [dependencies.libcosmic]
 git = "https://github.com/pop-os/libcosmic.git"
