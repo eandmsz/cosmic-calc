@@ -3,8 +3,7 @@
 //! widgets, one per segment, so individual pieces of the rendered
 //! expression can be coloured independently.
 //!
-//! On top of the raw [`InputItem::display`] we apply three spec-mandated
-//! touches:
+//! On top of the raw [`InputItem::display`] we apply these touches:
 //!
 //!   * thousands separators inside numeric runs (integer part only)
 //!   * configurable decimal glyph (`.` or `,` per locale / user
@@ -16,13 +15,13 @@
 //!     cursor (cursor is currently inside that paren group) are flagged
 //!     inactive so the user can tell at a glance which closer they're
 //!     about to step over.
-//!
-//! Sub/superscript layout, inverse-trig glyph swaps, etc. belong to a
-//! richer pipeline that Phase-7 leaves as future work. The history
-//! panel uses [`format_result`] (further down) which keeps separators
-//! out – `format_result` already hands us a canonical string.
+//!   * exponents raised and log bases lowered, unless the caller asks
+//!     for [`Notation::Raw`]. The glyph rules live in
+//!     [`crate::engine::script`]; what this module adds is folding a
+//!     `^` and the items it raises into one segment.
 
-use crate::engine::item::InputItem;
+use crate::engine::item::{BinOp, InputItem};
+use crate::engine::script::{self, Notation};
 use crate::locale::DecimalSeparator;
 
 /// One piece of the rendered display. Multiple segments line up
@@ -60,12 +59,18 @@ impl DisplaySegment {
 /// should additionally render in the inactive colour — the Rand handler
 /// uses it to dim only the just-inserted random number, so the rest of
 /// the surrounding expression keeps its normal active colour.
+///
+/// `notation` picks between the raised/lowered rendering and the raw
+/// one the buffer stores. A raised exponent is folded into a single
+/// segment covering the `^` and every item it raises, so the whole
+/// power shares one colour.
 pub fn render_expression(
     items: &[InputItem],
     cursor: usize,
     decimal: DecimalSeparator,
     thousands_glyph: Option<char>,
     inactive_range: Option<(usize, usize)>,
+    notation: Notation,
 ) -> Vec<DisplaySegment> {
     let matching_open = compute_matching_openers(items);
     let decimal_glyph = decimal.to_char();
@@ -121,8 +126,38 @@ pub fn render_expression(
                 i += 1;
                 prev_value_end = false;
             }
+            // A power the exponent block can render: one segment for
+            // `^` and everything it raises, with `i` jumped past the
+            // exponent items so they are not emitted a second time.
+            InputItem::BinOp(BinOp::Pow) if notation.is_pretty() => {
+                let raised = script::exponent_span(items, i).and_then(|end| {
+                    let inner =
+                        render_expression_string(&items[i + 1..end], decimal, None, notation);
+                    script::to_superscript(&inner).map(|sup| (sup, end))
+                });
+                match raised {
+                    Some((sup, end)) => {
+                        segments.push(DisplaySegment::active(sup));
+                        i = end;
+                        // The exponent closes the value the base
+                        // opened, so a following operand gets its
+                        // auto-multiplication glyph.
+                        prev_value_end = true;
+                    }
+                    None => {
+                        segments.push(DisplaySegment::active("^"));
+                        i += 1;
+                        prev_value_end = false;
+                    }
+                }
+            }
             other => {
-                segments.push(DisplaySegment::active(other.display()));
+                let text = if notation.is_pretty() {
+                    script::pretty_display(other)
+                } else {
+                    other.display()
+                };
+                segments.push(DisplaySegment::active(text));
                 i += 1;
                 prev_value_end = item_produces_value(other);
             }
@@ -149,8 +184,9 @@ pub fn render_expression_string(
     items: &[InputItem],
     decimal: DecimalSeparator,
     thousands_glyph: Option<char>,
+    notation: Notation,
 ) -> String {
-    let segs = render_expression(items, items.len(), decimal, thousands_glyph, None);
+    let segs = render_expression(items, items.len(), decimal, thousands_glyph, None, notation);
     let mut s = String::new();
     for seg in segs {
         s.push_str(&seg.text);

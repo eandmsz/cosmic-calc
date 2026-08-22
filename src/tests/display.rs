@@ -1,4 +1,5 @@
 use crate::engine::item::{BinOp, ConstKind, InputItem, UnaryFunc};
+use crate::engine::script::Notation;
 use crate::locale::DecimalSeparator;
 use crate::ui::display::*;
 
@@ -13,7 +14,7 @@ fn digits(s: &str) -> Vec<InputItem> {
 }
 
 fn render_str(items: &[InputItem], decimal: DecimalSeparator, thousands: Option<char>) -> String {
-    render_expression_string(items, decimal, thousands)
+    render_expression_string(items, decimal, thousands, Notation::Pretty)
 }
 
 #[test]
@@ -159,6 +160,175 @@ fn exactly_four_digits_grouped() {
     assert_eq!(s, "1,234");
 }
 
+// --- raised exponents, lowered log bases ----------------------------
+
+/// `base` raised to `exponent`, as the buffer stores it.
+fn power(base: &str, exponent: &[InputItem]) -> Vec<InputItem> {
+    let mut items = digits(base);
+    items.push(InputItem::BinOp(BinOp::Pow));
+    items.extend_from_slice(exponent);
+    items
+}
+
+#[test]
+fn an_exponent_is_raised() {
+    let items = power("2", &digits("2"));
+    assert_eq!(render_str(&items, DecimalSeparator::Dot, None), "2²");
+    // The debug toggle asks for exactly what the buffer holds.
+    assert_eq!(
+        render_expression_string(&items, DecimalSeparator::Dot, None, Notation::Raw),
+        "2^2"
+    );
+}
+
+#[test]
+fn a_negative_exponent_raises_its_sign_too() {
+    let mut exponent = vec![InputItem::BinOp(BinOp::Sub)];
+    exponent.extend(digits("12"));
+    let items = power("2", &exponent);
+    assert_eq!(render_str(&items, DecimalSeparator::Dot, None), "2⁻¹²");
+}
+
+#[test]
+fn a_bracketed_exponent_is_raised_whole() {
+    let mut exponent = vec![InputItem::LeftParen];
+    exponent.extend(digits("3"));
+    exponent.push(InputItem::BinOp(BinOp::Add));
+    exponent.extend(digits("4"));
+    exponent.push(InputItem::RightParen);
+    let items = power("2", &exponent);
+    assert_eq!(render_str(&items, DecimalSeparator::Dot, None), "2⁽³⁺⁴⁾");
+}
+
+#[test]
+fn an_exponent_without_a_superscript_form_stays_flat() {
+    // `2^2!` is 2^(2!) to the engine, and `!` has no superscript — so
+    // raising only the `2` would read as (2²)!.
+    let mut exponent = digits("2");
+    exponent.push(InputItem::Factorial);
+    assert_eq!(
+        render_str(&power("2", &exponent), DecimalSeparator::Dot, None),
+        "2^2!"
+    );
+
+    // A chained power is right-associative: `2^2^2` is 2^(2^2), so
+    // the outer exponent is the whole `2^2` and raising only its first
+    // half would read as (2²)². The innermost power has a plain
+    // operand and still raises, which leaves `2^2²` — a faithful
+    // reading of 2^(2²), and the same 16 the engine returns.
+    let mut chained = digits("2");
+    chained.push(InputItem::BinOp(BinOp::Pow));
+    chained.extend(digits("2"));
+    assert_eq!(
+        render_str(&power("2", &chained), DecimalSeparator::Dot, None),
+        "2^2²"
+    );
+
+    // And for a bracketed exponent holding a glyph with no raised
+    // form: there is no superscript `×`.
+    let mut product = vec![InputItem::LeftParen];
+    product.extend(digits("3"));
+    product.push(InputItem::BinOp(BinOp::Mul));
+    product.extend(digits("4"));
+    product.push(InputItem::RightParen);
+    assert_eq!(
+        render_str(&power("2", &product), DecimalSeparator::Dot, None),
+        "2^(3×4)"
+    );
+}
+
+#[test]
+fn a_raised_exponent_still_ends_a_value() {
+    // `2^3(4)`: the exponent binds tighter than the implicit
+    // multiplication, so the auto-mul glyph lands after the power.
+    let mut items = power("2", &digits("3"));
+    items.push(InputItem::LeftParen);
+    items.extend(digits("4"));
+    items.push(InputItem::RightParen);
+    let segs = render_expression(
+        &items,
+        items.len(),
+        DecimalSeparator::Dot,
+        None,
+        None,
+        Notation::Pretty,
+    );
+    // The base keeps its own segment; the `^` and the items it raises
+    // share the one after it.
+    let texts: Vec<&str> = segs.iter().map(|s| s.text.as_str()).collect();
+    assert_eq!(texts, vec!["2", "³", "×", "(", "4", ")"]);
+    assert!(!segs[2].active);
+}
+
+#[test]
+fn only_the_operand_the_exponent_covers_is_raised() {
+    // `2^3π` is (2³)×π — the constant is a separate factor, and it
+    // attaches without an auto-mul glyph exactly as `3π` would.
+    let mut items = power("2", &digits("3"));
+    items.push(InputItem::Constant(ConstKind::Pi));
+    assert_eq!(render_str(&items, DecimalSeparator::Dot, None), "2³π");
+}
+
+#[test]
+fn a_pasted_power_of_ten_reads_as_one() {
+    // What `3e4` becomes on the way through the paste sanitiser.
+    let mut items = digits("3");
+    items.push(InputItem::BinOp(BinOp::Mul));
+    items.extend(digits("10"));
+    items.push(InputItem::BinOp(BinOp::Pow));
+    items.extend(digits("4"));
+    assert_eq!(render_str(&items, DecimalSeparator::Dot, None), "3×10⁴");
+}
+
+#[test]
+fn exponents_are_never_digit_grouped() {
+    // The base is grouped as usual; the exponent is not — a raised
+    // thousands separator does not exist, and no calculator groups an
+    // exponent anyway.
+    let mut items = digits("1234");
+    items.push(InputItem::BinOp(BinOp::Pow));
+    items.extend(digits("1234"));
+    assert_eq!(
+        render_str(&items, DecimalSeparator::Dot, Some(',')),
+        "1,234¹²³⁴"
+    );
+}
+
+#[test]
+fn log_bases_are_lowered() {
+    let items = vec![
+        InputItem::UnaryFunc(UnaryFunc::Log2),
+        InputItem::Digit('8'),
+        InputItem::RightParen,
+    ];
+    assert_eq!(render_str(&items, DecimalSeparator::Dot, None), "log₂(8)");
+    assert_eq!(
+        render_expression_string(&items, DecimalSeparator::Dot, None, Notation::Raw),
+        "log2(8)"
+    );
+
+    let items = vec![
+        InputItem::LogN(7),
+        InputItem::Digit('2'),
+        InputItem::RightParen,
+    ];
+    assert_eq!(render_str(&items, DecimalSeparator::Dot, None), "log₇(2)");
+}
+
+#[test]
+fn inverse_functions_use_a_raised_minus_one() {
+    let items = vec![
+        InputItem::UnaryFunc(UnaryFunc::Asin),
+        InputItem::Digit('1'),
+        InputItem::RightParen,
+    ];
+    assert_eq!(render_str(&items, DecimalSeparator::Dot, None), "sin⁻¹(1)");
+    assert_eq!(
+        render_expression_string(&items, DecimalSeparator::Dot, None, Notation::Raw),
+        "sin-1(1)"
+    );
+}
+
 // --- auto-multiplication --------------------------------------------
 
 #[test]
@@ -167,7 +337,14 @@ fn auto_mul_inserted_between_number_and_left_paren() {
     items.push(InputItem::LeftParen);
     items.extend(digits("3"));
     items.push(InputItem::RightParen);
-    let segs = render_expression(&items, items.len(), DecimalSeparator::Dot, None, None);
+    let segs = render_expression(
+        &items,
+        items.len(),
+        DecimalSeparator::Dot,
+        None,
+        None,
+        Notation::Pretty,
+    );
     // Segments: "5", inactive "×", "(", "3", ")"
     assert_eq!(segs[1], DisplaySegment::inactive("×"));
     assert_eq!(
@@ -182,7 +359,14 @@ fn auto_mul_inserted_between_number_and_unary_func() {
     items.push(InputItem::UnaryFunc(UnaryFunc::Sin));
     items.extend(digits("0"));
     items.push(InputItem::RightParen);
-    let segs = render_expression(&items, items.len(), DecimalSeparator::Dot, None, None);
+    let segs = render_expression(
+        &items,
+        items.len(),
+        DecimalSeparator::Dot,
+        None,
+        None,
+        Notation::Pretty,
+    );
     assert_eq!(segs[1], DisplaySegment::inactive("×"));
 }
 
@@ -194,7 +378,14 @@ fn auto_mul_inserted_between_close_paren_and_left_paren() {
     items.push(InputItem::LeftParen);
     items.extend(digits("3"));
     items.push(InputItem::RightParen);
-    let segs = render_expression(&items, items.len(), DecimalSeparator::Dot, None, None);
+    let segs = render_expression(
+        &items,
+        items.len(),
+        DecimalSeparator::Dot,
+        None,
+        None,
+        Notation::Pretty,
+    );
     let texts: Vec<&str> = segs.iter().map(|s| s.text.as_str()).collect();
     assert_eq!(texts, vec!["(", "2", ")", "×", "(", "3", ")"]);
     assert!(!segs[3].active);
@@ -207,7 +398,14 @@ fn no_auto_mul_after_binary_operator() {
     items.push(InputItem::LeftParen);
     items.extend(digits("3"));
     items.push(InputItem::RightParen);
-    let segs = render_expression(&items, items.len(), DecimalSeparator::Dot, None, None);
+    let segs = render_expression(
+        &items,
+        items.len(),
+        DecimalSeparator::Dot,
+        None,
+        None,
+        Notation::Pretty,
+    );
     let texts: Vec<&str> = segs.iter().map(|s| s.text.as_str()).collect();
     assert_eq!(texts, vec!["5", "+", "(", "3", ")"]);
 }
@@ -222,7 +420,14 @@ fn closing_paren_inactive_when_cursor_inside_pair() {
         InputItem::Digit('3'),
         InputItem::RightParen,
     ];
-    let segs = render_expression(&items, 2, DecimalSeparator::Dot, None, None);
+    let segs = render_expression(
+        &items,
+        2,
+        DecimalSeparator::Dot,
+        None,
+        None,
+        Notation::Pretty,
+    );
     // Last segment is the ')' – should be inactive.
     let last = segs.last().unwrap();
     assert_eq!(last.text, ")");
@@ -236,7 +441,14 @@ fn closing_paren_active_when_cursor_past_it() {
         InputItem::Digit('3'),
         InputItem::RightParen,
     ];
-    let segs = render_expression(&items, 3, DecimalSeparator::Dot, None, None);
+    let segs = render_expression(
+        &items,
+        3,
+        DecimalSeparator::Dot,
+        None,
+        None,
+        Notation::Pretty,
+    );
     let last = segs.last().unwrap();
     assert!(last.active);
 }
@@ -249,7 +461,14 @@ fn closing_paren_active_when_cursor_before_opener() {
         InputItem::Digit('3'),
         InputItem::RightParen,
     ];
-    let segs = render_expression(&items, 0, DecimalSeparator::Dot, None, None);
+    let segs = render_expression(
+        &items,
+        0,
+        DecimalSeparator::Dot,
+        None,
+        None,
+        Notation::Pretty,
+    );
     let last = segs.last().unwrap();
     assert!(last.active);
 }
@@ -264,7 +483,14 @@ fn unary_func_paren_inactive_with_cursor_inside() {
         InputItem::Digit('0'),
         InputItem::RightParen,
     ];
-    let segs = render_expression(&items, 2, DecimalSeparator::Dot, None, None);
+    let segs = render_expression(
+        &items,
+        2,
+        DecimalSeparator::Dot,
+        None,
+        None,
+        Notation::Pretty,
+    );
     let last = segs.last().unwrap();
     assert_eq!(last.text, ")");
     assert!(!last.active);

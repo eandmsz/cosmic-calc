@@ -7,7 +7,7 @@
 //! trigger an immediate persist-on-mutation path.
 
 use cosmic::app::{Core, Task};
-use cosmic::iced::{Alignment, Length, Padding};
+use cosmic::iced::{Alignment, Length, Padding, Size};
 use cosmic::widget;
 use cosmic::{Application, Element};
 
@@ -56,6 +56,7 @@ pub enum Message {
     SetRandMaxText(String),
     SetRandDecimals(u8),
     SetPropertyTesting(bool),
+    SetDebugRawFormula(bool),
 
     // --- history / memory / clipboard ----------------------------------
     RecallHistory(usize),
@@ -79,6 +80,11 @@ pub enum Message {
     /// height drives the keypad's 62%-of-window target so the buttons
     /// grow with the window instead of staying at a fixed pixel height.
     WindowResized(f32, f32),
+    /// Answer to the monitor-size query a panel toggle kicks off. The
+    /// window grows or shrinks by the panel's width, capped so it
+    /// never reaches past the edge of the screen it is on. `None` when
+    /// the platform could not report a monitor size.
+    PanelGeometry(Option<f32>),
     /// Timer tick that writes a pending config change to disk. See
     /// `AppModel::config_dirty`.
     PersistConfig,
@@ -118,6 +124,11 @@ pub struct AppModel {
     /// keyboard equivalent. Set on `KeyboardPressed`, cleared on
     /// `KeyboardReleased`. `None` when no key is held.
     flashing_button: Option<Button>,
+    /// Logical pixels this app has added to the window width to make
+    /// room for the open side panels. Tracked so closing a panel gives
+    /// back exactly what opening it took — including when growing was
+    /// capped by the screen and only part of the width was added.
+    panel_width_added: f32,
     /// Set when the config has changed but has not reached disk yet.
     /// Every settings mutation used to serialise the whole file and
     /// write it synchronously on the UI thread, so dragging a slider
@@ -210,8 +221,9 @@ impl AppModel {
 
     /// Dispatch a keypad button through `apply_button` and handle any
     /// follow-up effect (history write, memory mutation, panel
-    /// toggle).
-    fn handle_button(&mut self, button: Button) {
+    /// toggle). Returns the follow-up task — panel toggles resize the
+    /// window, everything else is self-contained.
+    fn handle_button(&mut self, button: Button) -> Task<Message> {
         // Rand reads its bounds from `config.rand_min_incl/max_excl`,
         // but those are the *last good* values — the live text inputs
         // may currently be in their error state (red border) with a
@@ -219,7 +231,7 @@ impl AppModel {
         // bounds. Bail before touching the engine so the user has to
         // fix the bounds before a press takes effect.
         if matches!(button, Button::Rand) && !self.rand_inputs_valid() {
-            return;
+            return Task::none();
         }
         let effect = apply_button(&mut self.engine, &mut self.ui, &self.config, button);
         self.refresh_property_results();
@@ -232,17 +244,16 @@ impl AppModel {
             } => {
                 self.history.push(expression, result, items);
             }
+            // The two panels are independent: opening one leaves the
+            // other exactly as the user left it, and both can be open
+            // side by side.
             ButtonEffect::ToggleHistoryPanel => {
                 self.ui.history_panel_open = !self.ui.history_panel_open;
-                if self.ui.history_panel_open {
-                    self.ui.settings_panel_open = false;
-                }
+                return self.request_panel_resize();
             }
             ButtonEffect::ToggleSettingsPanel => {
                 self.ui.settings_panel_open = !self.ui.settings_panel_open;
-                if self.ui.settings_panel_open {
-                    self.ui.history_panel_open = false;
-                }
+                return self.request_panel_resize();
             }
             ButtonEffect::ToggleMode => {
                 self.config.mode = toggled_layout(self.config.mode);
@@ -276,6 +287,77 @@ impl AppModel {
                 }
             }
         }
+        Task::none()
+    }
+
+    /// Total width the open side panels occupy, gaps included.
+    fn panels_width(&self) -> f32 {
+        let mut width = 0.0;
+        if self.ui.history_panel_open {
+            width += crate::ui::panels::HISTORY_PANEL_WIDTH + crate::ui::panels::PANEL_SPACING;
+        }
+        if self.ui.settings_panel_open {
+            width += crate::ui::panels::SETTINGS_PANEL_WIDTH + crate::ui::panels::PANEL_SPACING;
+        }
+        width
+    }
+
+    /// Width left for the calculator column itself. The panels are
+    /// fixed-width and the calculator fills the rest, so every layout
+    /// figure derived from the window width has to work off this
+    /// instead — otherwise the keypad sizes itself against space the
+    /// panels have already taken.
+    fn content_width(&self) -> f32 {
+        const MIN_CONTENT_WIDTH: f32 = 120.0;
+        (self.window_width - self.panels_width()).max(MIN_CONTENT_WIDTH)
+    }
+
+    /// Ask the compositor how wide the monitor holding this window is.
+    /// The answer arrives as `Message::PanelGeometry` and drives the
+    /// resize. Asking per toggle rather than caching the value keeps a
+    /// window that has since been dragged to another screen honest.
+    fn request_panel_resize(&self) -> Task<Message> {
+        let Some(id) = self.core.main_window_id() else {
+            return Task::none();
+        };
+        cosmic::iced::window::monitor_size(id)
+            .map(|size| cosmic::action::app(Message::PanelGeometry(size.map(|s| s.width))))
+    }
+
+    /// Widen the window by however much the open panels need (and give
+    /// it back when they close), so a panel docks *beside* the
+    /// calculator instead of squeezing it.
+    ///
+    /// The screen is the one limit: when there is no room left to grow,
+    /// the panel has to share the width that already exists, and the
+    /// calculator area does give way. `monitor_width` is `None` on
+    /// platforms that cannot report one, and then the request goes out
+    /// unclamped — the compositor still refuses anything it cannot
+    /// honour.
+    fn apply_panel_resize(&mut self, monitor_width: Option<f32>) -> Task<Message> {
+        let Some(id) = self.core.main_window_id() else {
+            return Task::none();
+        };
+        let wanted = self.panels_width();
+        let delta = wanted - self.panel_width_added;
+        let change = if delta > 0.0 {
+            let headroom = monitor_width
+                .map(|screen| (screen - self.window_width).max(0.0))
+                .unwrap_or(delta);
+            delta.min(headroom)
+        } else {
+            // Never hand back more than was taken: a window the user
+            // widened themselves keeps that width when the panel goes.
+            delta.max(-self.panel_width_added)
+        };
+        let min_width = crate::ui::keypad::min_window_size(&self.config).0;
+        let new_width = (self.window_width + change).max(min_width);
+        let applied = new_width - self.window_width;
+        self.panel_width_added += applied;
+        if applied == 0.0 {
+            return Task::none();
+        }
+        cosmic::iced::window::resize(id, Size::new(new_width, self.window_height))
     }
 
     /// Translate a `ClipboardOp` into a real cosmic `Task`. Copy is a
@@ -366,6 +448,7 @@ impl Application for AppModel {
             window_width,
             window_height,
             flashing_button: None,
+            panel_width_added: 0.0,
             config_dirty: false,
         };
         model.refresh_property_results();
@@ -374,10 +457,10 @@ impl Application for AppModel {
 
     fn update(&mut self, message: Self::Message) -> Task<Self::Message> {
         match message {
-            Message::Button(b) => self.handle_button(b),
+            Message::Button(b) => return self.handle_button(b),
             Message::KeyboardPressed(b) => {
                 self.flashing_button = Some(b);
-                self.handle_button(b);
+                return self.handle_button(b);
             }
             Message::KeyboardReleased(b) => {
                 if self.flashing_button == Some(b) {
@@ -464,6 +547,10 @@ impl Application for AppModel {
                 self.refresh_property_results();
                 self.persist();
             }
+            Message::SetDebugRawFormula(flag) => {
+                self.config.debug_raw_formula = flag;
+                self.persist();
+            }
             Message::RecallHistory(idx) => {
                 // Every entry carries the items it was built from, so
                 // recall never has to re-derive them from the rendered
@@ -513,6 +600,7 @@ impl Application for AppModel {
                 self.window_width = w;
                 self.window_height = h;
             }
+            Message::PanelGeometry(monitor_width) => return self.apply_panel_resize(monitor_width),
             Message::PersistConfig => self.flush_config(),
         }
         Task::none()
@@ -538,7 +626,7 @@ impl Application for AppModel {
         let keypad_layout = crate::ui::keypad::KeypadLayout {
             theme: &active_theme,
             config: &self.config,
-            window_width: self.window_width,
+            window_width: self.content_width(),
             area_height: layout.keypad_area_height,
             metrics: layout.keypad_metrics,
             edge_padding: layout.edge_spacing,
@@ -592,7 +680,7 @@ impl Application for AppModel {
             row = row.push(crate::ui::panels::history_panel(
                 &self.history,
                 &self.memory,
-                self.config.significant_digits,
+                &self.config,
             ));
         }
         row = row.push(main_column);
@@ -603,7 +691,7 @@ impl Application for AppModel {
                 &self.rand_max_text,
             ));
         }
-        row.spacing(4)
+        row.spacing(crate::ui::panels::PANEL_SPACING)
             .width(Length::Fill)
             .height(Length::Fill)
             .into()
@@ -733,6 +821,25 @@ impl AppModel {
         }
     }
 
+    /// The caption above the main display: the expression the last `=`
+    /// evaluated, re-rendered from its items so it picks up the same
+    /// separators and the same raw/pretty notation as the display
+    /// below it. Captions that are not expressions (the "Random
+    /// number" hint) carry no items and are shown verbatim.
+    fn caption_text(&self) -> String {
+        if self.ui.last_expression_items.is_empty() {
+            return self.ui.last_expression.clone();
+        }
+        crate::ui::display::render_expression_string(
+            &self.ui.last_expression_items,
+            self.config.decimal_separator,
+            self.config
+                .thousands_separator
+                .resolve(self.config.decimal_separator),
+            self.config.notation(),
+        )
+    }
+
     fn compute_display_metrics(&self, layout: &MainColumnLayout) -> DisplayMetrics {
         let segments = crate::ui::display::render_expression(
             self.engine.input.items(),
@@ -742,8 +849,10 @@ impl AppModel {
                 .thousands_separator
                 .resolve(self.config.decimal_separator),
             self.ui.random_range,
+            self.config.notation(),
         );
-        let has_caption = !self.ui.last_expression.is_empty();
+        let caption = self.caption_text();
+        let has_caption = !caption.is_empty();
         let main_chars = if let Some(err) = self.ui.error_message.as_deref() {
             err.chars().count()
         } else if segments.is_empty() {
@@ -751,8 +860,9 @@ impl AppModel {
         } else {
             segments.iter().map(|s| s.text.chars().count()).sum()
         };
+        let content_width = self.content_width();
         let available_width =
-            display_metrics::available_display_width(self.window_width, layout.edge_spacing);
+            display_metrics::available_display_width(content_width, layout.edge_spacing);
         let main_width_units = if let Some(err) = self.ui.error_message.as_deref() {
             crate::ui::keypad::label_width_units(err)
         } else if segments.is_empty() {
@@ -769,7 +879,7 @@ impl AppModel {
             has_caption,
         );
         let (mut main_size, mut main_line_h) =
-            display_metrics::scale_main_text_size(main_chars, self.window_width, main_slot_h);
+            display_metrics::scale_main_text_size(main_chars, content_width, main_slot_h);
         (main_size, main_line_h) = display_metrics::fit_display_text(
             main_width_units,
             available_width,
@@ -778,10 +888,10 @@ impl AppModel {
             main_line_h,
         );
         let (caption_size, caption_line_h) = if has_caption {
-            let caption_units = crate::ui::keypad::label_width_units(&self.ui.last_expression);
+            let caption_units = crate::ui::keypad::label_width_units(&caption);
             let (size, line_h) = display_metrics::scale_caption_text_size(
-                self.ui.last_expression.chars().count(),
-                self.window_width,
+                caption.chars().count(),
+                content_width,
                 caption_slot_h,
             );
             display_metrics::fit_display_text(
@@ -795,6 +905,7 @@ impl AppModel {
             (0.0, 0.0)
         };
         DisplayMetrics {
+            caption,
             has_caption,
             main_size,
             main_line_h,
@@ -868,7 +979,7 @@ impl AppModel {
             .width(Length::Fill);
         if has_caption {
             let caption_inner: Element<'_, Message> = widget::container(
-                widget::text::caption(self.ui.last_expression.clone())
+                widget::text::caption(metrics.caption.clone())
                     .size(caption_size)
                     .line_height(cosmic::iced::widget::text::LineHeight::Absolute(
                         caption_line_h.into(),
@@ -983,7 +1094,7 @@ impl AppModel {
             AngleMode::Deg => "DEG",
             AngleMode::Rad => "RAD",
         };
-        let cell_w = crate::ui::keypad::button_cell_width(self.window_width, 5, spacing, edge);
+        let cell_w = crate::ui::keypad::button_cell_width(self.content_width(), 5, spacing, edge);
         widget::row::with_capacity(5)
             .push(mem_btn(
                 &t,
@@ -1046,6 +1157,10 @@ struct MainColumnLayout {
 
 /// Measured display fonts for the expression area.
 struct DisplayMetrics {
+    /// Caption text as rendered, so `view` does not have to derive it
+    /// a second time and risk measuring one string while drawing
+    /// another.
+    caption: String,
     has_caption: bool,
     main_size: f32,
     main_line_h: f32,

@@ -1,9 +1,12 @@
-//! Side panels overlaid on top of the main app layout. The history
+//! Side panels docked beside the main app layout. The history
 //! panel reads from [`History`] and [`Memory`]; the settings panel
-//! emits the existing per-field `Message` variants. Layout is
-//! deliberately simple – a full-height column with plain labels – so
-//! the app compiles and the overall flow works before investing in
-//! colour pickers and dropdowns.
+//! emits the existing per-field `Message` variants.
+//!
+//! Both panels scroll their contents. Neither list is bounded – the
+//! history holds up to 255 entries and the settings column is longer
+//! than a phone-sized window is tall – so without a scrollable the
+//! overflow is simply clipped, and the entries that fall off the
+//! bottom become unreachable.
 
 use cosmic::iced::Length;
 use cosmic::widget;
@@ -17,38 +20,62 @@ use crate::locale::{DecimalSeparator, ThousandsSeparator};
 use crate::memory::Memory;
 use crate::theme::ThemeKind;
 use crate::ui::app::Message;
+use crate::ui::display::render_expression_string;
 use crate::ui::font::available_fonts_with_faces;
+
+/// Width of the history panel, in logical pixels. The app layer needs
+/// it too: opening a panel widens the window by exactly this much so
+/// the calculator keeps the width it had.
+pub const HISTORY_PANEL_WIDTH: f32 = 280.0;
+
+/// Width of the settings panel, in logical pixels.
+pub const SETTINGS_PANEL_WIDTH: f32 = 380.0;
+
+/// Gap between a side panel and the calculator column.
+pub const PANEL_SPACING: f32 = 4.0;
 
 /// Left-hand history + memory panel. Newest entries first. Clicking
 /// a row emits `Message::RecallHistory(idx)` which rewrites the
 /// display (but leaves the buffer alone, per spec).
+///
+/// Each row is re-rendered from the items the entry was evaluated
+/// from rather than replayed from its stored string, so separators and
+/// the raw/pretty notation follow the settings as they are now instead
+/// of freezing whatever was in force when the entry was recorded.
 pub fn history_panel<'a>(
     history: &History,
     memory: &Memory,
-    significant_digits: u8,
+    config: &Config,
 ) -> Element<'a, Message> {
     let header = widget::text::title4("History");
-    let mem_label = match memory.display(significant_digits) {
+    let mem_label = match memory.display(config.significant_digits) {
         s if s.is_empty() => "Memory: (empty)".to_string(),
         s => format!("Memory: {s}"),
     };
 
-    let mut column = widget::column::with_capacity(2 + history.len())
-        .push(header)
-        .push(widget::text::caption(mem_label))
-        .spacing(6)
-        .padding(12);
+    let mut list = widget::column::with_capacity(2 * history.len()).spacing(6);
 
     if history.is_empty() {
-        column = column.push(widget::text::body("(no history yet)"));
+        list = list.push(widget::text::body("(no history yet)"));
     } else {
         let total = history.len();
+        let thousands = config.thousands_separator.resolve(config.decimal_separator);
         for (idx, entry) in history.iter_newest_first().enumerate() {
+            let expression = if entry.items.is_empty() {
+                entry.expression.clone()
+            } else {
+                render_expression_string(
+                    &entry.items,
+                    config.decimal_separator,
+                    thousands,
+                    config.notation(),
+                )
+            };
             let entry_column = widget::column::with_capacity(2)
-                .push(widget::text::caption(entry.expression.clone()))
+                .push(widget::text::caption(expression))
                 .push(widget::text::body(entry.result.clone()))
                 .spacing(2);
-            column = column.push(
+            list = list.push(
                 widget::button::custom(entry_column)
                     .on_press(Message::RecallHistory(idx))
                     .class(cosmic::theme::Button::Standard)
@@ -56,12 +83,27 @@ pub fn history_panel<'a>(
                     .padding([6, 8]),
             );
             if idx + 1 < total {
-                column = column.push(widget::divider::horizontal::default());
+                list = list.push(widget::divider::horizontal::default());
             }
         }
     }
 
-    column.width(Length::Fixed(280.0)).into()
+    // The list scrolls; the header and the memory line stay put. Before
+    // this, entry number N pushed the oldest entry out through the
+    // bottom of the window, one row at a time, as the history grew.
+    widget::column::with_capacity(3)
+        .push(header)
+        .push(widget::text::caption(mem_label))
+        .push(
+            widget::scrollable(list)
+                .width(Length::Fill)
+                .height(Length::Fill),
+        )
+        .spacing(6)
+        .padding(12)
+        .width(Length::Fixed(HISTORY_PANEL_WIDTH))
+        .height(Length::Fill)
+        .into()
 }
 
 /// Which of the two rand-bound inputs currently reads as invalid.
@@ -202,6 +244,15 @@ pub fn settings_panel<'a>(
         .on_toggle(Message::SetPropertyTesting)
         .spacing(8.0);
 
+    // Debug switch between the buffer's own spelling and the rendered
+    // one. Purely a display choice: the tokenizer is handed the raw
+    // form either way, so a result never depends on this.
+    let debug_toggle = widget::toggler(config.debug_raw_formula)
+        .label("Debug: raw formula".to_string())
+        .on_toggle(Message::SetDebugRawFormula)
+        .spacing(8.0);
+    let debug_caption = widget::text::caption("On: root(2^2,6) · log2(8) · sin-1(1)");
+
     // Font selector — enumerates every family fontdb finds installed on
     // the host. Each row renders the family's name in its own typeface
     // so the user can preview the look before committing. The currently
@@ -279,7 +330,7 @@ pub fn settings_panel<'a>(
         config.significant_digits
     ));
 
-    widget::column::with_capacity(19)
+    let content = widget::column::with_capacity(22)
         .push(header)
         .push(widget::text::caption("Theme"))
         .push(theme_dropdown)
@@ -300,8 +351,18 @@ pub fn settings_panel<'a>(
         .push(rand_decimals_label)
         .push(rand_decimals_slider)
         .push(prop_toggle)
+        .push(debug_toggle)
+        .push(debug_caption)
         .spacing(8)
         .padding(12)
-        .width(Length::Fixed(380.0))
+        .width(Length::Fill);
+
+    // The column is taller than the default window, so the panel
+    // scrolls as a whole; the font list keeps its own inner scrollable
+    // so it cannot dominate the height on a host with hundreds of
+    // families installed.
+    widget::scrollable(content)
+        .width(Length::Fixed(SETTINGS_PANEL_WIDTH))
+        .height(Length::Fill)
         .into()
 }
