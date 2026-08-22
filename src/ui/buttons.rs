@@ -452,14 +452,8 @@ pub fn apply_button(
         Button::Log10 => wrap_or_open_unary(engine, UnaryFunc::Log10),
         Button::Log2 => wrap_or_open_unary(engine, UnaryFunc::Log2),
 
-        Button::YRootX => {
-            insert_with_auto_mul(engine, InputItem::BinaryFunc(BinaryFunc::Root));
-            ButtonEffect::None
-        }
-        Button::LogY => {
-            insert_with_auto_mul(engine, InputItem::BinaryFunc(BinaryFunc::LogBase));
-            ButtonEffect::None
-        }
+        Button::YRootX => wrap_or_open_binary(engine, BinaryFunc::Root),
+        Button::LogY => wrap_or_open_binary(engine, BinaryFunc::LogBase),
 
         Button::Square => append_suffix(
             engine,
@@ -1050,6 +1044,34 @@ fn wrap_or_open_unary(engine: &mut Engine, f: UnaryFunc) -> ButtonEffect {
         }
         None => {
             insert_with_auto_mul(engine, InputItem::UnaryFunc(f));
+            engine.input.insert(InputItem::RightParen);
+            engine.input.move_cursor(crate::engine::CursorMove::Left);
+        }
+    }
+    ButtonEffect::None
+}
+
+/// Open a two-argument function — `root(value, n)` or
+/// `log(base, value)` — with its closing bracket already in place,
+/// the way `√` and `∛` do. Both used to insert the opener alone and
+/// leave the user to notice the bracket was still hanging open.
+///
+/// The cursor lands *inside* the brackets in both branches, which is
+/// where the unary version and this one part company: `√(16)` is a
+/// finished operand, while `root(16` still needs its second argument,
+/// so parking the cursor past the closer would mean stepping back over
+/// it to type the degree.
+fn wrap_or_open_binary(engine: &mut Engine, f: BinaryFunc) -> ButtonEffect {
+    match engine.input.last_operand_range() {
+        Some((start, end)) => {
+            engine.input.insert_at(start, InputItem::BinaryFunc(f));
+            // The insert above bumped `end` by 1; the closer goes after
+            // the operand, and the cursor stays in front of it.
+            engine.input.insert_at(end + 1, InputItem::RightParen);
+            engine.input.set_cursor(end + 1);
+        }
+        None => {
+            insert_with_auto_mul(engine, InputItem::BinaryFunc(f));
             engine.input.insert(InputItem::RightParen);
             engine.input.move_cursor(crate::engine::CursorMove::Left);
         }
