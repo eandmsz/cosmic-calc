@@ -8,7 +8,9 @@
 //! definite error rather than a plausible wrong number.
 
 use crate::clipboard::paste_items;
-use crate::engine::{evaluate_to_string, AngleMode, InputBuffer};
+use crate::engine::{
+    evaluate_expression, evaluate_to_string, AngleMode, InputBuffer, DEFAULT_SIGNIFICANT_DIGITS,
+};
 
 /// Paste `raw` and return `(rendered buffer, evaluated result)`.
 fn paste(raw: &str) -> (String, String) {
@@ -70,6 +72,16 @@ const CASES: &[(&str, &str, &str)] = &[
     ("-1,79701e57", "-1.79701×10^57", "-1.79701e57"),
     // The italic 𝑒 is always the constant: π⁵ × 𝑒².
     ("π×π×π×π×π×𝑒×𝑒", "π×π×π×π×π×𝑒×𝑒", "2261.19661825552"),
+    // Both constants, a radical inside a logarithm, a factorial in an
+    // exponent, a parenthesised divisor and a scientific-notation
+    // literal in one expression. `2^2!` is 2^(2!) = 4, and sin is read
+    // in degrees; `3e4` is a mantissa and an exponent, so it renders
+    // as ×10^ rather than as the constant.
+    (
+        "𝑒×π×log(√2)+sin(2^2!)÷(4+5×3)×3e4",
+        "𝑒×π×log(√(2))+sin(2^2!)÷(4+5×3)×3×10^4",
+        "111.42715872663",
+    ),
     // --- precision at the edge of the significant-digit budget --------
     (
         "1+0,00000000000001",
@@ -149,4 +161,45 @@ fn a_bare_radical_binds_tighter_than_a_following_operator() {
         );
         assert_eq!(pasted, direct, "paste and engine disagree on {raw:?}");
     }
+}
+
+#[test]
+fn the_two_constant_formula_matches_to_the_last_representable_digit() {
+    // Same expression as the table row above, checked against the full
+    // value rather than the display string: 111,427158726630384.
+    //
+    // That expectation carries 18 significant digits. An f64 backs
+    // under 16, and the display is budgeted at
+    // DEFAULT_SIGNIFICANT_DIGITS (15) on top of that, so neither half
+    // of the check can be a literal comparison against all 18. The
+    // display stops at 111.42715872663 — rendered `111,42715872663` by
+    // the display layer in a comma-decimal locale — and the raw value
+    // is pinned to within one unit in the last place of the nearest
+    // double to the expected number. It does not land exactly on that
+    // double: every one of the ten-odd operations in the chain rounds,
+    // and the accumulated drift moves the last bit.
+    let items = paste_items(Some("𝑒×π×log(√2)+sin(2^2!)÷(4+5×3)×3e4"))
+        .expect("the formula was rejected by the paste sanitiser");
+    let mut buf = InputBuffer::new();
+    buf.replace(items);
+
+    let out = evaluate_expression(
+        &buf.ascii_expression(),
+        AngleMode::Deg,
+        DEFAULT_SIGNIFICANT_DIGITS,
+    )
+    .expect("the formula did not evaluate");
+
+    // Written out to all 18 digits on purpose: that the last two are
+    // rounded away by the literal itself is half of what this test
+    // documents, so clippy's "excessive precision" is the point.
+    #[allow(clippy::excessive_precision)]
+    let expected = 111.427158726630384_f64;
+    let one_ulp = expected.next_up() - expected;
+    assert!(
+        (out.value - expected).abs() <= one_ulp,
+        "{} is more than one ulp from {expected}",
+        out.value
+    );
+    assert_eq!(out.display, "111.42715872663");
 }
