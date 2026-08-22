@@ -34,6 +34,17 @@
   </categories>
 
   <releases>
+    <release version="0.1.1" date="2026-08-22">
+      <description>
+        <ul>
+          <li>The keypad layout is now configurable: every cell of both keypads, and what the 2nd key toggles, is set in config.toml</li>
+          <li>One % key covers both percentage and modulo, decided by what follows it</li>
+          <li>Button labels are centred on their ink, so they no longer drift with the chosen font</li>
+          <li>The 2nd key is visibly lit while it is armed</li>
+          <li>Number properties are shown in the basic layout too</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.1.0" date="2026-08-14"/>
   </releases>
 </component>
