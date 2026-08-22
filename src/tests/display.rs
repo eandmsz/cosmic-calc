@@ -1,4 +1,4 @@
-use crate::engine::item::{BinOp, ConstKind, InputItem, UnaryFunc};
+use crate::engine::item::{BinOp, BinaryFunc, ConstKind, InputItem, UnaryFunc};
 use crate::engine::script::Notation;
 use crate::locale::DecimalSeparator;
 use crate::ui::display::*;
@@ -313,6 +313,31 @@ fn log_bases_are_lowered() {
         InputItem::RightParen,
     ];
     assert_eq!(render_str(&items, DecimalSeparator::Dot, None), "log₇(2)");
+}
+
+#[test]
+fn the_debug_toggle_swaps_the_two_spellings_of_one_expression() {
+    // `root(2^2,6)` against `root(2²,6)`: two-argument functions keep
+    // their written form in both notations — there is no radical sign
+    // that carries a degree and a comma on one line — while the power
+    // inside the first argument raises as it does anywhere else.
+    let items = vec![
+        InputItem::BinaryFunc(BinaryFunc::Root),
+        InputItem::Digit('2'),
+        InputItem::BinOp(BinOp::Pow),
+        InputItem::Digit('2'),
+        InputItem::Comma,
+        InputItem::Digit('6'),
+        InputItem::RightParen,
+    ];
+    assert_eq!(
+        render_expression_string(&items, DecimalSeparator::Dot, None, Notation::Pretty),
+        "root(2²,6)"
+    );
+    assert_eq!(
+        render_expression_string(&items, DecimalSeparator::Dot, None, Notation::Raw),
+        "root(2^2,6)"
+    );
 }
 
 #[test]
