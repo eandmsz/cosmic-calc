@@ -379,34 +379,59 @@ fn the_percent_key_covers_both_readings() {
 }
 
 #[test]
-fn a_second_percent_press_spells_modulo_out() {
-    // `%` followed by a minus reads as percent-then-subtract, so the
-    // explicit ` mod ` has to stay reachable now that its own key is
-    // gone: pressing `%` again on the `%` converts it.
+fn percentage_of_a_number_scales_it() {
+    // 3.5% × 230 = 8.05. Nothing follows the `%`, so it reads as a
+    // percentage.
     let (mut e, mut s, c) = fresh();
-    for b in [Button::Num(7), Button::Percent, Button::Percent] {
+    for b in [
+        Button::Num(3),
+        Button::Decimal,
+        Button::Num(5),
+        Button::Percent,
+        Button::Mul,
+        Button::Num(2),
+        Button::Num(3),
+        Button::Num(0),
+    ] {
         apply_button(&mut e, &mut s, &c, b);
     }
-    assert_eq!(e.input.ascii_expression(), "7 mod ");
-    for b in [Button::Num(3), Button::Negate] {
-        apply_button(&mut e, &mut s, &c, b);
-    }
-    assert_eq!(e.input.display_string(), "7 mod (-3)");
-    assert_eq!(e.evaluate().expect("evaluates").display, "1");
+    assert_eq!(e.input.ascii_expression(), "3.5%*230");
+    assert_eq!(e.evaluate().expect("evaluates").display, "8.05");
 }
 
 #[test]
-fn a_third_percent_press_goes_back_to_percent() {
+fn a_number_straight_after_the_percent_makes_it_modulo() {
+    // 5%3.2 = 1.8. An operand follows the `%`, so the same key reads
+    // as modulo — no second press, no separate `mod` key.
+    let (mut e, mut s, c) = fresh();
+    for b in [
+        Button::Num(5),
+        Button::Percent,
+        Button::Num(3),
+        Button::Decimal,
+        Button::Num(2),
+    ] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert_eq!(e.input.ascii_expression(), "5%3.2");
+    assert_eq!(e.evaluate().expect("evaluates").display, "1.8");
+}
+
+#[test]
+fn modulo_by_a_negative_needs_no_extra_key() {
+    // `±` parenthesises the operand, and `%` before a `(` is modulo,
+    // so the negative right-hand side stays reachable from the keypad.
     let (mut e, mut s, c) = fresh();
     for b in [
         Button::Num(7),
         Button::Percent,
-        Button::Percent,
-        Button::Percent,
+        Button::Num(3),
+        Button::Negate,
     ] {
         apply_button(&mut e, &mut s, &c, b);
     }
-    assert_eq!(e.input.ascii_expression(), "7%");
+    assert_eq!(e.input.ascii_expression(), "7%(-3)");
+    assert_eq!(e.evaluate().expect("evaluates").display, "1");
 }
 
 #[test]

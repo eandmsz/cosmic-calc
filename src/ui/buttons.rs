@@ -1048,37 +1048,18 @@ fn replace_or_insert_binop(engine: &mut Engine, op: BinOp) {
 }
 
 /// The one `%` key, covering both readings. There is no separate
-/// `mod` cell any more, so the press has to serve percent *and*
-/// modulo:
-///
-/// * first press inserts the postfix `%`. On its own that is `x/100`,
-///   and against a leading operand it is the usual `200+10%` → 220;
-///   typed before another operand the tokenizer already reads `7%3` as
-///   `7 mod 3`, so the plain press covers the common modulo case too.
-/// * pressing `%` again on that same `%` converts it to an explicit
-///   ` mod `, which is what makes `7 mod (-3)` expressible — a bare
-///   `%` followed by a minus reads as percent-then-subtract. A third
-///   press flips back, so the key cycles rather than stranding the
-///   user in a state they cannot undo without backspacing.
+/// `mod` cell: which one a press means is decided by what ends up
+/// after it, exactly as the tokenizer already reads pasted text. `%`
+/// with nothing following is a percentage (`3.5%×230` → 8.05, `50%` →
+/// 0.5, `200+10%` → 220); `%` with an operand straight after it is
+/// modulo (`5%3.2` → 1.8), including a parenthesised negative one
+/// (`7%(-3)` → 1), which is what the `±` key produces.
 ///
 /// Like the binary operators, a press with no operand to apply to is
 /// dropped rather than leaving a stray token behind.
 fn press_percent(engine: &mut Engine) {
-    let cur = engine.input.cursor();
-    match cur.checked_sub(1).map(|i| &engine.input.items()[i]) {
-        Some(InputItem::Percent) => {
-            engine.input.delete_before();
-            engine.input.insert(InputItem::Modulo);
-        }
-        Some(InputItem::Modulo) => {
-            engine.input.delete_before();
-            engine.input.insert(InputItem::Percent);
-        }
-        _ => {
-            if has_left_operand_at_cursor(engine) {
-                engine.input.insert(InputItem::Percent);
-            }
-        }
+    if has_left_operand_at_cursor(engine) {
+        engine.input.insert(InputItem::Percent);
     }
 }
 

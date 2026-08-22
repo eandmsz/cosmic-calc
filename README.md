@@ -75,9 +75,9 @@ make check                         # fmt + clippy + the whole workspace
 	  15 decimals *and* an integer part, and rounding as though it could
 	  is what makes other calculators print things like
 	  `8.2 + 8.2 = 16.399999999999999`.
-- One `%` key for both readings: `50%` is a percentage, `200+10%` is
-  220, `7%3` is 7 mod 3, and a second press on the same `%` spells the
-  modulo out as ` mod ` so a negative right-hand operand works too
+- One `%` key for both readings, decided by what follows it: on its own
+  it is a percentage (`3.5%×230` = 8.05, `200+10%` = 220), and with an
+  operand straight after it, it is modulo (`5%3.2` = 1.8, `7%(-3)` = 1)
 - Shows real-time number properties in both layouts: prime ; harshad ; palindrome ; square ; triangular ; fibonacci
  	- Miller-Rabin primality test is used with 9 deterministic bases which gives a fast and 100% accurate prime number detection up to 2^64 (~10^19)
 
