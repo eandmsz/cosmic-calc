@@ -1,5 +1,6 @@
 use crate::color::Rgba;
 use crate::config::*;
+use crate::engine::Notation;
 use crate::theme::ThemeKind;
 use std::path::PathBuf;
 
@@ -13,6 +14,23 @@ fn defaults_sit_in_valid_ranges() {
     assert_eq!(c.mode, Mode::Scientific);
     assert_eq!(c.theme_kind, ThemeKind::Cosmic);
     assert!(c.rand_min_incl < c.rand_max_excl);
+}
+
+#[test]
+fn the_debug_toggle_picks_the_notation_and_survives_a_save() {
+    let mut c = Config::default();
+    // Pretty by default: the toggle is a debugging aid, not the
+    // everyday rendering.
+    assert!(!c.debug_raw_formula);
+    assert_eq!(c.notation(), Notation::Pretty);
+
+    c.debug_raw_formula = true;
+    assert_eq!(c.notation(), Notation::Raw);
+
+    let text = toml::to_string_pretty(&c).unwrap();
+    let back: Config = toml::from_str(&text).unwrap();
+    assert!(back.debug_raw_formula);
+    assert_eq!(back.notation(), Notation::Raw);
 }
 
 #[test]

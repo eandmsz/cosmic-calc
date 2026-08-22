@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::engine::AngleMode;
+use crate::engine::{AngleMode, Notation};
 use crate::locale::{DecimalSeparator, ThousandsSeparator};
 use crate::theme::{Theme, ThemeKind};
 
@@ -181,6 +181,13 @@ pub struct Config {
     /// Scientific mode.
     pub property_testing: bool,
 
+    /// Debug switch: render expressions exactly as the buffer stores
+    /// them (`root(2^2,6)`, `log2(8)`, `sin-1(1)`) instead of the
+    /// pretty form with raised exponents and lowered log bases
+    /// (`root(2²,6)`, `log₂(8)`, `sin⁻¹(1)`). Off by default; the
+    /// setting only changes what is drawn, never what is evaluated.
+    pub debug_raw_formula: bool,
+
     /// Which named palette the user picked; `Custom` means the
     /// `theme` field was hand-edited and should be round-tripped
     /// verbatim.
@@ -227,6 +234,7 @@ impl Default for Config {
             window_startup_height: DEFAULT_WINDOW_HEIGHT,
 
             property_testing: false,
+            debug_raw_formula: false,
 
             theme_kind: ThemeKind::default(),
             theme: ThemeKind::default().get(),
@@ -290,6 +298,17 @@ impl Config {
             .collides_with_decimal(self.decimal_separator.resolved())
         {
             self.thousands_separator = ThousandsSeparator::None;
+        }
+    }
+
+    /// Notation the display, the caption above it and the history
+    /// panel render in. The debug toggle picks the raw form; anything
+    /// else is the pretty one.
+    pub fn notation(&self) -> Notation {
+        if self.debug_raw_formula {
+            Notation::Raw
+        } else {
+            Notation::Pretty
         }
     }
 

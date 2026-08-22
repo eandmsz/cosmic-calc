@@ -120,6 +120,38 @@ fn sqrt_with_no_operand_inserts_matched_pair() {
 }
 
 #[test]
+fn y_root_x_closes_its_bracket() {
+    let (mut e, mut s, c) = fresh();
+    apply_button(&mut e, &mut s, &c, Button::YRootX);
+    // Same matched pair √ and ∛ insert, rather than an opener left
+    // hanging for the user to close by hand.
+    assert_eq!(e.input.display_string(), "root()");
+    apply_button(&mut e, &mut s, &c, Button::Num(8));
+    assert_eq!(e.input.display_string(), "root(8)");
+}
+
+#[test]
+fn y_root_x_wraps_a_trailing_operand_and_waits_inside() {
+    let (mut e, mut s, c) = fresh();
+    apply_button(&mut e, &mut s, &c, Button::Num(8));
+    apply_button(&mut e, &mut s, &c, Button::YRootX);
+    assert_eq!(e.input.display_string(), "root(8)");
+    // Unlike √, the operand is not the whole argument list yet — the
+    // degree still has to be typed, so the cursor stays in front of
+    // the closer instead of past it.
+    assert_eq!(e.input.cursor(), 2);
+}
+
+#[test]
+fn log_y_closes_its_bracket_too() {
+    let (mut e, mut s, c) = fresh();
+    apply_button(&mut e, &mut s, &c, Button::LogY);
+    assert_eq!(e.input.display_string(), "log()");
+    apply_button(&mut e, &mut s, &c, Button::Num(2));
+    assert_eq!(e.input.display_string(), "log(2)");
+}
+
+#[test]
 fn reciprocal_wraps_last_operand() {
     let (mut e, mut s, c) = fresh();
     apply_button(&mut e, &mut s, &c, Button::Num(4));

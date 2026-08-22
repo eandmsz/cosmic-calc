@@ -15,4 +15,5 @@ mod memory;
 mod paste_expressions;
 mod props;
 mod rng;
+mod script;
 mod theme;

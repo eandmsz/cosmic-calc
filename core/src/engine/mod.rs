@@ -9,6 +9,7 @@ pub mod gamma;
 pub mod input;
 pub mod item;
 pub mod parser;
+pub mod script;
 pub mod tokenizer;
 
 pub use errors::{CalcError, ERR_INDETERMINATE, ERR_OVERFLOW, ERR_UNDEFINED, ERR_UNDERFLOW};
@@ -16,6 +17,7 @@ pub use eval::AngleMode;
 pub use format::DEFAULT_SIGNIFICANT_DIGITS;
 pub use input::{CursorMove, InputBuffer};
 pub use item::InputItem;
+pub use script::Notation;
 
 /// Output of a successful evaluation: the raw f64 value and the
 /// formatted display string.
