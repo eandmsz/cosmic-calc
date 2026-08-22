@@ -14,6 +14,7 @@ pub mod color;
 pub mod config;
 pub mod engine;
 pub mod history;
+pub mod layout;
 pub mod locale;
 pub mod memory;
 pub mod props;

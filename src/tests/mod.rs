@@ -7,5 +7,7 @@ mod buttons;
 mod cosmic_bridge;
 mod display;
 mod display_scaling;
+mod font_metrics;
+mod keymap;
 mod keypad;
 mod keys;

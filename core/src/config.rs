@@ -15,6 +15,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::engine::{AngleMode, Notation};
+use crate::layout::KeypadLayouts;
 use crate::locale::{DecimalSeparator, ThousandsSeparator};
 use crate::theme::{Theme, ThemeKind};
 
@@ -65,8 +66,8 @@ pub const DEFAULT_FONT: &str = "Adwaita Sans";
 // Enums
 // ---------------------------------------------------------------------
 
-/// Keypad layout. `Scientific` exposes the full button grid;
-/// `Basic` drops the scientific-function column.
+/// Which keypad is on screen. `Scientific` is the 8×5 grid,
+/// `Basic` the 4×5 one; [`crate::layout`] holds what goes in either.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Mode {
@@ -177,8 +178,10 @@ pub struct Config {
     pub window_startup_height: u32,
 
     /// Show the number-property row (prime / harshad / palindrome /
-    /// square / triangular / fibonacci) below the display in
-    /// Scientific mode.
+    /// square / triangular / fibonacci) below the display. Applies to
+    /// both keypad layouts — the row used to be suppressed in Basic
+    /// mode, which meant switching layouts silently turned a feature
+    /// the user had enabled back off.
     pub property_testing: bool,
 
     /// Debug switch: render expressions exactly as the buffer stores
@@ -215,6 +218,12 @@ pub struct Config {
 
     /// Trigonometric angle unit backing the DEG/RAD toggle.
     pub angle_mode: AngleMode,
+
+    /// Which key sits in which keypad cell, for both layouts and for
+    /// both states of the `2nd` toggle. The grid size is fixed (Basic
+    /// 4×5, Scientific 8×5); everything inside it is the user's to
+    /// rearrange. See [`crate::layout`].
+    pub keypad: KeypadLayouts,
 }
 
 impl Default for Config {
@@ -247,6 +256,8 @@ impl Default for Config {
             thousands_separator: ThousandsSeparator::Auto,
 
             angle_mode: AngleMode::Deg,
+
+            keypad: KeypadLayouts::default(),
         }
     }
 }
@@ -299,6 +310,16 @@ impl Config {
         {
             self.thousands_separator = ThousandsSeparator::None;
         }
+
+        self.keypad.normalize();
+    }
+
+    /// Whether the number-property row belongs under the display.
+    /// Both the layout arithmetic and the renderer ask this one
+    /// question, so the two can never disagree about whether the row
+    /// is taking up space.
+    pub fn property_bar_visible(&self) -> bool {
+        self.property_testing
     }
 
     /// Notation the display, the caption above it and the history

@@ -20,16 +20,26 @@ use std::sync::{OnceLock, RwLock};
 
 use cosmic::iced::Font;
 
+/// The host's font database, loaded once. Shared by the family list
+/// below and by the label-centring metrics, which would otherwise scan
+/// every font directory a second time.
+pub fn system_db() -> &'static fontdb::Database {
+    static DB: OnceLock<fontdb::Database> = OnceLock::new();
+    DB.get_or_init(|| {
+        let mut db = fontdb::Database::new();
+        db.load_system_fonts();
+        db
+    })
+}
+
 /// Memoised list of font family names installed on the host. Computed
-/// once on first call via `fontdb::Database::load_system_fonts`. The
-/// returned vector is sorted, deduplicated, and only contains families
-/// that have at least one face usable by cosmic-text.
+/// once on first call from [`system_db`]. The returned vector is
+/// sorted, deduplicated, and only contains families that have at least
+/// one face usable by cosmic-text.
 pub fn available_fonts() -> &'static Vec<String> {
     static CACHE: OnceLock<Vec<String>> = OnceLock::new();
     CACHE.get_or_init(|| {
-        let mut db = fontdb::Database::new();
-        db.load_system_fonts();
-        let mut names: Vec<String> = db
+        let mut names: Vec<String> = system_db()
             .faces()
             .filter_map(|face| face.families.first().map(|(family, _)| family.clone()))
             .collect();

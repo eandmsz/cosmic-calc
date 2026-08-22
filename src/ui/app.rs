@@ -1,6 +1,8 @@
-//! libcosmic Application implementation. All keypad presses and
-//! keyboard events funnel through `Message::Button(_)` into
-//! [`buttons::apply_button`], which mutates the engine + ui state and
+//! libcosmic Application implementation. Keypad presses arrive as
+//! `Message::Button(_)` already carrying the action their cell shows;
+//! keystrokes go through [`resolve_for_keyboard`] first so `2nd`
+//! applies to them the same way. Both then funnel into
+//! [`apply_resolved_button`], which mutates the engine + ui state and
 //! returns a [`ButtonEffect`] describing any side effect that needs
 //! outside state (history writes, memory mutations, panel toggles).
 //! Settings-panel mutations stay on their own dedicated messages and
@@ -20,11 +22,12 @@ use crate::memory::Memory;
 use crate::props::{check_all, parse_simple_nonneg_int, NumberProperty};
 use crate::theme::{apply_cosmic_override, Theme, ThemeKind};
 use crate::ui::buttons::{
-    apply_button, insert_number_string, toggled_angle_mode, toggled_layout, Button, ButtonEffect,
-    ClearMode, MemoryOp, UiState,
+    apply_resolved_button, insert_number_string, resolve_for_keyboard, toggled_angle_mode,
+    toggled_layout, Button, ButtonEffect, ClearMode, MemoryOp, UiState,
 };
 use crate::ui::cosmic_bridge::override_from_cosmic;
 use crate::ui::display_metrics;
+use crate::ui::keymap::{self, LabelContext};
 
 /// Messages emitted by the UI. The keypad emits `Button(_)`; the
 /// settings panel keeps dedicated variants so persist-on-mutation is
@@ -185,13 +188,12 @@ impl AppModel {
     /// Re-evaluate the number-property panel against the current
     /// ASCII expression.
     fn refresh_property_results(&mut self) {
-        self.property_results =
-            if self.config.mode == Mode::Scientific && self.config.property_testing {
-                parse_simple_nonneg_int(&self.engine.input.ascii_expression())
-                    .map(|n| (n, check_all(n)))
-            } else {
-                None
-            };
+        self.property_results = if self.config.property_bar_visible() {
+            parse_simple_nonneg_int(&self.engine.input.ascii_expression())
+                .map(|n| (n, check_all(n)))
+        } else {
+            None
+        };
     }
 
     /// Read-only accessor exposed for tests and for the side panel.
@@ -219,7 +221,9 @@ impl AppModel {
         &self.ui
     }
 
-    /// Dispatch a keypad button through `apply_button` and handle any
+    /// Dispatch a button whose second-function meaning is already
+    /// settled — a keypad cell shows the action it emits, and the
+    /// keyboard path resolves before calling in — then handle any
     /// follow-up effect (history write, memory mutation, panel
     /// toggle). Returns the follow-up task — panel toggles resize the
     /// window, everything else is self-contained.
@@ -233,7 +237,7 @@ impl AppModel {
         if matches!(button, Button::Rand) && !self.rand_inputs_valid() {
             return Task::none();
         }
-        let effect = apply_button(&mut self.engine, &mut self.ui, &self.config, button);
+        let effect = apply_resolved_button(&mut self.engine, &mut self.ui, &self.config, button);
         self.refresh_property_results();
         match effect {
             ButtonEffect::None => {}
@@ -459,11 +463,16 @@ impl Application for AppModel {
         match message {
             Message::Button(b) => return self.handle_button(b),
             Message::KeyboardPressed(b) => {
-                self.flashing_button = Some(b);
-                return self.handle_button(b);
+                // Flash the cell the keystroke actually lands on: with
+                // `2nd` armed that is the second-function key, which is
+                // the one the keypad is drawing.
+                let resolved = resolve_for_keyboard(&self.config, &self.ui, b);
+                self.flashing_button = Some(resolved);
+                return self.handle_button(resolved);
             }
             Message::KeyboardReleased(b) => {
-                if self.flashing_button == Some(b) {
+                let resolved = resolve_for_keyboard(&self.config, &self.ui, b);
+                if self.flashing_button == Some(b) || self.flashing_button == Some(resolved) {
                     self.flashing_button = None;
                 }
             }
@@ -611,7 +620,7 @@ impl Application for AppModel {
         let top_bar = self.render_top_bar();
         let display_metrics = self.compute_display_metrics(&layout);
         let display = self.render_display(&layout, &display_metrics);
-        let status_visible = self.config.mode == Mode::Scientific && self.config.property_testing;
+        let status_visible = self.config.property_bar_visible();
         let status_bar = if status_visible {
             Some(self.render_status_bar())
         } else {
@@ -619,9 +628,13 @@ impl Application for AppModel {
         };
         let memory_row = self.render_memory_row(&layout);
         let active_theme = self.active_theme();
-        let clear_label = match self.ui.clear_mode {
-            crate::ui::buttons::ClearMode::AllClear => "AC",
-            crate::ui::buttons::ClearMode::Single => "C",
+        let labels = LabelContext {
+            clear: match self.ui.clear_mode {
+                ClearMode::AllClear => "AC",
+                ClearMode::Single => "C",
+            },
+            decimal: keymap::decimal_label(&self.config),
+            angle: angle_label(self.config.angle_mode),
         };
         let keypad_layout = crate::ui::keypad::KeypadLayout {
             theme: &active_theme,
@@ -633,7 +646,7 @@ impl Application for AppModel {
         };
         let keypad = crate::ui::keypad::render(
             &keypad_layout,
-            clear_label,
+            labels,
             self.ui.second_mode,
             self.flashing_button,
         );
@@ -791,7 +804,7 @@ impl AppModel {
         let spacing_metrics = crate::ui::keypad::keypad_metrics(window_height, config);
         let row_spacing = spacing_metrics.spacing;
         let edge = row_spacing;
-        let status_visible = config.mode == Mode::Scientific && config.property_testing;
+        let status_visible = config.property_bar_visible();
         let status_h = if status_visible {
             PROPERTY_STATUS_HEIGHT
         } else {
@@ -1043,11 +1056,11 @@ impl AppModel {
             .into()
     }
 
-    /// Status bar below the display: property-panel summary when in
-    /// scientific mode with property testing enabled. DEG/RAD lives on
-    /// the memory row instead.
+    /// Status bar below the display: the property-panel summary
+    /// whenever property testing is enabled, in either keypad layout.
+    /// DEG/RAD lives on the memory row instead.
     fn render_status_bar(&self) -> Element<'_, Message> {
-        if self.config.mode != Mode::Scientific || !self.config.property_testing {
+        if !self.config.property_bar_visible() {
             return widget::Space::new().height(Length::Shrink).into();
         }
 
@@ -1090,15 +1103,13 @@ impl AppModel {
         let btn_height = crate::ui::keypad::memory_row_height(&metrics);
         let radius = metrics.radius * (btn_height / metrics.button_height);
         let edge = layout.edge_spacing;
-        let angle_label = match self.config.angle_mode {
-            AngleMode::Deg => "DEG",
-            AngleMode::Rad => "RAD",
-        };
         let cell_w = crate::ui::keypad::button_cell_width(self.content_width(), 5, spacing, edge);
+        let font = self.config.font.as_str();
         widget::row::with_capacity(5)
             .push(mem_btn(
                 &t,
-                angle_label,
+                font,
+                angle_label(self.config.angle_mode),
                 Button::ToggleAngleMode,
                 radius,
                 btn_height,
@@ -1106,6 +1117,7 @@ impl AppModel {
             ))
             .push(mem_btn(
                 &t,
+                font,
                 "MC",
                 Button::MemClear,
                 radius,
@@ -1114,6 +1126,7 @@ impl AppModel {
             ))
             .push(mem_btn(
                 &t,
+                font,
                 "MR",
                 Button::MemRecall,
                 radius,
@@ -1122,6 +1135,7 @@ impl AppModel {
             ))
             .push(mem_btn(
                 &t,
+                font,
                 "M+",
                 Button::MemAdd,
                 radius,
@@ -1130,6 +1144,7 @@ impl AppModel {
             ))
             .push(mem_btn(
                 &t,
+                font,
                 "M-",
                 Button::MemSub,
                 radius,
@@ -1169,6 +1184,16 @@ struct DisplayMetrics {
     segments: Vec<crate::ui::display::DisplaySegment>,
 }
 
+/// DEG/RAD label for the current angle mode. Shared by the memory row
+/// and by any keypad cell the user binds to the angle toggle, so the
+/// two can never disagree about which unit is live.
+fn angle_label(mode: AngleMode) -> &'static str {
+    match mode {
+        AngleMode::Deg => "DEG",
+        AngleMode::Rad => "RAD",
+    }
+}
+
 /// Render a config-stored f64 back into a string the user can edit
 /// in a text input. Per spec the rand bounds are digit-only integers
 /// ≤15 chars, so we clamp negatives and fractional values to a plain
@@ -1194,6 +1219,7 @@ fn is_valid_rand_input(s: &str) -> bool {
 /// buttons.
 fn mem_btn(
     theme: &Theme,
+    font: &str,
     label: &'static str,
     button: Button,
     corner_radius: f32,
@@ -1202,6 +1228,7 @@ fn mem_btn(
 ) -> Element<'static, Message> {
     widget::container(crate::ui::keypad::control_button(
         theme,
+        font,
         label,
         button,
         crate::ui::keypad::CellGeometry {
