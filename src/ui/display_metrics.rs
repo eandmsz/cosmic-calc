@@ -125,14 +125,14 @@ const CAPTION_HEIGHT_PORTION: u16 =
     (MAIN_HEIGHT_PORTION as f32 * CAPTION_TO_MAIN_HEIGHT_RATIO) as u16;
 
 /// Split the fixed display column into caption and main line heights.
-pub fn display_line_budgets(
-    display_height: f32,
-    row_spacing: f32,
-    has_caption: bool,
-) -> (f32, f32) {
-    if !has_caption {
-        return (0.0, display_height.max(1.0));
-    }
+///
+/// The caption's share is reserved whether or not there is a caption
+/// to put in it. Handing the main line the whole column while the
+/// caption is empty made it grow by two thirds, so the very first
+/// number typed after a start (or an AC) came up in a much larger font
+/// than the same number after an `=` — the split has to be the same
+/// either way for the readout to keep one size.
+pub fn display_line_budgets(display_height: f32, row_spacing: f32) -> (f32, f32) {
     let content = (display_height - row_spacing).max(1.0);
     let total_portions = MAIN_HEIGHT_PORTION as f32 + CAPTION_HEIGHT_PORTION as f32;
     let main_h = content * MAIN_HEIGHT_PORTION as f32 / total_portions;
