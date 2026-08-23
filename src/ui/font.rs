@@ -81,6 +81,80 @@ pub fn available_fonts_with_faces() -> &'static Vec<(String, Font)> {
     })
 }
 
+/// How many family lookups the renderer keeps before it empties the
+/// whole cache and starts again — `cosmic_text`'s own
+/// `FONT_MATCHES_CACHE_SIZE_LIMIT`. Mirrored here because it decides
+/// whether warming those lookups is worth anything: see
+/// [`preload_renderer_fonts`].
+const RENDERER_FAMILY_CACHE_LIMIT: usize = 256;
+
+/// Pause between families during the warm-up sweep, so a frame that
+/// wants the font system while it runs gets a turn.
+const WARM_UP_PAUSE: std::time::Duration = std::time::Duration::from_millis(1);
+
+/// Warm the renderer's font caches for every installed family, off the
+/// UI thread.
+///
+/// The settings panel draws each family's name in that family, so the
+/// first time it opens the renderer has to resolve every font on the
+/// machine against every face on it in one go — that is the freeze,
+/// and it is nearly all `cosmic_text`'s family lookup rather than
+/// anything this app does. None of it depends on the panel, so it is
+/// done ahead of time here.
+///
+/// Three things keep it out of the way:
+///
+///   * the caller starts it once the window is up and idle, not from
+///     `init` — the first full layout wants the same font system, and
+///     racing it there only moves the pause to startup;
+///   * the lock is taken and given back once per family, so a frame
+///     drawn mid-sweep waits for one family rather than the queue
+///     behind it, with a pause between families so it gets a turn;
+///   * a machine with more families than the renderer will cache is
+///     left alone. Warming them cannot help there: the panel's own
+///     lookups empty the cache on their way down the list, taking
+///     everything warmed with them, and the sweep would spend a lot of
+///     CPU for nothing. Shaping only the rows actually on screen is
+///     what those machines need, and that is a change to the panel,
+///     not to this.
+pub fn preload_renderer_fonts() {
+    std::thread::spawn(|| {
+        let families = available_fonts_with_faces();
+        if families.len() >= RENDERER_FAMILY_CACHE_LIMIT {
+            return;
+        }
+        for (name, _) in families {
+            warm_family(name);
+            std::thread::sleep(WARM_UP_PAUSE);
+        }
+    });
+}
+
+/// Size the settings panel draws its font rows at. Kept next to the
+/// warm-up so it shapes at the size the panel will ask for.
+pub const FONT_ROW_SIZE: f32 = 14.0;
+
+/// Resolve and shape one family name exactly as the settings row for it
+/// will, so the renderer finds the lookup cached and the face loaded
+/// when the panel is finally drawn.
+fn warm_family(name: &str) {
+    use cosmic::iced::advanced::graphics::text::{cosmic_text, font_system, to_shaping};
+    use cosmic::iced::advanced::text::Shaping;
+
+    let shaping = to_shaping(Shaping::default(), name);
+    let Ok(mut system) = font_system().write() else {
+        return;
+    };
+    let raw = system.raw();
+    let attrs = cosmic_text::Attrs::new().family(cosmic_text::Family::Name(name));
+    let mut buffer = cosmic_text::Buffer::new(
+        raw,
+        cosmic_text::Metrics::new(FONT_ROW_SIZE, FONT_ROW_SIZE * 1.3),
+    );
+    buffer.set_text(name, &attrs, shaping, None);
+    buffer.shape_until_scroll(raw, false);
+}
+
 /// Resolve a font family name to an `iced::Font`, leaking the string
 /// into a process-wide intern table the first time it's seen so the
 /// `&'static str` requirement of `Font::with_name` is satisfied

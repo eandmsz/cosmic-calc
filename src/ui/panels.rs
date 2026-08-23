@@ -263,7 +263,9 @@ pub fn settings_panel<'a>(
     let fonts = available_fonts_with_faces();
     let mut font_list = widget::column::with_capacity(fonts.len()).spacing(2);
     for (name, face) in fonts {
-        let preview = widget::text(name.clone()).font(*face).size(14);
+        let preview = widget::text(name.clone())
+            .font(*face)
+            .size(crate::ui::font::FONT_ROW_SIZE);
         let class = if name == &config.font {
             cosmic::theme::Button::Suggested
         } else {

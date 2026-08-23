@@ -99,6 +99,9 @@ pub enum Message {
     /// message's own follow-up query answers, and the answer comes back
     /// as `WindowResized`.
     ResyncWindowSize,
+    /// One-shot tick that starts the font warm-up. See
+    /// `AppModel::fonts_preloaded`.
+    PreloadFonts,
     /// Timer tick that writes a pending config change to disk. See
     /// `AppModel::config_dirty`.
     PersistConfig,
@@ -149,6 +152,13 @@ pub struct AppModel {
     /// width the window reports, so a window the user widened by
     /// dragging its edge keeps that width when the panel goes.
     bare_width: f32,
+    /// Set once the font warm-up has been started, which stops the
+    /// timer that starts it. The warm-up waits for the window to be up
+    /// and idle rather than running from `init`: it wants the same font
+    /// system the first full layout does, and racing it there only
+    /// moves the pause the user sees from the settings panel to
+    /// startup.
+    fonts_preloaded: bool,
     /// Set when the config has changed but has not reached disk yet.
     /// Every settings mutation used to serialise the whole file and
     /// write it synchronously on the UI thread, so dragging a slider
@@ -491,6 +501,7 @@ impl Application for AppModel {
             flashing_button: None,
             panel_width_added: 0.0,
             bare_width: window_width,
+            fonts_preloaded: false,
             config_dirty: false,
         };
         model.refresh_property_results();
@@ -661,6 +672,10 @@ impl Application for AppModel {
                     cosmic::action::app(Message::WindowResized(size.width, size.height))
                 });
             }
+            Message::PreloadFonts => {
+                self.fonts_preloaded = true;
+                crate::ui::font::preload_renderer_fonts();
+            }
             Message::PersistConfig => self.flush_config(),
         }
         Task::none()
@@ -762,17 +777,22 @@ impl Application for AppModel {
     }
 
     fn subscription(&self) -> cosmic::iced::Subscription<Self::Message> {
-        // The timer only runs while a write is actually pending, so an
-        // idle calculator stays idle.
+        // Both timers stop themselves: the persist tick only runs while
+        // a write is pending, and the preload tick only until it has
+        // fired once. An idle calculator stays idle.
+        let mut subs = vec![crate::ui::keys::subscription()];
         if self.config_dirty {
-            cosmic::iced::Subscription::batch([
-                crate::ui::keys::subscription(),
+            subs.push(
                 cosmic::iced::time::every(std::time::Duration::from_millis(400))
                     .map(|_| Message::PersistConfig),
-            ])
-        } else {
-            crate::ui::keys::subscription()
+            );
         }
+        if !self.fonts_preloaded {
+            subs.push(
+                cosmic::iced::time::every(PRELOAD_FONTS_DELAY).map(|_| Message::PreloadFonts),
+            );
+        }
+        cosmic::iced::Subscription::batch(subs)
     }
 
     /// Short-circuit graceful shutdown. Letting libcosmic / wgpu /
@@ -1231,6 +1251,12 @@ struct DisplayMetrics {
     caption_line_h: f32,
     segments: Vec<crate::ui::display::DisplaySegment>,
 }
+
+/// How long after start the font warm-up waits before it begins. Long
+/// enough for the window to be up and the first full layout done, short
+/// enough that the settings panel is warm before a user is likely to
+/// reach for it.
+const PRELOAD_FONTS_DELAY: std::time::Duration = std::time::Duration::from_millis(750);
 
 /// Split a window width into the part the calculator column has on its
 /// own and the part the open side panels hold, returning
