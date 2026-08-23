@@ -151,11 +151,11 @@ fn y_root_x_closes_the_operand_it_wrapped_and_waits_for_the_degree() {
 }
 
 #[test]
-fn squaring_nothing_squares_a_zero() {
-    // `x²` is postfix and needs a base. With no user input there is
-    // none, so it starts the expression the way `×` and `+` do — on a
-    // default `0` — rather than writing a `^2` with nothing under it
-    // for the parser to reject.
+fn squaring_nothing_at_all_squares_a_zero() {
+    // `x²` is postfix and needs a base. On an empty buffer there is
+    // none to be had, so the press starts the expression the way `×`
+    // and `+` do — on a default `0` — rather than writing a `^2` with
+    // nothing under it for the parser to reject.
     let (mut e, mut s, c) = fresh();
     apply_button(&mut e, &mut s, &c, Button::Square);
     assert_eq!(e.input.ascii_expression(), "0^2");
@@ -164,26 +164,72 @@ fn squaring_nothing_squares_a_zero() {
     let (mut e, mut s, c) = fresh();
     apply_button(&mut e, &mut s, &c, Button::Cube);
     assert_eq!(e.input.ascii_expression(), "0^3");
-
-    // Same where an operator has just been pressed: there is no base
-    // to the left of the cursor there either.
-    let (mut e, mut s, c) = fresh();
-    apply_button(&mut e, &mut s, &c, Button::Num(5));
-    apply_button(&mut e, &mut s, &c, Button::Add);
-    apply_button(&mut e, &mut s, &c, Button::Square);
-    assert_eq!(e.input.ascii_expression(), "5+0^2");
-    assert_eq!(e.evaluate().expect("evaluates").display, "5");
 }
 
 #[test]
 fn squaring_an_operand_still_raises_that_operand() {
-    // The default base is only for when there is nothing to raise —
-    // a typed operand is squared as it always was.
+    // The default base is only for the empty buffer — a typed operand
+    // is squared as it always was.
     let (mut e, mut s, c) = fresh();
     apply_button(&mut e, &mut s, &c, Button::Num(5));
     apply_button(&mut e, &mut s, &c, Button::Square);
     assert_eq!(e.input.ascii_expression(), "5^2");
     assert_eq!(e.evaluate().expect("evaluates").display, "25");
+}
+
+#[test]
+fn the_power_keys_hold_still_where_there_is_no_operand() {
+    // An expression under way with nothing to attach to — a trailing
+    // operator, an open bracket — is not an empty buffer, and the
+    // default base is not for it: a `0` there would be a base the user
+    // never typed, turning `5+` into `5+0²`. The press does nothing.
+    for lead in [
+        vec![Button::Num(5), Button::Add],
+        vec![Button::LeftParen],
+        vec![Button::Sin],
+    ] {
+        for key in [
+            Button::Square,
+            Button::Cube,
+            Button::EPowX,
+            Button::TenPowX,
+            Button::TwoPowX,
+            Button::EE,
+        ] {
+            let (mut e, mut s, c) = fresh();
+            for b in &lead {
+                apply_button(&mut e, &mut s, &c, *b);
+            }
+            let before = e.input.ascii_expression();
+            apply_button(&mut e, &mut s, &c, key);
+            assert_eq!(
+                e.input.ascii_expression(),
+                before,
+                "{key:?} moved the buffer on from {before:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_key_carrying_its_own_base_needs_no_default() {
+    // `10ˣ`, `2ˣ` and `𝑒ˣ` have their base in the key, so an empty
+    // buffer asks nothing of them — only `x²` and `x³` are missing one
+    // there. `EE` is the odd one out the other way: it multiplies a
+    // mantissa, and a `0` mantissa would zero every exponent that
+    // followed, so from empty it stays put.
+    for (key, expected) in [
+        (Button::TenPowX, "10^"),
+        (Button::TwoPowX, "2^"),
+        (Button::EPowX, "\u{1d452}^"),
+    ] {
+        let (mut e, mut s, c) = fresh();
+        apply_button(&mut e, &mut s, &c, key);
+        assert_eq!(e.input.ascii_expression(), expected);
+    }
+    let (mut e, mut s, c) = fresh();
+    apply_button(&mut e, &mut s, &c, Button::EE);
+    assert!(e.input.is_empty(), "EE started an expression from nothing");
 }
 
 #[test]
