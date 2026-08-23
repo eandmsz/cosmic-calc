@@ -3,8 +3,16 @@ use crate::engine::item::{ConstKind, InputItem};
 use crate::engine::Engine;
 use crate::ui::buttons::*;
 
+/// A calculator on the Scientific keypad. Most of what the dispatcher
+/// does is only reachable from there, and a Basic keypad — which is
+/// what a first run opens on — drops those presses on purpose. The
+/// handful of tests about that rule set the mode themselves.
 fn fresh() -> (Engine, UiState, Config) {
-    (Engine::default(), UiState::default(), Config::default())
+    let config = Config {
+        mode: Mode::Scientific,
+        ..Config::default()
+    };
+    (Engine::default(), UiState::default(), config)
 }
 
 // --- digit entry ----------------------------------------------------
@@ -249,12 +257,65 @@ fn a_key_carrying_its_own_base_starts_a_value_anywhere() {
 }
 
 #[test]
-fn log_y_closes_its_bracket_too() {
+fn log_y_opens_its_argument_first_and_its_base_after() {
+    // From nothing the argument is typed first and `)` moves under the
+    // log, which is the order the thing is said in: "log of 8, base 2".
     let (mut e, mut s, c) = fresh();
     apply_button(&mut e, &mut s, &c, Button::LogY);
-    assert_eq!(e.input.display_string(), "log()");
+    assert_eq!(e.input.display_string(), "log(,)");
+    apply_button(&mut e, &mut s, &c, Button::Num(8));
+    assert_eq!(e.input.display_string(), "log(,8)");
+    apply_button(&mut e, &mut s, &c, Button::RightParen);
     apply_button(&mut e, &mut s, &c, Button::Num(2));
-    assert_eq!(e.input.display_string(), "log(2)");
+    assert_eq!(e.input.display_string(), "log(2,8)");
+    // And `)` from the base slot leaves the call for good, so what
+    // follows is not swallowed by the base.
+    apply_button(&mut e, &mut s, &c, Button::RightParen);
+    apply_button(&mut e, &mut s, &c, Button::Add);
+    assert_eq!(e.input.display_string(), "log(2,8)+");
+    assert_eq!(e.evaluate().expect("log base 2 of 8").display, "3");
+}
+
+#[test]
+fn log_y_takes_the_operand_already_typed_as_its_argument() {
+    // With an operand waiting there is nothing to type into the
+    // argument, so the press lands straight in the base slot.
+    let (mut e, mut s, c) = fresh();
+    apply_button(&mut e, &mut s, &c, Button::Num(8));
+    apply_button(&mut e, &mut s, &c, Button::LogY);
+    assert_eq!(e.input.display_string(), "log(,8)");
+    apply_button(&mut e, &mut s, &c, Button::Num(2));
+    assert_eq!(e.input.display_string(), "log(2,8)");
+    assert_eq!(e.evaluate().expect("log base 2 of 8").display, "3");
+}
+
+#[test]
+fn backspacing_out_of_the_base_slot_undoes_the_whole_call() {
+    // The base slot puts the cursor in front of the call's own comma,
+    // so deleting the `log(` there has to take the comma with it —
+    // otherwise a change of mind leaves `,8` behind, which is not an
+    // expression at all.
+    let (mut e, mut s, c) = fresh();
+    apply_button(&mut e, &mut s, &c, Button::Num(8));
+    apply_button(&mut e, &mut s, &c, Button::LogY);
+    apply_button(&mut e, &mut s, &c, Button::Backspace);
+    assert_eq!(e.input.display_string(), "8");
+
+    // A call with both arguments filled keeps its comma: removing it
+    // would run `root(16,4)` together into the single number 164.
+    let (mut e, mut s, c) = fresh();
+    for b in [
+        Button::Num(1),
+        Button::Num(6),
+        Button::YRootX,
+        Button::Num(4),
+    ] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    apply_button(&mut e, &mut s, &c, Button::CursorHome);
+    apply_button(&mut e, &mut s, &c, Button::CursorRight);
+    apply_button(&mut e, &mut s, &c, Button::Backspace);
+    assert_eq!(e.input.display_string(), "16,4");
 }
 
 #[test]
@@ -682,10 +743,8 @@ fn a_keypad_press_is_not_second_mapped_a_second_time() {
 
 #[test]
 fn a_keystroke_follows_the_users_own_second_table() {
-    let mut c = Config::default();
+    let (mut e, mut s, mut c) = fresh();
     c.keypad.scientific_second[3] = "factorial rand acos atan pi 1 2 3 add".to_string();
-    let mut e = Engine::default();
-    let mut s = UiState::default();
     apply_button(&mut e, &mut s, &c, Button::Second);
     assert_eq!(
         resolve_for_keyboard(&c, &s, Button::Sin),
@@ -782,6 +841,97 @@ fn equals_on_negative_exponent_roundtrips_via_scientific_notation() {
         _ => panic!("expected Evaluated"),
     }
     assert_eq!(e.input.display_string(), "1×10^(-6)");
+}
+
+// --- results carried on as operands ---------------------------------
+
+/// Type a sequence of keys on a fresh scientific calculator and hand
+/// back what it is left showing.
+fn run(keys: &[Button]) -> (Engine, UiState, Config) {
+    let (mut e, mut s, c) = fresh();
+    for b in keys {
+        apply_button(&mut e, &mut s, &c, *b);
+    }
+    (e, s, c)
+}
+
+#[test]
+fn a_result_carried_on_keeps_the_precision_it_was_computed_at() {
+    // The whole point: `1÷3` shows the fifteen digits that fit, but
+    // what goes back into the buffer is the value they were rounded
+    // from. Multiplying the digits gives 0.999999999999999;
+    // multiplying the value gives back the 1 it came from.
+    let (mut e, mut s, c) = run(&[Button::Num(1), Button::Div, Button::Num(3), Button::Equals]);
+    assert_eq!(e.input.display_string(), "0.333333333333333");
+    for b in [Button::Mul, Button::Num(3), Button::Equals] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert_eq!(e.input.display_string(), "1");
+}
+
+#[test]
+fn the_digits_on_screen_are_still_the_ones_on_screen() {
+    // Only evaluation reads the fuller value. Everything the user can
+    // see or copy — the display, the ASCII expression, the history
+    // entry — is what was drawn.
+    let (e, _s, _c) = run(&[Button::Num(1), Button::Div, Button::Num(3), Button::Equals]);
+    assert_eq!(e.input.ascii_expression(), "0.333333333333333");
+    assert_eq!(e.input.ascii_expression_for_eval(), "0.3333333333333333");
+}
+
+#[test]
+fn editing_a_result_makes_its_digits_the_whole_truth() {
+    // Backspace over the result and the annotation goes with it: the
+    // user is now looking at a number they typed, and it has to
+    // evaluate as the number it looks like.
+    let (mut e, mut s, c) = run(&[Button::Num(1), Button::Div, Button::Num(3), Button::Equals]);
+    apply_button(&mut e, &mut s, &c, Button::Backspace);
+    assert_eq!(e.input.display_string(), "0.33333333333333");
+    assert_eq!(
+        e.input.ascii_expression_for_eval(),
+        e.input.ascii_expression()
+    );
+    for b in [Button::Mul, Button::Num(3), Button::Equals] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert_eq!(e.input.display_string(), "0.99999999999999");
+}
+
+#[test]
+fn a_negative_result_carries_on_with_its_sign() {
+    // The result is written as `(-x)` when it lands in a non-empty
+    // buffer and as `-x` when it does not; either way the value behind
+    // it is the negative one.
+    let (mut e, mut s, c) = run(&[
+        Button::Num(1),
+        Button::Div,
+        Button::Num(3),
+        Button::Negate,
+        Button::Equals,
+    ]);
+    assert_eq!(e.input.display_string(), "-0.333333333333333");
+    for b in [Button::Mul, Button::Num(3), Button::Equals] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert_eq!(e.input.display_string(), "-1");
+}
+
+#[test]
+fn repeat_equals_keeps_the_result_it_repeats_on() {
+    // `=` after `=` splices the last operator and operand onto the
+    // result already in the buffer, which must not disturb the value
+    // behind it.
+    let (e, _s, _c) = run(&[
+        Button::Num(1),
+        Button::Div,
+        Button::Num(3),
+        Button::Equals,
+        Button::Mul,
+        Button::Num(3),
+        Button::Equals,
+        Button::Equals,
+    ]);
+    assert_eq!(e.input.display_string(), "3");
 }
 
 // --- parens --------------------------------------------------------

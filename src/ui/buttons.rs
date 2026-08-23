@@ -83,7 +83,8 @@ pub enum Button {
     // --- binary functions ---
     /// `y√x` – inserts `root(` then caller keys `x,y)`.
     YRootX,
-    /// `log_y(x)` – inserts `log(` then caller keys `y,x)`.
+    /// `log_y(x)` – opens `log(base, value)` with the cursor in
+    /// whichever of the two slots comes next. See [`open_log_base`].
     LogY,
 
     // --- power shortcuts ---
@@ -363,6 +364,17 @@ pub fn apply_resolved_button(
             // step over the existing closer (when the cursor sits right
             // before one) or no-op. This eliminates the footgun of
             // typing past a closer and ending up with a stray `)`.
+            //
+            // A `log_y` call is the exception at both ends: closing its
+            // argument moves into the base slot instead of past the
+            // call, and closing again from the base leaves the call for
+            // good. That is the whole gesture the key exists for —
+            // `logy 8 ) 2` reads log₂(8) — and it is why the display
+            // draws the empty base as `log₍₎(`.
+            if close_log_base_slot(engine) {
+                state.clear_mode = ClearMode::Single;
+                return ButtonEffect::None;
+            }
             let cursor = engine.input.cursor();
             let next_is_right_paren = engine
                 .input
@@ -371,7 +383,10 @@ pub fn apply_resolved_button(
                 .map(|i| matches!(i, InputItem::RightParen))
                 .unwrap_or(false);
             if next_is_right_paren {
-                engine.input.move_cursor(crate::engine::CursorMove::Right);
+                match empty_log_base_before_closer(engine, cursor) {
+                    Some(base_slot) => engine.input.set_cursor(base_slot),
+                    None => engine.input.move_cursor(crate::engine::CursorMove::Right),
+                }
                 state.clear_mode = ClearMode::Single;
             }
             ButtonEffect::None
@@ -475,7 +490,7 @@ pub fn apply_resolved_button(
         Button::Log2 => wrap_or_open_unary(engine, UnaryFunc::Log2),
 
         Button::YRootX => wrap_or_open_binary(engine, BinaryFunc::Root),
-        Button::LogY => wrap_or_open_binary(engine, BinaryFunc::LogBase),
+        Button::LogY => open_log_base(engine),
 
         Button::Square => raise_to(engine, '2'),
         Button::Cube => raise_to(engine, '3'),
@@ -694,11 +709,12 @@ fn builtin_second(button: Button) -> Button {
         Button::TwoPowX => Button::Log2,
         Button::Ln => Button::EPowX,
         Button::EPowX => Button::Ln,
-        // `x^y` is the inverse of `log_y(x)`: both take the base
-        // first and the second operand after it. `y^x` reads the two
-        // the other way round, so it is not the one to route to here
-        // even though it exists.
-        Button::LogY => Button::XPowY,
+        // `y^x` is the inverse of `log_y(x)` in the order the two
+        // keys read their operands: with `3` typed, `y^x` then `2`
+        // gives 2³ = 8, and with `8` typed, `log_y` then `2` gives
+        // log₂(8) = 3. `x^y` takes the same two the other way round,
+        // so it is not the one to route to here even though it exists.
+        Button::LogY => Button::YPowX,
         Button::Pow => Button::YRootX,
         Button::XPowY => Button::YRootX,
         Button::YRootX => Button::Pow,
@@ -873,28 +889,18 @@ fn backspace_with_paren_match(engine: &mut Engine) {
             | InputItem::LogN(_)
     );
     if opens_paren {
-        let mut depth = 1usize;
-        let mut close_idx: Option<usize> = None;
-        for j in cur..engine.input.items().len() {
-            match engine.input.items()[j] {
-                InputItem::LeftParen
-                | InputItem::UnaryFunc(_)
-                | InputItem::BinaryFunc(_)
-                | InputItem::LogN(_) => depth += 1,
-                InputItem::RightParen => {
-                    depth -= 1;
-                    if depth == 0 {
-                        close_idx = Some(j);
-                        break;
-                    }
-                }
-                _ => {}
-            }
-        }
-        if let Some(c) = close_idx {
-            // Remove the closer first (higher index) so the opener index
-            // stays valid for `delete_before`.
-            engine.input.items_mut().remove(c);
+        // A call whose first argument is empty takes its comma with it.
+        // That is the `log_y` base slot: the cursor sits between the
+        // `log(` and the comma, so deleting the opener there would
+        // otherwise leave the `,8` of `log(,8)` stranded. A call with
+        // something in both arguments keeps its comma, since removing
+        // it would run the two together into one number.
+        let comma_idx = crate::engine::script::argument_separator(engine.input.items(), opener_idx)
+            .filter(|comma| *comma == opener_idx + 1);
+        let close_idx = closer_for_opener(engine.input.items(), opener_idx);
+        // Highest index first, so the ones below it stay valid.
+        for idx in [close_idx, comma_idx].iter().flatten().copied() {
+            engine.input.items_mut().remove(idx);
         }
     }
     engine.input.delete_before();
@@ -1123,6 +1129,139 @@ fn wrap_or_open_binary(engine: &mut Engine, f: BinaryFunc) -> ButtonEffect {
     ButtonEffect::None
 }
 
+/// Open a `log_y` call — `log(base, value)` in the buffer, `log₍₎(x)`
+/// on the display — with the cursor in whichever slot the user is
+/// going to fill first.
+///
+/// An operand already typed is the *value*: `8`, `logy` gives
+/// `log₍₎(8)` with the cursor under the log, so the very next digit is
+/// the base. That is the reading the key's own label has — `logᵧ` is
+/// the log of what you have, to a base you are about to name — and it
+/// is the opposite of the order [`wrap_or_open_binary`] uses for
+/// `y√x`, where the operand already typed is the radicand.
+///
+/// From an empty operand the argument comes first, the way it is
+/// written and the way it is said: `logy`, `8`, `)`, `2`. The comma is
+/// inserted up front either way, so the base slot exists (and the
+/// display can show it empty) before anything is typed into it.
+fn open_log_base(engine: &mut Engine) -> ButtonEffect {
+    let call = InputItem::BinaryFunc(BinaryFunc::LogBase);
+    match engine.input.last_operand_range() {
+        Some((start, end)) => {
+            engine.input.insert_at(start, call);
+            // The comma goes straight after the opener, leaving the
+            // base slot empty in front of the operand the call has
+            // just taken as its argument.
+            engine.input.insert_at(start + 1, InputItem::Comma);
+            engine.input.insert_at(end + 2, InputItem::RightParen);
+            engine.input.set_cursor(start + 1);
+        }
+        None => {
+            insert_with_auto_mul(engine, call);
+            engine.input.insert(InputItem::Comma);
+            engine.input.insert(InputItem::RightParen);
+            // Between the comma and the closer: the argument slot.
+            engine.input.move_cursor(crate::engine::CursorMove::Left);
+        }
+    }
+    ButtonEffect::None
+}
+
+/// The `log(base, value)` call whose base slot holds the cursor, as
+/// `(opener_idx, comma_idx)`. Innermost call wins, so a `log_y` nested
+/// in another one answers for itself.
+fn log_base_slot_at_cursor(engine: &Engine) -> Option<(usize, usize)> {
+    let items = engine.input.items();
+    let cursor = engine.input.cursor();
+    let mut found = None;
+    for idx in 0..cursor {
+        if !matches!(items[idx], InputItem::BinaryFunc(BinaryFunc::LogBase)) {
+            continue;
+        }
+        if let Some(comma) = crate::engine::script::argument_separator(items, idx) {
+            if cursor <= comma {
+                found = Some((idx, comma));
+            }
+        }
+    }
+    found
+}
+
+/// `)` pressed with the cursor in a base slot: leave the call
+/// altogether, landing past its closer. Returns whether it fired.
+fn close_log_base_slot(engine: &mut Engine) -> bool {
+    let Some((opener, _)) = log_base_slot_at_cursor(engine) else {
+        return false;
+    };
+    let Some(closer) = closer_for_opener(engine.input.items(), opener) else {
+        return false;
+    };
+    engine.input.set_cursor(closer + 1);
+    true
+}
+
+/// Index the cursor moves to when `)` is pressed in front of the
+/// closer at `cursor`, if that closer belongs to a `log_y` call whose
+/// base has not been typed yet: the empty base slot. `None` when the
+/// closer is anything else, or the base is already filled — then the
+/// press steps over the closer as it always has.
+fn empty_log_base_before_closer(engine: &Engine, cursor: usize) -> Option<usize> {
+    let items = engine.input.items();
+    let opener = opener_for_closer(items, cursor)?;
+    if !matches!(items[opener], InputItem::BinaryFunc(BinaryFunc::LogBase)) {
+        return None;
+    }
+    let comma = crate::engine::script::argument_separator(items, opener)?;
+    (comma == opener + 1).then_some(opener + 1)
+}
+
+/// Index of the closer that matches the paren-opening item at
+/// `opener_idx` (`(`, `sin(`, `log(`, …). `None` when the group is
+/// still open.
+fn closer_for_opener(items: &[InputItem], opener_idx: usize) -> Option<usize> {
+    let mut depth = 1usize;
+    for (j, it) in items.iter().enumerate().skip(opener_idx + 1) {
+        match it {
+            InputItem::LeftParen
+            | InputItem::UnaryFunc(_)
+            | InputItem::BinaryFunc(_)
+            | InputItem::LogN(_) => depth += 1,
+            InputItem::RightParen => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(j);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// The opening item matching the `RightParen` at `closer_idx`.
+fn opener_for_closer(items: &[InputItem], closer_idx: usize) -> Option<usize> {
+    if !matches!(items.get(closer_idx), Some(InputItem::RightParen)) {
+        return None;
+    }
+    let mut depth = 1usize;
+    for j in (0..closer_idx).rev() {
+        match items[j] {
+            InputItem::RightParen => depth += 1,
+            InputItem::LeftParen
+            | InputItem::UnaryFunc(_)
+            | InputItem::BinaryFunc(_)
+            | InputItem::LogN(_) => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(j);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
 /// Wrap the last operand as `(1÷operand)`. The outer parens keep the
 /// reciprocal isolated from any surrounding binary operators, so
 /// chains like `2+5⁻¹×3` evaluate as `2+(1/5)×3` rather than
@@ -1282,7 +1421,7 @@ fn evaluate_now(engine: &mut Engine, state: &mut UiState) -> ButtonEffect {
             // by the next `=`, even after C/AC and a fresh entry.
             state.last_repeat = repeat;
             engine.clear();
-            insert_number_string(engine, &out.display);
+            insert_exact_value(engine, &out.display, out.value);
             state.just_evaluated = true;
             state.clear_mode = ClearMode::Single;
             ButtonEffect::Evaluated {
@@ -1353,8 +1492,14 @@ fn extract_repeat(items: &[InputItem]) -> Option<(BinOp, Vec<InputItem>)> {
 /// concluded they were the same numeric run, and concatenated: with `5`
 /// in the buffer, recalling a memory of 42 produced `542`, and pressing
 /// Rand produced `50.123…`.
-pub fn insert_number_string(engine: &mut Engine, s: &str) {
+///
+/// Returns the half-open item range the value itself landed in, which
+/// is what [`insert_exact_value`] hangs the unrounded value off.
+pub fn insert_number_string(engine: &mut Engine, s: &str) -> (usize, usize) {
     ensure_auto_mul_before_new_run(engine);
+    // Any `×` the line above inserted belongs to the expression, not
+    // to the value, so the range starts after it.
+    let start = engine.input.cursor();
     // A leading `-` on an empty buffer is just the sign of the value;
     // anywhere else a bare `-` would read as subtraction, so the value
     // is parenthesised the way the negate key does it.
@@ -1364,10 +1509,26 @@ pub fn insert_number_string(engine: &mut Engine, s: &str) {
             engine.input.insert(InputItem::BinOp(BinOp::Sub));
             insert_number_body(engine, rest);
             engine.input.insert(InputItem::RightParen);
-            return;
+            return (start, engine.input.cursor());
         }
     }
     insert_number_body(engine, s);
+    (start, engine.input.cursor())
+}
+
+/// Insert a value the calculator computed: its digits as the display
+/// rounds them, plus the annotation that lets evaluation read the
+/// unrounded `value` back out of them.
+///
+/// This is what keeps a result usable as an operand. `1÷3=` shows
+/// 0.333333333333333 either way, but multiplying those fifteen digits
+/// by three gives 0.999999999999999, while multiplying the value they
+/// stand for gives the 1 the user is expecting. The exactness lasts
+/// only as long as the digits are untouched — edit them and the buffer
+/// drops the annotation, because then they really are the number.
+pub fn insert_exact_value(engine: &mut Engine, shown: &str, value: f64) {
+    let (start, end) = insert_number_string(engine, shown);
+    engine.input.mark_exact(start, end, value);
 }
 
 /// Digit-by-digit insertion shared by [`insert_number_string`] and its

@@ -3,11 +3,17 @@
 //! the resize lands in full, lands in part, or is refused outright,
 //! and the user may drag the window edge in between.
 
-use crate::ui::app::split_panel_width;
-use crate::ui::panels::{HISTORY_PANEL_WIDTH, PANEL_SPACING};
+use crate::ui::app::{min_window_width, split_panel_width, PanelsShown};
+use crate::ui::panels::{HISTORY_PANEL_WIDTH, PANEL_SPACING, SETTINGS_PANEL_WIDTH};
 
 /// What one open history panel asks the window for.
 const HISTORY: f32 = HISTORY_PANEL_WIDTH + PANEL_SPACING;
+/// And the settings panel.
+const SETTINGS: f32 = SETTINGS_PANEL_WIDTH + PANEL_SPACING;
+
+/// The keypad's own floor, standing in for whatever
+/// `keypad::min_window_size` works out for the user's button shape.
+const KEYPAD_MIN: f32 = 360.0;
 
 #[test]
 fn a_granted_resize_credits_the_panel_with_what_it_asked_for() {
@@ -66,4 +72,66 @@ fn a_window_narrower_than_the_split_resets_it() {
     let (bare, held) = split_panel_width(400.0, 480.0, HISTORY, HISTORY);
     assert!((bare - 400.0).abs() < f32::EPSILON, "bare={bare}");
     assert_eq!(held, 0.0);
+}
+
+// --- how narrow the window may be drawn in -------------------------
+
+#[test]
+fn the_floor_is_the_keypads_own_while_the_panels_are_closed() {
+    let shut = PanelsShown::default();
+    assert_eq!(shut.width(), 0.0);
+    assert_eq!(min_window_width(KEYPAD_MIN, shut, Some(1920.0)), KEYPAD_MIN);
+}
+
+#[test]
+fn an_open_panel_raises_the_floor_by_its_own_width() {
+    // The panel is docked beside the calculator, not over it, so the
+    // width it holds is width the calculator does not have. Without
+    // this the window could be dragged in until the panel had all of
+    // it and the keypad none.
+    let history = PanelsShown {
+        history: true,
+        settings: false,
+    };
+    assert_eq!(
+        min_window_width(KEYPAD_MIN, history, Some(1920.0)),
+        KEYPAD_MIN + HISTORY
+    );
+
+    let both = PanelsShown {
+        history: true,
+        settings: true,
+    };
+    assert_eq!(
+        min_window_width(KEYPAD_MIN, both, Some(1920.0)),
+        KEYPAD_MIN + HISTORY + SETTINGS
+    );
+}
+
+#[test]
+fn the_floor_never_climbs_past_the_screen() {
+    // On a screen too narrow for the calculator and both panels, a
+    // floor wider than the screen is one the user could never meet.
+    // The calculator column gives way instead — the same thing that
+    // happens when the compositor refuses to widen the window.
+    let both = PanelsShown {
+        history: true,
+        settings: true,
+    };
+    assert_eq!(min_window_width(KEYPAD_MIN, both, Some(800.0)), 800.0);
+    // Not even a screen narrower than the keypad itself pulls the
+    // floor below the keypad.
+    assert_eq!(min_window_width(KEYPAD_MIN, both, Some(200.0)), KEYPAD_MIN);
+}
+
+#[test]
+fn an_unknown_screen_leaves_the_floor_where_the_panels_put_it() {
+    let settings = PanelsShown {
+        history: false,
+        settings: true,
+    };
+    assert_eq!(
+        min_window_width(KEYPAD_MIN, settings, None),
+        KEYPAD_MIN + SETTINGS
+    );
 }

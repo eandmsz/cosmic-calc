@@ -11,7 +11,8 @@ fn defaults_sit_in_valid_ranges() {
     assert_eq!(c.window_startup_width, 300);
     assert_eq!(c.window_startup_height, 700);
     assert_eq!(c.font, "Adwaita Sans");
-    assert_eq!(c.mode, Mode::Scientific);
+    // First run opens on the Basic keypad.
+    assert_eq!(c.mode, Mode::Basic);
     assert_eq!(c.theme_kind, ThemeKind::Cosmic);
     assert!(c.rand_min_incl < c.rand_max_excl);
 }
@@ -119,7 +120,7 @@ fn partial_toml_picks_up_defaults() {
     let c: Config = toml::from_str(toml_src).expect("partial load");
     assert_eq!(c.significant_digits, 7);
     assert_eq!(c.window_startup_width, DEFAULT_WINDOW_WIDTH);
-    assert_eq!(c.mode, Mode::Scientific);
+    assert_eq!(c.mode, Mode::Basic);
 }
 
 /// Build a per-process scratch path so tests can run in parallel
@@ -155,7 +156,8 @@ fn save_and_reload_round_trip() {
     let mut cfg = Config {
         significant_digits: 9,
         window_startup_width: 444,
-        mode: Mode::Basic,
+        // Not the default, so the round-trip has something to prove.
+        mode: Mode::Scientific,
         ..Config::default()
     };
     cfg.apply_theme_preset(ThemeKind::RedmondDark);
@@ -164,7 +166,7 @@ fn save_and_reload_round_trip() {
     let back = Config::load_or_create_default_at(&path).expect("reload");
     assert_eq!(back.significant_digits, 9);
     assert_eq!(back.window_startup_width, 444);
-    assert_eq!(back.mode, Mode::Basic);
+    assert_eq!(back.mode, Mode::Scientific);
     assert_eq!(back.theme_kind, ThemeKind::RedmondDark);
     let _ = std::fs::remove_dir_all(path.parent().unwrap());
 }

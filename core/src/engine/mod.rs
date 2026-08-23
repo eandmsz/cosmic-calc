@@ -58,8 +58,13 @@ impl Engine {
     }
 
     /// Run tokenize → parse → eval on the current buffer.
+    ///
+    /// The buffer is read through
+    /// [`InputBuffer::ascii_expression_for_eval`], so a result the
+    /// calculator wrote into it is computed from at the precision it
+    /// was computed at, not at the fifteen digits it is shown to.
     pub fn evaluate(&self) -> Result<EvalOutput, CalcError> {
-        let ascii = self.input.ascii_expression();
+        let ascii = self.input.ascii_expression_for_eval();
         evaluate_expression(&ascii, self.angle_mode, self.significant_digits)
     }
 

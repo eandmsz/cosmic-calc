@@ -19,9 +19,11 @@
 //!     for [`Notation::Raw`]. The glyph rules live in
 //!     [`crate::engine::script`]; what this module adds is folding a
 //!     `^` and the items it raises into one segment, so the caret the
-//!     buffer stores is never drawn — the raising is what it says.
+//!     buffer stores is never drawn — the raising is what it says —
+//!     and the same fold for a `log_y` call, whose base comes out from
+//!     between the brackets and goes under the `log`.
 
-use crate::engine::item::{BinOp, InputItem};
+use crate::engine::item::{BinOp, BinaryFunc, InputItem};
 use crate::engine::script::{self, Notation};
 use crate::locale::DecimalSeparator;
 
@@ -166,6 +168,36 @@ pub fn render_expression(
                         // The empty raised slot shows the press landed
                         // and shows where the next digit will go.
                         segments.push(DisplaySegment::active(script::EMPTY_EXPONENT));
+                        i += 1;
+                        prev_value_end = false;
+                    }
+                }
+            }
+            // A `log_y` call: the base comes out of the brackets and
+            // goes under the `log`, where a reader expects it, and `i`
+            // jumps past it and its comma so neither is drawn twice.
+            // An empty base slot shows the lowered brackets, which is
+            // the only thing on screen saying that the next digit is
+            // going into the base rather than the argument.
+            InputItem::BinaryFunc(BinaryFunc::LogBase) if notation.is_pretty() => {
+                match script::argument_separator(items, i) {
+                    Some(comma) => {
+                        let base =
+                            render_expression_string(&items[i + 1..comma], decimal, None, notation);
+                        let lowered = if base.is_empty() {
+                            script::EMPTY_BASE.to_string()
+                        } else {
+                            script::lower(&base)
+                        };
+                        segments.push(DisplaySegment::active(format!("log{lowered}(")));
+                        i = comma + 1;
+                        prev_value_end = false;
+                    }
+                    None => {
+                        // No comma yet (a pasted `log(100)`, or a call
+                        // the user is still inside): one argument means
+                        // the log10 reading, and no base to lower.
+                        segments.push(DisplaySegment::active("log(".to_string()));
                         i += 1;
                         prev_value_end = false;
                     }
