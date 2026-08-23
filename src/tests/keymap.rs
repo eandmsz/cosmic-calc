@@ -102,8 +102,9 @@ fn the_scientific_grid_is_nine_by_five_without_the_removed_keys() {
 
 /// The shipped keypad, as the user sees it. Pins the layout the bug
 /// reports asked for: one `%` and no `mod`, no stray cursor arrow in
-/// the corner, π and 𝑒 sharing a cell, `ʸ√x` only under `xʸ`, and Rand
-/// and 1/x the other way round.
+/// the corner, and no empty column down the left — π, 𝑒, `xʸ` and
+/// `ʸ√x` all have a cell of their own now, and `2nd` is left to the
+/// keys that genuinely have an inverse.
 #[test]
 fn the_shipped_keypad_reads_as_designed() {
     let config = Config::default();
@@ -127,21 +128,21 @@ fn the_shipped_keypad_reads_as_designed() {
     assert_eq!(
         drawn(LayoutKind::Scientific),
         [
-            "_ 2nd sin cos tan AC ⌫ % ÷",
-            "_ π sinh cosh tanh 7 8 9 ×",
-            "_ x³ ln log log₂ 4 5 6 −",
-            "_ ( ) x² xʸ 1 2 3 +",
-            "_ Rand EE x! 1/x +/− 0 . =",
+            "2nd ( ) 𝑒 EE AC ⌫ % ÷",
+            "x² x³ xʸ 𝑒ˣ 10ˣ 7 8 9 ×",
+            "√ ∛ ʸ√x ln log 4 5 6 −",
+            "x! sin cos tan π 1 2 3 +",
+            "Rand sinh cosh tanh 1/x +/− 0 . =",
         ]
     );
     assert_eq!(
         drawn(LayoutKind::ScientificSecond),
         [
-            "_ 2nd sin⁻¹ cos⁻¹ tan⁻¹ AC ⌫ % ÷",
-            "_ 𝑒 sinh⁻¹ cosh⁻¹ tanh⁻¹ 7 8 9 ×",
-            "_ ∛ 𝑒ˣ 10ˣ logᵧ 4 5 6 −",
-            "_ ( ) √ ʸ√x 1 2 3 +",
-            "_ Rand EE x! 1/x +/− 0 . =",
+            "2nd ( ) 𝑒 EE AC ⌫ % ÷",
+            "x² x³ xʸ yˣ 2ˣ 7 8 9 ×",
+            "√ ∛ ʸ√x logᵧ log₂ 4 5 6 −",
+            "x! sin⁻¹ cos⁻¹ tan⁻¹ π 1 2 3 +",
+            "Rand sinh⁻¹ cosh⁻¹ tanh⁻¹ 1/x +/− 0 . =",
         ]
     );
 }
@@ -152,11 +153,16 @@ fn second_mapping_follows_the_configured_table() {
     for (base, expected) in [
         (Button::Sin, Button::Asin),
         (Button::Cosh, Button::Acosh),
-        (Button::Pi, Button::Euler),
-        (Button::Log2, Button::LogY),
-        (Button::XPowY, Button::YRootX),
-        (Button::Square, Button::Sqrt),
-        (Button::Cube, Button::Cbrt),
+        (Button::Ln, Button::LogY),
+        (Button::Log10, Button::Log2),
+        (Button::EPowX, Button::YPowX),
+        (Button::TenPowX, Button::TwoPowX),
+        // Keys with no inverse to flip to keep their own cell, so the
+        // second table answers with the key itself.
+        (Button::XPowY, Button::XPowY),
+        (Button::YRootX, Button::YRootX),
+        (Button::Square, Button::Square),
+        (Button::Pi, Button::Pi),
         // Digits and operators are the same in both tables.
         (Button::Num(7), Button::Num(7)),
         (Button::Div, Button::Div),
@@ -177,7 +183,7 @@ fn second_mapping_follows_the_configured_table() {
 #[test]
 fn a_rearranged_second_table_changes_the_mapping() {
     let mut config = Config::default();
-    config.keypad.scientific_second[0] = "_ second rand cos tan clear backspace percent div".into();
+    config.keypad.scientific_second[3] = "factorial rand acos atan pi 1 2 3 add".into();
     assert_eq!(
         second_of(&config, Mode::Scientific, Button::Sin),
         Some(Button::Rand)

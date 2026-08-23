@@ -62,6 +62,10 @@ make check                         # fmt + clippy + the whole workspace
   (`getrandom`/`/dev/urandom` on Linux) so each press is independent of
   the last
 - Trigonometry and radical functions work both before or after inputting an operand
+- Both power orders on the keypad: `xʸ` raises what you have already
+  typed to what you type next (`2`, `xʸ`, `3` = 8), and `yˣ` reads the
+  same two operands the other way round, making the one you have typed
+  the exponent (`2`, `yˣ`, `3` = 9)
 - Fully compatible with COSMIC desktop themes and also inheriting accent color from KDE, GNOME, XFCE
 - Decimal separator is automatically based on the system locale
 - Fully compatible with iOS/macOS ASCII expressions e.g:
@@ -104,18 +108,18 @@ basic = [
     "negate 0 decimal equals",
 ]
 scientific = [
-    "_ second sin cos tan clear backspace percent div",
-    "_ pi sinh cosh tanh 7 8 9 mul",
-    "_ cube ln log log2 4 5 6 sub",
-    "_ lparen rparen square xpowy 1 2 3 add",
-    "_ rand ee factorial reciprocal negate 0 decimal equals",
+    "second lparen rparen e ee clear backspace percent div",
+    "square cube xpowy epowx tenpowx 7 8 9 mul",
+    "sqrt cbrt yrootx ln log 4 5 6 sub",
+    "factorial sin cos tan pi 1 2 3 add",
+    "rand sinh cosh tanh reciprocal negate 0 decimal equals",
 ]
 scientific_second = [
-    "_ second asin acos atan clear backspace percent div",
-    "_ e asinh acosh atanh 7 8 9 mul",
-    "_ cbrt epowx tenpowx logy 4 5 6 sub",
-    "_ lparen rparen sqrt yrootx 1 2 3 add",
-    "_ rand ee factorial reciprocal negate 0 decimal equals",
+    "second lparen rparen e ee clear backspace percent div",
+    "square cube xpowy ypowx twopowx 7 8 9 mul",
+    "sqrt cbrt yrootx logy log2 4 5 6 sub",
+    "factorial asin acos atan pi 1 2 3 add",
+    "rand asinh acosh atanh reciprocal negate 0 decimal equals",
 ]
 ```
 
@@ -123,17 +127,19 @@ scientific_second = [
 `second` key on the Basic keypad and it becomes the layout that key
 switches to.
 
-The Scientific keypad's leftmost column ships empty. Every calculator
-function already has a cell, so rather than repeat one there it is left
-as room: name a key in it and it appears. A `config.toml` written before
-that column existed keeps working — its rows are one short, so the empty
-cell lands on the right-hand end instead. Delete the `[keypad]` section
-to take the shipped layout, empty column on the left, back.
+The Scientific keypad ships with all nine columns filled. A
+`config.toml` written while its leftmost column was still empty keeps
+working — those rows are one cell short, so the blank lands on the
+right-hand end instead. Delete the `[keypad]` section to take the
+shipped layout back.
 
 Because the two tables are independent, the `2nd` key toggles exactly
-what you decide: cell (2, 1) of the shipped Scientific layout is `pi`
-normally and `e` with `2nd` on, and `log2` turns into `logy` rather
-than into an inverse of itself.
+what you decide. In the shipped Scientific layout it turns over only
+the ten keys that have something to turn into: `sin`/`cos`/`tan` and
+the hyperbolics become their inverses, `ln` becomes `logy`, `log`
+becomes `log2`, `epowx` becomes `ypowx` and `tenpowx` becomes
+`twopowx`. Everything else — `xpowy`, `yrootx`, `sqrt`, `pi`, the
+digits — sits in both tables and holds still under your fingers.
 
 Rules of the file:
 
@@ -159,7 +165,7 @@ Key names, one per action:
 | Trigonometry | `sin`, `cos`, `tan`, `asin`, `acos`, `atan` |
 | Hyperbolic | `sinh`, `cosh`, `tanh`, `asinh`, `acosh`, `atanh` |
 | Logarithms | `ln`, `log`, `log2`, `logy`, `epowx`, `tenpowx`, `twopowx` |
-| Powers and roots | `square`, `cube`, `xpowy`, `sqrt`, `cbrt`, `yrootx` |
+| Powers and roots | `square`, `cube`, `xpowy`, `ypowx`, `sqrt`, `cbrt`, `yrootx` |
 | Constants | `pi`, `e` |
 | Other | `reciprocal`, `rand`, `mc`, `mr`, `m+`, `m-` |
 | App | `mode`, `angle`, `history`, `settings` |

@@ -14,18 +14,11 @@ fn defaults_have_the_fixed_grid_shape() {
         for row in &grid {
             assert_eq!(row.len(), kind.columns(), "{kind:?} column count");
         }
-        // Every shipped cell carries a key except the Scientific
-        // keypad's leftmost column, which is room the user fills.
+        // Every shipped cell carries a key. The Scientific keypad's
+        // leftmost column used to ship empty as room for the user;
+        // it holds keys now, so nothing ships blank at all.
         let blanks = grid.iter().flatten().filter(|c| c.is_empty()).count();
-        match kind {
-            LayoutKind::Basic | LayoutKind::BasicSecond => {
-                assert_eq!(blanks, 0, "{kind:?}");
-            }
-            LayoutKind::Scientific | LayoutKind::ScientificSecond => {
-                assert_eq!(blanks, KEYPAD_ROWS, "{kind:?}");
-                assert!(grid.iter().all(|row| row[0].is_empty()), "{kind:?}");
-            }
-        }
+        assert_eq!(blanks, 0, "{kind:?}");
     }
     assert_eq!(BASIC_COLUMNS, 4);
     assert_eq!(SCIENTIFIC_COLUMNS, 9);
@@ -116,42 +109,59 @@ fn the_default_scientific_layout_matches_the_shipped_design() {
             "{gone} still on the keypad"
         );
     }
-    // π and 𝑒 share one cell, 𝑒 as the second function.
-    let pi = l
-        .position_of(LayoutKind::Scientific, "pi")
-        .expect("π placed");
+    // The cells `2nd` turns over, and what each one becomes. Every
+    // key with an inverse is here; the rest of the keypad holds still.
+    let flipped = [
+        ("epowx", "ypowx"),
+        ("tenpowx", "twopowx"),
+        ("ln", "logy"),
+        ("log", "log2"),
+        ("sin", "asin"),
+        ("cos", "acos"),
+        ("tan", "atan"),
+        ("sinh", "asinh"),
+        ("cosh", "acosh"),
+        ("tanh", "atanh"),
+    ];
+    for (base, inverse) in flipped {
+        let (row, column) = l
+            .position_of(LayoutKind::Scientific, base)
+            .unwrap_or_else(|| panic!("{base} placed"));
+        assert_eq!(
+            l.name_at(LayoutKind::ScientificSecond, row, column)
+                .as_deref(),
+            Some(inverse),
+            "2nd on {base}"
+        );
+    }
+    // Everything else keeps its cell, so only the keys that have an
+    // inverse move under the user's fingers — the 2nd key itself
+    // included, or the latch could not be switched back off.
+    let flips: Vec<&str> = flipped.iter().map(|(base, _)| *base).collect();
+    let on_grid = l.cells(LayoutKind::ScientificSecond);
+    for (row, cells) in l.cells(LayoutKind::Scientific).iter().enumerate() {
+        for (column, name) in cells.iter().enumerate() {
+            if flips.contains(&name.as_str()) {
+                continue;
+            }
+            assert_eq!(&on_grid[row][column], name, "cell ({row}, {column})");
+        }
+    }
+    // π, 𝑒, xʸ and ʸ√x each have a cell of their own on the unshifted
+    // keypad — none of them is reachable only through 2nd.
+    for own in ["pi", "e", "xpowy", "yrootx"] {
+        assert!(off.contains(&own.to_string()), "{own} has its own cell");
+    }
+    // The leftmost column carries keys now rather than the room it
+    // used to ship as.
     assert_eq!(
-        l.name_at(LayoutKind::ScientificSecond, pi.0, pi.1)
-            .as_deref(),
-        Some("e")
+        l.position_of(LayoutKind::Scientific, "second"),
+        Some((0, 0))
     );
-    assert!(!off.contains(&"e".to_string()), "𝑒 has its own cell");
-    // ʸ√x is reachable only as the second function of xʸ.
-    assert!(!off.contains(&"yrootx".to_string()));
-    let xpowy = l
-        .position_of(LayoutKind::Scientific, "xpowy")
-        .expect("xʸ placed");
+    assert_eq!(l.position_of(LayoutKind::Scientific, "rand"), Some((4, 0)));
     assert_eq!(
-        l.name_at(LayoutKind::ScientificSecond, xpowy.0, xpowy.1)
-            .as_deref(),
-        Some("yrootx")
-    );
-    // Rand sits where 1/x used to and vice versa.
-    let rand = l.position_of(LayoutKind::Scientific, "rand").expect("rand");
-    let recip = l
-        .position_of(LayoutKind::Scientific, "reciprocal")
-        .expect("1/x");
-    assert_eq!(rand, (4, 1));
-    assert_eq!(recip, (4, 4));
-    // The 2nd key keeps its cell in both tables, or it could not be
-    // switched back off.
-    let second = l
-        .position_of(LayoutKind::Scientific, "second")
-        .expect("2nd");
-    assert_eq!(
-        l.name_at(LayoutKind::ScientificSecond, second.0, second.1)
-            .as_deref(),
-        Some("second")
+        l.position_of(LayoutKind::Scientific, "reciprocal"),
+        Some((4, 4))
     );
 }
 

@@ -285,12 +285,15 @@ fn second_routes_sin_to_asin() {
 }
 
 #[test]
-fn second_flips_sqrt_to_square() {
+fn second_flips_e_pow_x_to_y_pow_x() {
     let (mut e, mut s, c) = fresh();
     apply_button(&mut e, &mut s, &c, Button::Num(5));
     apply_button(&mut e, &mut s, &c, Button::Second);
-    apply_button(&mut e, &mut s, &c, Button::Sqrt);
-    assert_eq!(e.input.display_string(), "5^2");
+    apply_button(&mut e, &mut s, &c, Button::EPowX);
+    // Unshifted, 𝑒ˣ would have opened `5×𝑒^` and waited for the
+    // exponent. Its second function reads the 5 as the exponent
+    // instead and leaves the base to be typed.
+    assert_eq!(e.input.display_string(), "^5");
 }
 
 // --- power shortcuts -----------------------------------------------
@@ -308,6 +311,122 @@ fn ten_pow_x_expands_to_ten_caret() {
     let (mut e, mut s, c) = fresh();
     apply_button(&mut e, &mut s, &c, Button::TenPowX);
     assert_eq!(e.input.display_string(), "10^");
+}
+
+#[test]
+fn y_pow_x_makes_the_typed_operand_the_exponent() {
+    let (mut e, mut s, c) = fresh();
+    apply_button(&mut e, &mut s, &c, Button::Num(2));
+    apply_button(&mut e, &mut s, &c, Button::YPowX);
+    // The caret goes in front of the 2, not after it, and the cursor
+    // parks in front of the caret so the base lands where it opened.
+    assert_eq!(e.input.display_string(), "^2");
+    assert_eq!(e.input.cursor(), 0);
+    apply_button(&mut e, &mut s, &c, Button::Num(3));
+    assert_eq!(e.input.display_string(), "3^2");
+    assert_eq!(e.evaluate().expect("3 squared").display, "9");
+}
+
+#[test]
+fn y_pow_x_is_x_pow_y_with_the_operands_swapped() {
+    // The two keys are what tells them apart: same two operands in
+    // the same order, opposite readings of which is the base.
+    let (mut e, mut s, c) = fresh();
+    apply_button(&mut e, &mut s, &c, Button::Num(2));
+    apply_button(&mut e, &mut s, &c, Button::XPowY);
+    apply_button(&mut e, &mut s, &c, Button::Num(3));
+    assert_eq!(e.evaluate().expect("2 cubed").display, "8");
+
+    let (mut e, mut s, c) = fresh();
+    apply_button(&mut e, &mut s, &c, Button::Num(2));
+    apply_button(&mut e, &mut s, &c, Button::YPowX);
+    apply_button(&mut e, &mut s, &c, Button::Num(3));
+    assert_eq!(e.evaluate().expect("3 squared").display, "9");
+}
+
+#[test]
+fn y_pow_x_swaps_only_the_operand_it_landed_on() {
+    let (mut e, mut s, c) = fresh();
+    apply_button(&mut e, &mut s, &c, Button::Num(5));
+    apply_button(&mut e, &mut s, &c, Button::Add);
+    apply_button(&mut e, &mut s, &c, Button::Num(2));
+    apply_button(&mut e, &mut s, &c, Button::YPowX);
+    apply_button(&mut e, &mut s, &c, Button::Num(3));
+    // The `+` and the 5 stay exactly as typed; `^` binds the same two
+    // neighbours it would have bound the other way round.
+    assert_eq!(e.input.display_string(), "5+3^2");
+    assert_eq!(e.evaluate().expect("5 + 3 squared").display, "14");
+}
+
+#[test]
+fn y_pow_x_takes_a_bracketed_operand_whole() {
+    let (mut e, mut s, c) = fresh();
+    apply_button(&mut e, &mut s, &c, Button::Num(9));
+    apply_button(&mut e, &mut s, &c, Button::Sqrt);
+    assert_eq!(e.input.display_string(), "√(9)");
+    apply_button(&mut e, &mut s, &c, Button::YPowX);
+    // The whole call becomes the exponent, not just its closing paren.
+    assert_eq!(e.input.display_string(), "^√(9)");
+    apply_button(&mut e, &mut s, &c, Button::Num(2));
+    assert_eq!(e.input.display_string(), "2^√(9)");
+    assert_eq!(e.evaluate().expect("2 cubed").display, "8");
+}
+
+#[test]
+fn y_pow_x_raises_the_result_of_the_last_evaluation() {
+    let (mut e, mut s, c) = fresh();
+    apply_button(&mut e, &mut s, &c, Button::Num(1));
+    apply_button(&mut e, &mut s, &c, Button::Add);
+    apply_button(&mut e, &mut s, &c, Button::Num(2));
+    apply_button(&mut e, &mut s, &c, Button::Equals);
+    // Like the wrapping functions, it acts on the result rather than
+    // starting a fresh expression.
+    apply_button(&mut e, &mut s, &c, Button::YPowX);
+    assert_eq!(e.input.display_string(), "^3");
+    apply_button(&mut e, &mut s, &c, Button::Num(2));
+    assert_eq!(e.evaluate().expect("2 cubed").display, "8");
+}
+
+#[test]
+fn y_pow_x_left_without_its_base_reports_and_recovers() {
+    let (mut e, mut s, c) = fresh();
+    apply_button(&mut e, &mut s, &c, Button::Num(2));
+    apply_button(&mut e, &mut s, &c, Button::YPowX);
+    // `=` before the base is typed is an incomplete expression, the
+    // same as any other. It reports rather than guessing a base, and
+    // leaves the buffer alone so the press is not lost.
+    apply_button(&mut e, &mut s, &c, Button::Equals);
+    assert_eq!(s.error_message.as_deref(), Some("Undefined"));
+    assert_eq!(e.input.display_string(), "^2");
+    // The cursor is still waiting in the base slot, so typing one
+    // picks the expression back up where the press left it.
+    apply_button(&mut e, &mut s, &c, Button::Num(3));
+    assert_eq!(e.input.display_string(), "3^2");
+    assert!(s.error_message.is_none());
+    match apply_button(&mut e, &mut s, &c, Button::Equals) {
+        ButtonEffect::Evaluated { result, .. } => assert_eq!(result, "9"),
+        _ => panic!("expected Evaluated"),
+    }
+}
+
+#[test]
+fn y_pow_x_without_an_exponent_to_raise_is_a_noop() {
+    // Nothing typed yet: unlike x², there is no sensible operand to
+    // supply, since a `0` exponent would read `y^0` — 1 for every
+    // base the user could go on to type.
+    let (mut e, mut s, c) = fresh();
+    apply_button(&mut e, &mut s, &c, Button::YPowX);
+    assert!(e.input.is_empty(), "yˣ started an expression from nothing");
+
+    // Same after a trailing operator or an open bracket: the press
+    // leaves no stray caret behind.
+    apply_button(&mut e, &mut s, &c, Button::Num(5));
+    apply_button(&mut e, &mut s, &c, Button::Add);
+    apply_button(&mut e, &mut s, &c, Button::YPowX);
+    assert_eq!(e.input.display_string(), "5+");
+    apply_button(&mut e, &mut s, &c, Button::LeftParen);
+    apply_button(&mut e, &mut s, &c, Button::YPowX);
+    assert_eq!(e.input.display_string(), "5+()");
 }
 
 // --- equals + ans continuation -------------------------------------
@@ -564,7 +683,7 @@ fn a_keypad_press_is_not_second_mapped_a_second_time() {
 #[test]
 fn a_keystroke_follows_the_users_own_second_table() {
     let mut c = Config::default();
-    c.keypad.scientific_second[0] = "_ second rand cos tan clear backspace percent div".to_string();
+    c.keypad.scientific_second[3] = "factorial rand acos atan pi 1 2 3 add".to_string();
     let mut e = Engine::default();
     let mut s = UiState::default();
     apply_button(&mut e, &mut s, &c, Button::Second);
