@@ -16,13 +16,14 @@
 //! So we measure instead of guessing. For a label made of letters and
 //! digits the target is the middle of the cap band (baseline to cap
 //! height), which keeps every alphanumeric key on a shared optical
-//! baseline. For a label that is a single symbol — `⌫`, `±`, `×`, `√` —
-//! the target is the middle of that glyph's own ink box, which is what
-//! makes a symbol look centred in its key.
+//! baseline. For a label that is a single symbol — `⌫`, `×`, `√` — the
+//! target is the middle of that glyph's own ink box, which is what
+//! makes a symbol look centred in its key. A caller that knows better
+//! than the label does can override the choice: see [`Centring`].
 //!
 //! Everything is cached: metrics per face, the resulting offset per
-//! (family, label) pair. A font we cannot read gives an offset of
-//! zero, i.e. exactly the old behaviour.
+//! (family, label, centring) triple. A font we cannot read gives an
+//! offset of zero, i.e. exactly the old behaviour.
 
 use std::collections::HashMap;
 use std::sync::{OnceLock, RwLock};
@@ -57,27 +58,52 @@ const ASSUMED_CAP_HEIGHT: f32 = 0.7;
 /// own — see `keypad::centring_padding`.
 const MAX_OFFSET_EM: f32 = 0.5;
 
+/// Which part of a label the button's centre line is aimed at.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Centring {
+    /// Whatever suits the label: the cap band when it contains letters
+    /// or digits, its own ink when it is symbols only. What almost
+    /// every key wants.
+    Auto,
+    /// The cap band, always — the same target letters and digits get,
+    /// so the label shares their baseline instead of floating on its
+    /// own middle. For the two keys that are read against the ones
+    /// beside them rather than on their own: the decimal separator,
+    /// whose `.` belongs down on the digits' baseline and not halfway
+    /// up the key, and `+/−`, which has to sit where `1/x` sits.
+    CapBand,
+}
+
 /// Vertical nudge for `label`, in logical pixels; positive moves the
 /// label down. Feed it the font size the label is drawn at.
 pub fn label_nudge(family: &str, label: &str, font_size: f32) -> f32 {
+    label_nudge_with(family, label, font_size, Centring::Auto)
+}
+
+/// [`label_nudge`] with the centring target named rather than inferred.
+pub fn label_nudge_with(family: &str, label: &str, font_size: f32, centring: Centring) -> f32 {
     if label.is_empty() || !font_size.is_finite() || font_size <= 0.0 {
         return 0.0;
     }
-    offset_em(family, label) * font_size
+    offset_em(family, label, centring) * font_size
 }
 
-/// The nudge in em, cached per (family, label). Split out so the pure
+/// What an offset is cached against: the family and label it was
+/// measured for, and which part of the label was aimed at.
+type OffsetKey = (String, String, Centring);
+
+/// The nudge in em, cached per [`OffsetKey`]. Split out so the pure
 /// arithmetic can be unit tested without a font on disk.
-fn offset_em(family: &str, label: &str) -> f32 {
-    static CACHE: OnceLock<RwLock<HashMap<(String, String), f32>>> = OnceLock::new();
+fn offset_em(family: &str, label: &str, centring: Centring) -> f32 {
+    static CACHE: OnceLock<RwLock<HashMap<OffsetKey, f32>>> = OnceLock::new();
     let cache = CACHE.get_or_init(|| RwLock::new(HashMap::new()));
-    let key = (family.to_string(), label.to_string());
+    let key = (family.to_string(), label.to_string(), centring);
     if let Ok(map) = cache.read() {
         if let Some(v) = map.get(&key) {
             return *v;
         }
     }
-    let computed = measure_offset_em(family, label).unwrap_or(0.0);
+    let computed = measure_offset_em(family, label, centring).unwrap_or(0.0);
     let computed = computed.clamp(-MAX_OFFSET_EM, MAX_OFFSET_EM);
     if let Ok(mut map) = cache.write() {
         map.insert(key, computed);
@@ -110,7 +136,7 @@ pub fn offset_for(ascent: f32, descent: f32, target_mid: f32) -> f32 {
 
 /// Work out the offset for one (family, label) pair from the fonts
 /// actually installed. `None` when nothing could be measured.
-fn measure_offset_em(family: &str, label: &str) -> Option<f32> {
+fn measure_offset_em(family: &str, label: &str, centring: Centring) -> Option<f32> {
     let db = crate::ui::font::system_db();
     let primary = face_id(db, family);
 
@@ -137,11 +163,13 @@ fn measure_offset_em(family: &str, label: &str) -> Option<f32> {
     }
 
     // Alphanumeric labels centre on the cap band so every key shares
-    // one optical baseline; a lone symbol centres on its own ink.
+    // one optical baseline; a lone symbol centres on its own ink,
+    // unless the caller has asked for the cap band regardless.
     let alnum = used.iter().find(|(c, _)| c.is_alphanumeric());
-    let target_mid = match alnum {
-        Some((_, id)) => face_metrics(db, *id)?.cap_height / 2.0,
-        None => ink_mid(db, &used)?,
+    let target_mid = match (centring, alnum) {
+        (_, Some((_, id))) => face_metrics(db, *id)?.cap_height / 2.0,
+        (Centring::CapBand, None) => face_metrics(db, used.first()?.1)?.cap_height / 2.0,
+        (Centring::Auto, None) => ink_mid(db, &used)?,
     };
     Some(offset_for(ascent, descent, target_mid))
 }

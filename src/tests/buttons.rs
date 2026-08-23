@@ -131,15 +131,121 @@ fn y_root_x_closes_its_bracket() {
 }
 
 #[test]
-fn y_root_x_wraps_a_trailing_operand_and_waits_inside() {
+fn y_root_x_closes_the_operand_it_wrapped_and_waits_for_the_degree() {
     let (mut e, mut s, c) = fresh();
     apply_button(&mut e, &mut s, &c, Button::Num(8));
     apply_button(&mut e, &mut s, &c, Button::YRootX);
-    assert_eq!(e.input.display_string(), "root(8)");
+    // The operand the user had already typed is the first argument and
+    // nothing more, so the comma goes in with the bracket.
+    assert_eq!(e.input.display_string(), "root(8,)");
     // Unlike √, the operand is not the whole argument list yet — the
-    // degree still has to be typed, so the cursor stays in front of
-    // the closer instead of past it.
-    assert_eq!(e.input.cursor(), 2);
+    // degree still has to be typed, so the cursor waits after the
+    // comma instead of past the closer.
+    assert_eq!(e.input.cursor(), 3);
+    // Which is what makes the degree reachable at all: before the
+    // comma it ran onto the end of the first argument, giving
+    // `root(84)` and no way to say the 4th root of 8.
+    apply_button(&mut e, &mut s, &c, Button::Num(3));
+    assert_eq!(e.input.display_string(), "root(8,3)");
+    assert_eq!(e.evaluate().expect("cube root of 8").display, "2");
+}
+
+#[test]
+fn squaring_nothing_at_all_squares_a_zero() {
+    // `x²` is postfix and needs a base. On an empty buffer there is
+    // none to be had, so the press starts the expression the way `×`
+    // and `+` do — on a default `0` — rather than writing a `^2` with
+    // nothing under it for the parser to reject.
+    let (mut e, mut s, c) = fresh();
+    apply_button(&mut e, &mut s, &c, Button::Square);
+    assert_eq!(e.input.ascii_expression(), "0^2");
+    assert_eq!(e.evaluate().expect("evaluates").display, "0");
+
+    let (mut e, mut s, c) = fresh();
+    apply_button(&mut e, &mut s, &c, Button::Cube);
+    assert_eq!(e.input.ascii_expression(), "0^3");
+}
+
+#[test]
+fn squaring_an_operand_still_raises_that_operand() {
+    // The default base is only for the empty buffer — a typed operand
+    // is squared as it always was.
+    let (mut e, mut s, c) = fresh();
+    apply_button(&mut e, &mut s, &c, Button::Num(5));
+    apply_button(&mut e, &mut s, &c, Button::Square);
+    assert_eq!(e.input.ascii_expression(), "5^2");
+    assert_eq!(e.evaluate().expect("evaluates").display, "25");
+}
+
+#[test]
+fn the_keys_that_need_a_base_hold_still_without_one() {
+    // An expression under way with nothing to attach to — a trailing
+    // operator, an open bracket — is not an empty buffer, and the
+    // default base is not for it: a `0` there would be a base the user
+    // never typed, turning `5+` into `5+0²`. `EE` is in the same
+    // position for a different reason: its `×10^` needs a mantissa to
+    // multiply, and after a `+` there is none.
+    for lead in [
+        vec![Button::Num(5), Button::Add],
+        vec![Button::LeftParen],
+        vec![Button::Sin],
+    ] {
+        for key in [Button::Square, Button::Cube, Button::EE] {
+            let (mut e, mut s, c) = fresh();
+            for b in &lead {
+                apply_button(&mut e, &mut s, &c, *b);
+            }
+            let before = e.input.ascii_expression();
+            apply_button(&mut e, &mut s, &c, key);
+            assert_eq!(
+                e.input.ascii_expression(),
+                before,
+                "{key:?} moved the buffer on from {before:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_key_carrying_its_own_base_starts_a_value_anywhere() {
+    // `10ˣ`, `2ˣ` and `𝑒ˣ` have their base in the key, so they ask
+    // nothing of what came before and act wherever a value can start.
+    for (key, from_empty, after_plus) in [
+        (Button::TenPowX, "10^", "5+10^"),
+        (Button::TwoPowX, "2^", "5+2^"),
+        (Button::EPowX, "\u{1d452}^", "5+\u{1d452}^"),
+    ] {
+        let (mut e, mut s, c) = fresh();
+        apply_button(&mut e, &mut s, &c, key);
+        assert_eq!(e.input.ascii_expression(), from_empty);
+
+        // After an operator the base goes in beside it. There is no
+        // value to the operator's left to multiply, so no auto-mul is
+        // inserted and the `+` stands as the user typed it.
+        let (mut e, mut s, c) = fresh();
+        apply_button(&mut e, &mut s, &c, Button::Num(5));
+        apply_button(&mut e, &mut s, &c, Button::Add);
+        apply_button(&mut e, &mut s, &c, key);
+        assert_eq!(e.input.ascii_expression(), after_plus);
+
+        // And after an operand it is the auto-mul that joins them, so
+        // the new base does not run onto the end of the old digits.
+        let (mut e, mut s, c) = fresh();
+        apply_button(&mut e, &mut s, &c, Button::Num(5));
+        apply_button(&mut e, &mut s, &c, key);
+        assert!(
+            e.input.ascii_expression().starts_with("5*"),
+            "{key:?} ran onto the operand: {}",
+            e.input.ascii_expression()
+        );
+    }
+
+    // `EE` is the odd one out: it multiplies a mantissa, and a `0`
+    // mantissa would zero every exponent that followed, so from empty
+    // it stays put.
+    let (mut e, mut s, c) = fresh();
+    apply_button(&mut e, &mut s, &c, Button::EE);
+    assert!(e.input.is_empty(), "EE started an expression from nothing");
 }
 
 #[test]
@@ -458,7 +564,7 @@ fn a_keypad_press_is_not_second_mapped_a_second_time() {
 #[test]
 fn a_keystroke_follows_the_users_own_second_table() {
     let mut c = Config::default();
-    c.keypad.scientific_second[0] = "second rand cos tan clear backspace percent div".to_string();
+    c.keypad.scientific_second[0] = "_ second rand cos tan clear backspace percent div".to_string();
     let mut e = Engine::default();
     let mut s = UiState::default();
     apply_button(&mut e, &mut s, &c, Button::Second);

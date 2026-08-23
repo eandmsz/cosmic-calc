@@ -1,5 +1,5 @@
 //! User-configurable keypad layouts. The grid *size* is fixed — Basic
-//! is 4 columns × 5 rows, Scientific is 8 columns × 5 rows — but which
+//! is 4 columns × 5 rows, Scientific is 9 columns × 5 rows — but which
 //! key sits in which cell is entirely up to the user, who edits the
 //! tables in `config.toml`.
 //!
@@ -34,8 +34,9 @@ use serde::{Deserialize, Serialize};
 /// Columns in the Basic keypad.
 pub const BASIC_COLUMNS: usize = 4;
 
-/// Columns in the Scientific keypad.
-pub const SCIENTIFIC_COLUMNS: usize = 8;
+/// Columns in the Scientific keypad. The leftmost one ships empty:
+/// it is room to put keys in, not keys.
+pub const SCIENTIFIC_COLUMNS: usize = 9;
 
 /// Rows in either keypad.
 pub const KEYPAD_ROWS: usize = 5;
@@ -284,22 +285,25 @@ pub const DEFAULT_BASIC: &[&str] = &[
 
 /// Shipped Scientific layout, `2nd` off. The four right-hand columns
 /// mirror the Basic keypad so muscle memory survives the mode switch;
-/// the four on the left carry the scientific keys.
+/// the four beside them carry the scientific keys. The leftmost column
+/// is left empty for the user to fill from `config.toml` — every
+/// calculator function already has a cell, so shipping keys there would
+/// only be repeating ones that are reachable already.
 pub const DEFAULT_SCIENTIFIC: &[&str] = &[
-    "second sin cos tan clear backspace percent div",
-    "pi sinh cosh tanh 7 8 9 mul",
-    "cube ln log log2 4 5 6 sub",
-    "lparen rparen square xpowy 1 2 3 add",
-    "rand ee factorial reciprocal negate 0 decimal equals",
+    "_ second sin cos tan clear backspace percent div",
+    "_ pi sinh cosh tanh 7 8 9 mul",
+    "_ cube ln log log2 4 5 6 sub",
+    "_ lparen rparen square xpowy 1 2 3 add",
+    "_ rand ee factorial reciprocal negate 0 decimal equals",
 ];
 
 /// Shipped Scientific layout, `2nd` on: each scientific key flips to
 /// its inverse, π turns into 𝑒 and log₂ into logᵧ. The Basic columns
 /// are left alone so the digits never move under the user.
 pub const DEFAULT_SCIENTIFIC_SECOND: &[&str] = &[
-    "second asin acos atan clear backspace percent div",
-    "e asinh acosh atanh 7 8 9 mul",
-    "cbrt epowx tenpowx logy 4 5 6 sub",
-    "lparen rparen sqrt yrootx 1 2 3 add",
-    "rand ee factorial reciprocal negate 0 decimal equals",
+    "_ second asin acos atan clear backspace percent div",
+    "_ e asinh acosh atanh 7 8 9 mul",
+    "_ cbrt epowx tenpowx logy 4 5 6 sub",
+    "_ lparen rparen sqrt yrootx 1 2 3 add",
+    "_ rand ee factorial reciprocal negate 0 decimal equals",
 ];

@@ -11,6 +11,11 @@ fn every_shipped_key_name_resolves() {
     let layouts = KeypadLayouts::default();
     for kind in KeypadLayouts::kinds() {
         for name in layouts.cells(kind).into_iter().flatten() {
+            // An empty cell is a cell the user has not filled, not a
+            // name — the Scientific keypad ships a whole column of them.
+            if name.is_empty() {
+                continue;
+            }
             assert!(
                 button_for_name(&name).is_some(),
                 "{kind:?} names {name:?}, which nothing maps to"
@@ -69,12 +74,12 @@ fn resolved_grids_keep_the_fixed_shape() {
 }
 
 #[test]
-fn the_scientific_grid_is_eight_by_five_without_the_removed_keys() {
+fn the_scientific_grid_is_nine_by_five_without_the_removed_keys() {
     let config = Config::default();
     let grid = resolve_grid(&config, LayoutKind::Scientific);
     let second = resolve_grid(&config, LayoutKind::ScientificSecond);
     assert_eq!(grid.len(), 5);
-    assert!(grid.iter().all(|r| r.len() == 8));
+    assert!(grid.iter().all(|r| r.len() == 9));
     let flat: Vec<Option<Button>> = grid
         .iter()
         .chain(second.iter())
@@ -108,7 +113,7 @@ fn the_shipped_keypad_reads_as_designed() {
             .iter()
             .map(|row| {
                 row.iter()
-                    .map(|b| b.map(|b| label_for(b, ctx)).unwrap_or(" "))
+                    .map(|b| b.map(|b| label_for(b, ctx)).unwrap_or(crate::layout::BLANK))
                     .collect::<Vec<_>>()
                     .join(" ")
             })
@@ -117,26 +122,26 @@ fn the_shipped_keypad_reads_as_designed() {
 
     assert_eq!(
         drawn(LayoutKind::Basic),
-        ["AC ⌫ % ÷", "7 8 9 ×", "4 5 6 −", "1 2 3 +", "± 0 . =",]
+        ["AC ⌫ % ÷", "7 8 9 ×", "4 5 6 −", "1 2 3 +", "+/− 0 . =",]
     );
     assert_eq!(
         drawn(LayoutKind::Scientific),
         [
-            "2nd sin cos tan AC ⌫ % ÷",
-            "π sinh cosh tanh 7 8 9 ×",
-            "x³ ln log log₂ 4 5 6 −",
-            "( ) x² xʸ 1 2 3 +",
-            "Rand EE x! 1/x ± 0 . =",
+            "_ 2nd sin cos tan AC ⌫ % ÷",
+            "_ π sinh cosh tanh 7 8 9 ×",
+            "_ x³ ln log log₂ 4 5 6 −",
+            "_ ( ) x² xʸ 1 2 3 +",
+            "_ Rand EE x! 1/x +/− 0 . =",
         ]
     );
     assert_eq!(
         drawn(LayoutKind::ScientificSecond),
         [
-            "2nd sin⁻¹ cos⁻¹ tan⁻¹ AC ⌫ % ÷",
-            "𝑒 sinh⁻¹ cosh⁻¹ tanh⁻¹ 7 8 9 ×",
-            "∛ 𝑒ˣ 10ˣ logᵧ 4 5 6 −",
-            "( ) √ ʸ√x 1 2 3 +",
-            "Rand EE x! 1/x ± 0 . =",
+            "_ 2nd sin⁻¹ cos⁻¹ tan⁻¹ AC ⌫ % ÷",
+            "_ 𝑒 sinh⁻¹ cosh⁻¹ tanh⁻¹ 7 8 9 ×",
+            "_ ∛ 𝑒ˣ 10ˣ logᵧ 4 5 6 −",
+            "_ ( ) √ ʸ√x 1 2 3 +",
+            "_ Rand EE x! 1/x +/− 0 . =",
         ]
     );
 }
@@ -172,7 +177,7 @@ fn second_mapping_follows_the_configured_table() {
 #[test]
 fn a_rearranged_second_table_changes_the_mapping() {
     let mut config = Config::default();
-    config.keypad.scientific_second[0] = "second rand cos tan clear backspace percent div".into();
+    config.keypad.scientific_second[0] = "_ second rand cos tan clear backspace percent div".into();
     assert_eq!(
         second_of(&config, Mode::Scientific, Button::Sin),
         Some(Button::Rand)

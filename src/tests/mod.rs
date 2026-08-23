@@ -11,3 +11,4 @@ mod font_metrics;
 mod keymap;
 mod keypad;
 mod keys;
+mod panel_width;

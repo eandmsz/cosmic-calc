@@ -201,31 +201,33 @@ fn a_bracketed_exponent_is_raised_whole() {
 }
 
 #[test]
-fn an_exponent_without_a_superscript_form_stays_flat() {
+fn an_exponent_without_a_superscript_form_gets_raised_brackets() {
     // `2^2!` is 2^(2!) to the engine, and `!` has no superscript — so
-    // raising only the `2` would read as (2²)!.
+    // the exponent is written out inside raised brackets. Raising only
+    // the `2` would read as (2²)!, and dropping the caret without the
+    // brackets would read as 2 × 2!.
     let mut exponent = digits("2");
     exponent.push(InputItem::Factorial);
     assert_eq!(
         render_str(&power("2", &exponent), DecimalSeparator::Dot, None),
-        "2^2!"
+        "2⁽2!⁾"
     );
 
-    // A chained power is right-associative: `2^2^2` is 2^(2^2), so
-    // the outer exponent is the whole `2^2` and raising only its first
-    // half would read as (2²)². The innermost power has a plain
-    // operand and still raises, which leaves `2^2²` — a faithful
-    // reading of 2^(2²), and the same 16 the engine returns.
+    // A chained power is right-associative: `2^2^2` is 2^(2^2), so the
+    // outer exponent is the whole `2^2`, which raises to `2²` and then
+    // goes inside the brackets — `2⁽2²⁾`, the same 16 the engine
+    // returns. Raising only its first half would read as (2²)².
     let mut chained = digits("2");
     chained.push(InputItem::BinOp(BinOp::Pow));
     chained.extend(digits("2"));
     assert_eq!(
         render_str(&power("2", &chained), DecimalSeparator::Dot, None),
-        "2^2²"
+        "2⁽2²⁾"
     );
 
     // And for a bracketed exponent holding a glyph with no raised
-    // form: there is no superscript `×`.
+    // form: there is no superscript `×`. The group's own brackets give
+    // way to the raised pair rather than doubling up with them.
     let mut product = vec![InputItem::LeftParen];
     product.extend(digits("3"));
     product.push(InputItem::BinOp(BinOp::Mul));
@@ -233,8 +235,58 @@ fn an_exponent_without_a_superscript_form_stays_flat() {
     product.push(InputItem::RightParen);
     assert_eq!(
         render_str(&power("2", &product), DecimalSeparator::Dot, None),
-        "2^(3×4)"
+        "2⁽3×4⁾"
     );
+}
+
+#[test]
+fn the_pretty_display_never_shows_a_caret() {
+    // Whatever the exponent, the `^` the buffer holds is what the
+    // raising stands for and is never drawn. The raw form still has it
+    // — that is the point of the toggle — and the tokenizer is handed
+    // the buffer either way, so nothing about the value changes.
+    let cases: Vec<Vec<InputItem>> = vec![
+        power("2", &digits("5")),
+        power("2", &[InputItem::Constant(ConstKind::Pi)]),
+        power("2", &{
+            let mut e = digits("2");
+            e.push(InputItem::Factorial);
+            e
+        }),
+        power("2", &{
+            let mut e = digits("1");
+            e.push(InputItem::DecimalPoint);
+            e.extend(digits("5"));
+            e
+        }),
+        // A power key pressed with the exponent not yet typed.
+        {
+            let mut e = digits("2");
+            e.push(InputItem::BinOp(BinOp::Pow));
+            e
+        },
+    ];
+    for items in cases {
+        let pretty = render_str(&items, DecimalSeparator::Dot, None);
+        assert!(
+            !pretty.contains('^'),
+            "pretty rendering kept a caret: {pretty}"
+        );
+        let raw = render_expression_string(&items, DecimalSeparator::Dot, None, Notation::Raw);
+        assert!(raw.contains('^'), "raw rendering lost its caret: {raw}");
+    }
+}
+
+#[test]
+fn an_exponent_not_typed_yet_shows_an_empty_raised_slot() {
+    // `2` then `xʸ`: the press has to be visible, and where the next
+    // digit will land has to be obvious, without a caret to say so.
+    let mut items = digits("2");
+    items.push(InputItem::BinOp(BinOp::Pow));
+    assert_eq!(render_str(&items, DecimalSeparator::Dot, None), "2⁽⁾");
+    // And it fills in as soon as there is something to raise.
+    items.extend(digits("5"));
+    assert_eq!(render_str(&items, DecimalSeparator::Dot, None), "2⁵");
 }
 
 #[test]
@@ -317,10 +369,10 @@ fn log_bases_are_lowered() {
 
 #[test]
 fn the_debug_toggle_swaps_the_two_spellings_of_one_expression() {
-    // `root(2^2,6)` against `root(2²,6)`: two-argument functions keep
-    // their written form in both notations — there is no radical sign
-    // that carries a degree and a comma on one line — while the power
-    // inside the first argument raises as it does anywhere else.
+    // `root(2^2,6)` against `√(2²,6)`: the radical is the notation and
+    // `root` is the buffer's spelling of it, so the raw form keeps the
+    // word while the pretty one wears the sign — and the power inside
+    // the first argument raises as it does anywhere else.
     let items = vec![
         InputItem::BinaryFunc(BinaryFunc::Root),
         InputItem::Digit('2'),
@@ -332,7 +384,7 @@ fn the_debug_toggle_swaps_the_two_spellings_of_one_expression() {
     ];
     assert_eq!(
         render_expression_string(&items, DecimalSeparator::Dot, None, Notation::Pretty),
-        "root(2²,6)"
+        "√(2²,6)"
     );
     assert_eq!(
         render_expression_string(&items, DecimalSeparator::Dot, None, Notation::Raw),

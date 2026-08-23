@@ -18,7 +18,8 @@
 //!   * exponents raised and log bases lowered, unless the caller asks
 //!     for [`Notation::Raw`]. The glyph rules live in
 //!     [`crate::engine::script`]; what this module adds is folding a
-//!     `^` and the items it raises into one segment.
+//!     `^` and the items it raises into one segment, so the caret the
+//!     buffer stores is never drawn — the raising is what it says.
 
 use crate::engine::item::{BinOp, InputItem};
 use crate::engine::script::{self, Notation};
@@ -126,18 +127,34 @@ pub fn render_expression(
                 i += 1;
                 prev_value_end = false;
             }
-            // A power the exponent block can render: one segment for
-            // `^` and everything it raises, with `i` jumped past the
-            // exponent items so they are not emitted a second time.
+            // A power: one segment covering the `^` and everything it
+            // raises, with `i` jumped past the exponent items so they
+            // are not emitted a second time. The caret itself never
+            // reaches the pretty display — the raising is what it
+            // says, and the buffer still holds it for the tokenizer.
             InputItem::BinOp(BinOp::Pow) if notation.is_pretty() => {
-                let raised = script::exponent_span(items, i).and_then(|end| {
-                    let inner =
-                        render_expression_string(&items[i + 1..end], decimal, None, notation);
-                    script::to_superscript(&inner).map(|sup| (sup, end))
-                });
-                match raised {
-                    Some((sup, end)) => {
-                        segments.push(DisplaySegment::active(sup));
+                match script::exponent_span(items, i) {
+                    Some(end) => {
+                        let mut inner =
+                            render_expression_string(&items[i + 1..end], decimal, None, notation);
+                        // An exponent that is one bracketed group and
+                        // cannot be raised keeps one pair of brackets,
+                        // not two: the raised pair already says "this
+                        // is the power", so the group's own would only
+                        // repeat it. A group that *can* be raised never
+                        // gets here — its brackets raise with it.
+                        if script::to_superscript(&inner).is_none()
+                            && matches!(items[i + 1], InputItem::LeftParen)
+                            && matching_open[end - 1] == Some(i + 1)
+                        {
+                            inner = render_expression_string(
+                                &items[i + 2..end - 1],
+                                decimal,
+                                None,
+                                notation,
+                            );
+                        }
+                        segments.push(DisplaySegment::active(script::raise(&inner)));
                         i = end;
                         // The exponent closes the value the base
                         // opened, so a following operand gets its
@@ -145,7 +162,10 @@ pub fn render_expression(
                         prev_value_end = true;
                     }
                     None => {
-                        segments.push(DisplaySegment::active("^"));
+                        // Power key pressed, exponent not typed yet.
+                        // The empty raised slot shows the press landed
+                        // and shows where the next digit will go.
+                        segments.push(DisplaySegment::active(script::EMPTY_EXPONENT));
                         i += 1;
                         prev_value_end = false;
                     }

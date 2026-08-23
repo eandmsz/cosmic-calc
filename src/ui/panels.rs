@@ -7,9 +7,18 @@
 //! than a phone-sized window is tall – so without a scrollable the
 //! overflow is simply clipped, and the entries that fall off the
 //! bottom become unreachable.
+//!
+//! Every scrollbar here is embedded rather than floating, so it sits
+//! beside what it scrolls instead of over the right-hand end of it.
+//!
+//! The rows the user clicks – history entries, font names, and the
+//! choices that used to be drop-downs – are drawn in the keypad's own
+//! palette and corner radius, so the settings look like the thing they
+//! configure and every choice is visible without opening a menu.
 
 use cosmic::iced::Length;
 use cosmic::widget;
+use cosmic::widget::button::ButtonClass;
 use cosmic::Element;
 
 use crate::config::{
@@ -18,8 +27,9 @@ use crate::config::{
 use crate::history::History;
 use crate::locale::{DecimalSeparator, ThousandsSeparator};
 use crate::memory::Memory;
-use crate::theme::ThemeKind;
+use crate::theme::{Theme, ThemeKind};
 use crate::ui::app::Message;
+use crate::ui::button_style;
 use crate::ui::display::render_expression_string;
 use crate::ui::font::available_fonts_with_faces;
 
@@ -34,6 +44,58 @@ pub const SETTINGS_PANEL_WIDTH: f32 = 380.0;
 /// Gap between a side panel and the calculator column.
 pub const PANEL_SPACING: f32 = 4.0;
 
+/// Gap an embedded scrollbar keeps from the content it scrolls. Small
+/// enough not to waste panel width, wide enough that the bar reads as
+/// beside the rows rather than pressed against them.
+const SCROLLBAR_GAP: f32 = 6.0;
+
+/// Text size for the rows the user clicks in the panels.
+const ROW_TEXT_SIZE: f32 = 14.0;
+
+/// Vertical / horizontal padding inside those rows.
+const ROW_PADDING: [u16; 2] = [6, 10];
+
+/// Paint a panel row in the keypad's palette at the keypad's corner
+/// radius. `selected` gets the same inversion the armed `2nd` key
+/// wears, which is the app's existing way of saying "this one is in
+/// force".
+fn row_class(theme: &Theme, radius: f32, selected: bool) -> ButtonClass {
+    if selected {
+        button_style::class_for_toggled(theme, radius)
+    } else {
+        button_style::class(theme.toprow_button, theme.text_active, radius)
+    }
+}
+
+/// A row of buttons standing in for a drop-down: every choice on show
+/// at once, in the shape the user picked for the keypad. Wraps onto a
+/// second line when the panel is too narrow for one, so a long option
+/// name never pushes the others out of the panel.
+fn option_buttons<'a, T: Copy + PartialEq>(
+    theme: &Theme,
+    radius: f32,
+    options: &[T],
+    selected: T,
+    label: impl Fn(T) -> &'static str,
+    on_press: impl Fn(T) -> Message,
+) -> Element<'a, Message> {
+    let children: Vec<Element<'a, Message>> = options
+        .iter()
+        .map(|option| {
+            widget::button::custom(widget::text(label(*option)).size(ROW_TEXT_SIZE))
+                .class(row_class(theme, radius, *option == selected))
+                .padding(ROW_PADDING)
+                .on_press(on_press(*option))
+                .into()
+        })
+        .collect();
+    widget::flex_row(children)
+        .column_spacing(4)
+        .row_spacing(4)
+        .width(Length::Fill)
+        .into()
+}
+
 /// Left-hand history + memory panel. Newest entries first. Clicking
 /// a row emits `Message::RecallHistory(idx)` which rewrites the
 /// display (but leaves the buffer alone, per spec).
@@ -43,10 +105,12 @@ pub const PANEL_SPACING: f32 = 4.0;
 /// the raw/pretty notation follow the settings as they are now instead
 /// of freezing whatever was in force when the entry was recorded.
 pub fn history_panel<'a>(
+    theme: &Theme,
     history: &History,
     memory: &Memory,
     config: &Config,
 ) -> Element<'a, Message> {
+    let radius = config.effective_button_corner_radius();
     let header = widget::text::title4("History");
     let mem_label = match memory.display(config.significant_digits) {
         s if s.is_empty() => "Memory: (empty)".to_string(),
@@ -58,7 +122,6 @@ pub fn history_panel<'a>(
     if history.is_empty() {
         list = list.push(widget::text::body("(no history yet)"));
     } else {
-        let total = history.len();
         let thousands = config.thousands_separator.resolve(config.decimal_separator);
         for (idx, entry) in history.iter_newest_first().enumerate() {
             let expression = if entry.items.is_empty() {
@@ -78,13 +141,10 @@ pub fn history_panel<'a>(
             list = list.push(
                 widget::button::custom(entry_column)
                     .on_press(Message::RecallHistory(idx))
-                    .class(cosmic::theme::Button::Standard)
+                    .class(row_class(theme, radius, false))
                     .width(Length::Fill)
-                    .padding([6, 8]),
+                    .padding(ROW_PADDING),
             );
-            if idx + 1 < total {
-                list = list.push(widget::divider::horizontal::default());
-            }
         }
     }
 
@@ -96,6 +156,7 @@ pub fn history_panel<'a>(
         .push(widget::text::caption(mem_label))
         .push(
             widget::scrollable(list)
+                .spacing(SCROLLBAR_GAP)
                 .width(Length::Fill)
                 .height(Length::Fill),
         )
@@ -144,10 +205,12 @@ pub fn rand_bounds_validity(
 /// the top bar, not here – the panel only configures persisted
 /// preferences (theme, separator, feature toggles).
 pub fn settings_panel<'a>(
+    theme: &Theme,
     config: &Config,
     rand_min_text: &str,
     rand_max_text: &str,
 ) -> Element<'a, Message> {
+    let radius = config.effective_button_corner_radius();
     let header = widget::text::title4("Settings");
 
     // Theme dropdown – presents every preset in a single menu so the
@@ -163,28 +226,26 @@ pub fn settings_panel<'a>(
         Message::SetTheme(ThemeKind::all()[i])
     });
 
-    // Decimal separator dropdown — keeps the panel narrow and matches
-    // the visual shape of the other dropdowns above and below. `Auto`
-    // defers to the OS locale (resolved at render time).
+    // Decimal separator — one button per choice, so the three are
+    // readable at a glance and switching is a single click rather than
+    // a menu. `Auto` defers to the OS locale (resolved at render time).
     let decimal_options = [
         DecimalSeparator::Auto,
         DecimalSeparator::Dot,
         DecimalSeparator::Comma,
     ];
-    let decimal_labels: Vec<String> = decimal_options
-        .iter()
-        .map(|d| match d {
-            DecimalSeparator::Auto => "Auto (locale)".to_string(),
-            DecimalSeparator::Dot => "Dot (.)".to_string(),
-            DecimalSeparator::Comma => "Comma (,)".to_string(),
-        })
-        .collect();
-    let decimal_idx = decimal_options
-        .iter()
-        .position(|d| *d == config.decimal_separator);
-    let decimal_dropdown = widget::dropdown(decimal_labels, decimal_idx, move |i| {
-        Message::SetDecimalSeparator(decimal_options[i])
-    });
+    let decimal_buttons = option_buttons(
+        theme,
+        radius,
+        &decimal_options,
+        config.decimal_separator,
+        |d| match d {
+            DecimalSeparator::Auto => "Auto",
+            DecimalSeparator::Dot => "Dot .",
+            DecimalSeparator::Comma => "Comma ,",
+        },
+        Message::SetDecimalSeparator,
+    );
 
     // Thousands separator dropdown. The display layer also guards
     // against glyph collisions at render time, but we additionally
@@ -205,42 +266,39 @@ pub fn settings_panel<'a>(
         .copied()
         .filter(|t| !t.collides_with_decimal(resolved_decimal))
         .collect();
-    let thousands_labels: Vec<String> = thousands_options
-        .iter()
-        .map(|t| match t {
-            ThousandsSeparator::Auto => "Auto (locale)".to_string(),
-            ThousandsSeparator::Space => "Space".to_string(),
-            ThousandsSeparator::Comma => "Comma (,)".to_string(),
-            ThousandsSeparator::Dot => "Dot (.)".to_string(),
-            ThousandsSeparator::None => "None".to_string(),
-        })
-        .collect();
-    let thousands_idx = thousands_options
-        .iter()
-        .position(|t| *t == config.thousands_separator);
-    let thousands_options_for_callback = thousands_options.clone();
-    let thousands_dropdown = widget::dropdown(thousands_labels, thousands_idx, move |i| {
-        Message::SetThousandsSeparator(thousands_options_for_callback[i])
-    });
+    let thousands_buttons = option_buttons(
+        theme,
+        radius,
+        &thousands_options,
+        config.thousands_separator,
+        |t| match t {
+            ThousandsSeparator::Auto => "Auto",
+            ThousandsSeparator::Space => "Space",
+            ThousandsSeparator::Comma => "Comma ,",
+            ThousandsSeparator::Dot => "Dot .",
+            ThousandsSeparator::None => "None",
+        },
+        Message::SetThousandsSeparator,
+    );
 
-    // Button shape dropdown — Auto defers to manual fields / system theme;
-    // each named preset pins a (corner_radius, spacing) pair so the user
-    // can pick a look without juggling two sliders.
-    let shape_options = ButtonShape::ALL;
-    let shape_labels: Vec<String> = shape_options
-        .iter()
-        .map(|s| s.display_name().to_string())
-        .collect();
-    let shape_idx = shape_options.iter().position(|s| *s == config.button_shape);
-    let shape_dropdown = widget::dropdown(shape_labels, shape_idx, move |i| {
-        Message::SetButtonShape(shape_options[i])
-    });
+    // Button shape — Auto defers to manual fields / system theme; each
+    // named preset pins a (corner_radius, spacing) pair so the user can
+    // pick a look without juggling two sliders. The buttons wear the
+    // shape they set, so the choice previews itself.
+    let shape_buttons = option_buttons(
+        theme,
+        radius,
+        &ButtonShape::ALL,
+        config.button_shape,
+        |s: ButtonShape| s.display_name(),
+        Message::SetButtonShape,
+    );
 
     // Property-testing exposes a cosmic Toggler so the on/off state is
     // visible at a glance; the underlying message is unchanged so the
     // rest of the app keeps working through the same handler.
     let prop_toggle = widget::toggler(config.property_testing)
-        .label("Property testing".to_string())
+        .label("Show result properties".to_string())
         .on_toggle(Message::SetPropertyTesting)
         .spacing(8.0);
 
@@ -248,7 +306,7 @@ pub fn settings_panel<'a>(
     // one. Purely a display choice: the tokenizer is handed the raw
     // form either way, so a result never depends on this.
     let debug_toggle = widget::toggler(config.debug_raw_formula)
-        .label("Debug: raw formula".to_string())
+        .label("Show ASCII expression".to_string())
         .on_toggle(Message::SetDebugRawFormula)
         .spacing(8.0);
     let debug_caption = widget::text::caption("On: root(2^2,6) · log2(8) · sin-1(1)");
@@ -263,20 +321,19 @@ pub fn settings_panel<'a>(
     let fonts = available_fonts_with_faces();
     let mut font_list = widget::column::with_capacity(fonts.len()).spacing(2);
     for (name, face) in fonts {
-        let preview = widget::text(name.clone()).font(*face).size(14);
-        let class = if name == &config.font {
-            cosmic::theme::Button::Suggested
-        } else {
-            cosmic::theme::Button::Standard
-        };
+        let preview = widget::text(name.clone())
+            .font(*face)
+            .size(crate::ui::font::FONT_ROW_SIZE);
         let btn = widget::button::custom(preview)
-            .class(class)
+            .class(row_class(theme, radius, name == &config.font))
             .width(Length::Fill)
-            .padding([4, 8])
+            .padding(ROW_PADDING)
             .on_press(Message::SetFont(name.clone()));
         font_list = font_list.push(btn);
     }
-    let font_selector = widget::scrollable(font_list).height(Length::Fixed(220.0));
+    let font_selector = widget::scrollable(font_list)
+        .spacing(SCROLLBAR_GAP)
+        .height(Length::Fixed(220.0));
 
     // Random number config: two text inputs for the bounds + a slider
     // for the decimal count. The bounds are kept as raw text in
@@ -337,11 +394,11 @@ pub fn settings_panel<'a>(
         .push(widget::text::caption("Font"))
         .push(font_selector)
         .push(widget::text::caption("Decimal separator"))
-        .push(decimal_dropdown)
+        .push(decimal_buttons)
         .push(widget::text::caption("Thousands separator"))
-        .push(thousands_dropdown)
+        .push(thousands_buttons)
         .push(widget::text::caption("Button shape"))
-        .push(shape_dropdown)
+        .push(shape_buttons)
         .push(significant_digits_label)
         .push(significant_digits_slider)
         .push(widget::text::caption("Random min (inclusive)"))
@@ -362,6 +419,7 @@ pub fn settings_panel<'a>(
     // so it cannot dominate the height on a host with hundreds of
     // families installed.
     widget::scrollable(content)
+        .spacing(SCROLLBAR_GAP)
         .width(Length::Fixed(SETTINGS_PANEL_WIDTH))
         .height(Length::Fill)
         .into()

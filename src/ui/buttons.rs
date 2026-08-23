@@ -438,7 +438,9 @@ pub fn apply_resolved_button(
             // ×10^  expands to `×10^` literally so the user can type
             // the exponent next. Drops silently when the cursor isn't
             // on a value-producing token – there has to be a mantissa
-            // for the EE to multiply against.
+            // for the EE to multiply against, and an empty buffer is no
+            // exception: a default `0` there would be a mantissa that
+            // zeroes whatever exponent follows it.
             if has_left_operand_at_cursor(engine) {
                 engine.input.insert_all([
                     InputItem::BinOp(BinOp::Mul),
@@ -471,41 +473,11 @@ pub fn apply_resolved_button(
         Button::YRootX => wrap_or_open_binary(engine, BinaryFunc::Root),
         Button::LogY => wrap_or_open_binary(engine, BinaryFunc::LogBase),
 
-        Button::Square => append_suffix(
-            engine,
-            &[InputItem::BinOp(BinOp::Pow), InputItem::Digit('2')],
-        ),
-        Button::Cube => append_suffix(
-            engine,
-            &[InputItem::BinOp(BinOp::Pow), InputItem::Digit('3')],
-        ),
-        Button::TenPowX => {
-            // Force an auto-mul up front so `5` then `10ˣ` becomes
-            // `5×10^` rather than glomming the leading `1` onto the
-            // existing digit run.
-            ensure_auto_mul_before_new_run(engine);
-            engine.input.insert_all([
-                InputItem::Digit('1'),
-                InputItem::Digit('0'),
-                InputItem::BinOp(BinOp::Pow),
-            ]);
-            ButtonEffect::None
-        }
-        Button::TwoPowX => {
-            ensure_auto_mul_before_new_run(engine);
-            engine
-                .input
-                .insert_all([InputItem::Digit('2'), InputItem::BinOp(BinOp::Pow)]);
-            ButtonEffect::None
-        }
-        Button::EPowX => {
-            ensure_auto_mul_before_new_run(engine);
-            engine.input.insert_all([
-                InputItem::Constant(ConstKind::E),
-                InputItem::BinOp(BinOp::Pow),
-            ]);
-            ButtonEffect::None
-        }
+        Button::Square => raise_to(engine, '2'),
+        Button::Cube => raise_to(engine, '3'),
+        Button::TenPowX => open_power(engine, &[InputItem::Digit('1'), InputItem::Digit('0')]),
+        Button::TwoPowX => open_power(engine, &[InputItem::Digit('2')]),
+        Button::EPowX => open_power(engine, &[InputItem::Constant(ConstKind::E)]),
 
         Button::Pi => {
             insert_with_auto_mul(engine, InputItem::Constant(ConstKind::Pi));
@@ -1114,14 +1086,23 @@ fn wrap_or_open_unary(engine: &mut Engine, f: UnaryFunc) -> ButtonEffect {
 /// finished operand, while `root(16` still needs its second argument,
 /// so parking the cursor past the closer would mean stepping back over
 /// it to type the degree.
+///
+/// An operand the user had already typed is closed off with the comma
+/// as well as the bracket, and the cursor lands after it. Without the
+/// comma the first argument stayed open and the degree ran onto the
+/// end of it: `16`, `ʸ√x`, `4` read back as `root(164)`, and with no
+/// comma key on the keypad the second argument could not be reached at
+/// all.
 fn wrap_or_open_binary(engine: &mut Engine, f: BinaryFunc) -> ButtonEffect {
     match engine.input.last_operand_range() {
         Some((start, end)) => {
             engine.input.insert_at(start, InputItem::BinaryFunc(f));
-            // The insert above bumped `end` by 1; the closer goes after
-            // the operand, and the cursor stays in front of it.
-            engine.input.insert_at(end + 1, InputItem::RightParen);
-            engine.input.set_cursor(end + 1);
+            // The insert above bumped `end` by 1; the comma closes the
+            // first argument, the bracket closes the call, and the
+            // cursor sits between them ready for the second.
+            engine.input.insert_at(end + 1, InputItem::Comma);
+            engine.input.insert_at(end + 2, InputItem::RightParen);
+            engine.input.set_cursor(end + 2);
         }
         None => {
             insert_with_auto_mul(engine, InputItem::BinaryFunc(f));
@@ -1193,17 +1174,47 @@ fn try_unwrap_reciprocal(engine: &mut Engine) -> bool {
     true
 }
 
-/// Append a constant sequence of items to the current operand. Used
-/// by Square (`^2`) and Cube (`^3`) – both postfix operations that
-/// only make sense when preceded by something.
+/// Raise whatever is to the left of the cursor to a fixed power. Used
+/// by `x²` and `x³`, which are postfix operations and so need a base.
 ///
-/// Inserted unconditionally: with no operand to the left the parser
-/// will reject the result, but that beats silently dropping the
-/// keystroke with no feedback at all.
-fn append_suffix(engine: &mut Engine, suffix: &[InputItem]) -> ButtonEffect {
-    for item in suffix {
+/// An empty buffer is the one place the base is supplied rather than
+/// required: a press there starts the expression on a `0`, the same
+/// default the binary operators start one on. Before that the press
+/// wrote a `^2` with nothing under it, which the parser rejected.
+///
+/// Anywhere else without a base — a trailing operator, an open bracket
+/// — the press does nothing at all. A `0` there is a base the user did
+/// not type and did not mean: `5+` then `x²` read back as `5+0²`.
+fn raise_to(engine: &mut Engine, exponent: char) -> ButtonEffect {
+    if engine.input.is_empty() {
+        engine.input.insert(InputItem::Digit('0'));
+    } else if !has_left_operand_at_cursor(engine) {
+        return ButtonEffect::None;
+    }
+    engine.input.insert(InputItem::BinOp(BinOp::Pow));
+    engine.input.insert(InputItem::Digit(exponent));
+    ButtonEffect::None
+}
+
+/// `10ˣ`, `2ˣ` and `𝑒ˣ`: a base of their own, and a power left waiting
+/// for its exponent.
+///
+/// They ask nothing of what came before, because the base is in the
+/// key — so unlike `x²` and `EE` they act wherever a value can start,
+/// which is everywhere: an empty buffer, an open bracket, and after an
+/// operator, where `5+` becomes `5+10⁽⁾` with the `+` left as the user
+/// typed it.
+///
+/// The auto-mul goes in first so `5` then `10ˣ` becomes `5×10^` rather
+/// than glomming the leading `1` onto the existing digit run. After an
+/// operator there is no value to its left to multiply, so none is
+/// inserted and the operator stands.
+fn open_power(engine: &mut Engine, base: &[InputItem]) -> ButtonEffect {
+    ensure_auto_mul_before_new_run(engine);
+    for item in base {
         engine.input.insert(item.clone());
     }
+    engine.input.insert(InputItem::BinOp(BinOp::Pow));
     ButtonEffect::None
 }
 

@@ -88,6 +88,20 @@ pub enum Message {
     /// never reaches past the edge of the screen it is on. `None` when
     /// the platform could not report a monitor size.
     PanelGeometry(Option<f32>),
+    /// Follow-up to a resize this app asked for. Wayland applies a
+    /// client-requested size straight away and sends no resize event
+    /// back, so nothing would tell the toolkit that the window is now
+    /// a different size: it keeps drawing the old size into the new
+    /// surface, the compositor stretches that frame (blurry text) and
+    /// pointer positions land on whatever widget the *unstretched*
+    /// layout had there. Bouncing one message through the event loop
+    /// makes the toolkit re-read the real surface size before this
+    /// message's own follow-up query answers, and the answer comes back
+    /// as `WindowResized`.
+    ResyncWindowSize,
+    /// One-shot tick that starts the font warm-up. See
+    /// `AppModel::fonts_preloaded`.
+    PreloadFonts,
     /// Timer tick that writes a pending config change to disk. See
     /// `AppModel::config_dirty`.
     PersistConfig,
@@ -127,11 +141,24 @@ pub struct AppModel {
     /// keyboard equivalent. Set on `KeyboardPressed`, cleared on
     /// `KeyboardReleased`. `None` when no key is held.
     flashing_button: Option<Button>,
-    /// Logical pixels this app has added to the window width to make
-    /// room for the open side panels. Tracked so closing a panel gives
-    /// back exactly what opening it took — including when growing was
-    /// capped by the screen and only part of the width was added.
+    /// Logical pixels the open side panels currently hold of the
+    /// window width. Tracked so closing a panel gives back exactly what
+    /// opening it took — including when growing was capped by the
+    /// screen and only part of the width was added, or refused
+    /// outright and none of it was.
     panel_width_added: f32,
+    /// Window width with the panels' share taken out: what the window
+    /// goes back to once the last panel closes. Re-derived from every
+    /// width the window reports, so a window the user widened by
+    /// dragging its edge keeps that width when the panel goes.
+    bare_width: f32,
+    /// Set once the font warm-up has been started, which stops the
+    /// timer that starts it. The warm-up waits for the window to be up
+    /// and idle rather than running from `init`: it wants the same font
+    /// system the first full layout does, and racing it there only
+    /// moves the pause the user sees from the settings panel to
+    /// startup.
+    fonts_preloaded: bool,
     /// Set when the config has changed but has not reached disk yet.
     /// Every settings mutation used to serialise the whole file and
     /// write it synchronously on the UI thread, so dragging a slider
@@ -316,6 +343,21 @@ impl AppModel {
         (self.window_width - self.panels_width()).max(MIN_CONTENT_WIDTH)
     }
 
+    /// Record a window width — one the window reported, or one this
+    /// app has just asked for — and re-derive the panel bookkeeping
+    /// from it.
+    fn adopt_window_width(&mut self, width: f32) {
+        let (bare, held) = split_panel_width(
+            width,
+            self.bare_width,
+            self.panels_width(),
+            self.panel_width_added,
+        );
+        self.bare_width = bare;
+        self.panel_width_added = held;
+        self.window_width = width;
+    }
+
     /// Ask the compositor how wide the monitor holding this window is.
     /// The answer arrives as `Message::PanelGeometry` and drives the
     /// resize. Asking per toggle rather than caching the value keeps a
@@ -356,12 +398,17 @@ impl AppModel {
         };
         let min_width = crate::ui::keypad::min_window_size(&self.config).0;
         let new_width = (self.window_width + change).max(min_width);
-        let applied = new_width - self.window_width;
-        self.panel_width_added += applied;
-        if applied == 0.0 {
+        if (new_width - self.window_width).abs() < 0.5 {
             return Task::none();
         }
-        cosmic::iced::window::resize(id, Size::new(new_width, self.window_height))
+        // Lay out against the width we asked for right away; the
+        // resync below replaces it with the width the window really
+        // ended up at, whether that is this one or not.
+        self.adopt_window_width(new_width);
+        Task::batch([
+            cosmic::iced::window::resize(id, Size::new(new_width, self.window_height)),
+            Task::done(cosmic::action::app(Message::ResyncWindowSize)),
+        ])
     }
 
     /// Translate a `ClipboardOp` into a real cosmic `Task`. Copy is a
@@ -453,6 +500,8 @@ impl Application for AppModel {
             window_height,
             flashing_button: None,
             panel_width_added: 0.0,
+            bare_width: window_width,
+            fonts_preloaded: false,
             config_dirty: false,
         };
         model.refresh_property_results();
@@ -606,10 +655,27 @@ impl Application for AppModel {
                 self.ui.context_menu_open = false;
             }
             Message::WindowResized(w, h) => {
-                self.window_width = w;
+                self.adopt_window_width(w);
                 self.window_height = h;
             }
             Message::PanelGeometry(monitor_width) => return self.apply_panel_resize(monitor_width),
+            Message::ResyncWindowSize => {
+                let Some(id) = self.core.main_window_id() else {
+                    return Task::none();
+                };
+                // Reaching this handler is already half the job: the
+                // toolkit re-reads the surface size while dispatching
+                // this message, which is what unsticks the stretched
+                // frame. The query then tells us the same size, so the
+                // layout here agrees with the one being drawn.
+                return cosmic::iced::window::size(id).map(|size| {
+                    cosmic::action::app(Message::WindowResized(size.width, size.height))
+                });
+            }
+            Message::PreloadFonts => {
+                self.fonts_preloaded = true;
+                crate::ui::font::preload_renderer_fonts();
+            }
             Message::PersistConfig => self.flush_config(),
         }
         Task::none()
@@ -691,6 +757,7 @@ impl Application for AppModel {
         let mut row = widget::row::with_capacity(3);
         if history_open {
             row = row.push(crate::ui::panels::history_panel(
+                &active_theme,
                 &self.history,
                 &self.memory,
                 &self.config,
@@ -699,6 +766,7 @@ impl Application for AppModel {
         row = row.push(main_column);
         if settings_open {
             row = row.push(crate::ui::panels::settings_panel(
+                &active_theme,
                 &self.config,
                 &self.rand_min_text,
                 &self.rand_max_text,
@@ -711,17 +779,22 @@ impl Application for AppModel {
     }
 
     fn subscription(&self) -> cosmic::iced::Subscription<Self::Message> {
-        // The timer only runs while a write is actually pending, so an
-        // idle calculator stays idle.
+        // Both timers stop themselves: the persist tick only runs while
+        // a write is pending, and the preload tick only until it has
+        // fired once. An idle calculator stays idle.
+        let mut subs = vec![crate::ui::keys::subscription()];
         if self.config_dirty {
-            cosmic::iced::Subscription::batch([
-                crate::ui::keys::subscription(),
+            subs.push(
                 cosmic::iced::time::every(std::time::Duration::from_millis(400))
                     .map(|_| Message::PersistConfig),
-            ])
-        } else {
-            crate::ui::keys::subscription()
+            );
         }
+        if !self.fonts_preloaded {
+            subs.push(
+                cosmic::iced::time::every(PRELOAD_FONTS_DELAY).map(|_| Message::PreloadFonts),
+            );
+        }
+        cosmic::iced::Subscription::batch(subs)
     }
 
     /// Short-circuit graceful shutdown. Letting libcosmic / wgpu /
@@ -768,8 +841,8 @@ impl AppModel {
         // The label reflects the CURRENT layout (so the user sees what
         // they're in), not the layout the press would switch to.
         let mode_label = match self.config.mode {
-            Mode::Basic => "Basic",
-            Mode::Scientific => "Scientific",
+            Mode::Basic => "Basic mode",
+            Mode::Scientific => "Scientific mode",
         };
         widget::row::with_capacity(3)
             .push(
@@ -886,11 +959,8 @@ impl AppModel {
                 .map(|s| crate::ui::keypad::label_width_units(&s.text))
                 .sum()
         };
-        let (caption_slot_h, main_slot_h) = display_metrics::display_line_budgets(
-            layout.display_budget,
-            layout.row_spacing,
-            has_caption,
-        );
+        let (caption_slot_h, main_slot_h) =
+            display_metrics::display_line_budgets(layout.display_budget, layout.row_spacing);
         let (mut main_size, mut main_line_h) =
             display_metrics::scale_main_text_size(main_chars, content_width, main_slot_h);
         (main_size, main_line_h) = display_metrics::fit_display_text(
@@ -1182,6 +1252,38 @@ struct DisplayMetrics {
     caption_size: f32,
     caption_line_h: f32,
     segments: Vec<crate::ui::display::DisplaySegment>,
+}
+
+/// How long after start the font warm-up waits before it begins. Long
+/// enough for the window to be up and the first full layout done, short
+/// enough that the settings panel is warm before a user is likely to
+/// reach for it.
+const PRELOAD_FONTS_DELAY: std::time::Duration = std::time::Duration::from_millis(750);
+
+/// Split a window width into the part the calculator column has on its
+/// own and the part the open side panels hold, returning
+/// `(bare_width, panels_hold)`.
+///
+/// `bare_width` is the previous split point, `panels_want` the width
+/// the panels that are open now ask for, and `panels_hold` the width
+/// they were last credited with. Panels never hold more than they ask
+/// for, so width the user added by dragging the window edge stays
+/// theirs when a panel closes, and a compositor that refused to widen
+/// a maximised window leaves the panels holding nothing to give back.
+///
+/// The ceiling is whichever is larger of what the panels want now and
+/// what they already hold: a width report that lands after a panel was
+/// closed but before the window gave that width back must not write
+/// off the width still waiting to be returned.
+pub fn split_panel_width(
+    width: f32,
+    bare_width: f32,
+    panels_want: f32,
+    panels_hold: f32,
+) -> (f32, f32) {
+    let ceiling = panels_want.max(panels_hold);
+    let held = ceiling.min((width - bare_width).max(0.0));
+    (width - held, held)
 }
 
 /// DEG/RAD label for the current angle mode. Shared by the memory row
