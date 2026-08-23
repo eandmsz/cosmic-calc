@@ -49,9 +49,9 @@ make check                         # fmt + clippy + the whole workspace
 - Intuitive Backspace and AC/C functions
 - Automatic scientific mode in landscape window
 - Easily readable expressions with superscript exponents and subscript
-  log bases: `2⁵`, `3×10⁴`, `log₂(8)`, `sin⁻¹(1)`. A debug toggle in the
-  settings panel switches the display back to the raw form the buffer
-  stores (`2^5`, `log2(8)`, `sin-1(1)`) — an exponent that has no
+  log bases: `2⁵`, `3×10⁴`, `log₂(8)`, `sin⁻¹(1)`. The "Show ASCII
+  expression" toggle in the settings panel switches the display back to
+  the raw form the buffer stores (`2^5`, `log2(8)`, `sin-1(1)`) — an exponent that has no
   superscript spelling, such as the `2!` in `2^2!`, stays raw either way
   rather than being rendered as something that reads differently
 - Customizable Rand function, drawing from the OS entropy source
@@ -85,7 +85,7 @@ make check                         # fmt + clippy + the whole workspace
 
 The keypad is laid out from `config.toml`
 (`~/.config/cosmic-calc/config.toml`). The grid size is fixed — Basic
-is 4 columns × 5 rows, Scientific is 8 columns × 5 rows — but every
+is 4 columns × 5 rows, Scientific is 9 columns × 5 rows — but every
 cell in it is yours to assign. Each layout has two tables: the one
 drawn normally, and the one the `2nd` key switches to. One line per
 keypad row, naming its cells left to right:
@@ -100,24 +100,31 @@ basic = [
     "negate 0 decimal equals",
 ]
 scientific = [
-    "second sin cos tan clear backspace percent div",
-    "pi sinh cosh tanh 7 8 9 mul",
-    "cube ln log log2 4 5 6 sub",
-    "lparen rparen square xpowy 1 2 3 add",
-    "rand ee factorial reciprocal negate 0 decimal equals",
+    "_ second sin cos tan clear backspace percent div",
+    "_ pi sinh cosh tanh 7 8 9 mul",
+    "_ cube ln log log2 4 5 6 sub",
+    "_ lparen rparen square xpowy 1 2 3 add",
+    "_ rand ee factorial reciprocal negate 0 decimal equals",
 ]
 scientific_second = [
-    "second asin acos atan clear backspace percent div",
-    "e asinh acosh atanh 7 8 9 mul",
-    "cbrt epowx tenpowx logy 4 5 6 sub",
-    "lparen rparen sqrt yrootx 1 2 3 add",
-    "rand ee factorial reciprocal negate 0 decimal equals",
+    "_ second asin acos atan clear backspace percent div",
+    "_ e asinh acosh atanh 7 8 9 mul",
+    "_ cbrt epowx tenpowx logy 4 5 6 sub",
+    "_ lparen rparen sqrt yrootx 1 2 3 add",
+    "_ rand ee factorial reciprocal negate 0 decimal equals",
 ]
 ```
 
 `basic_second` exists too, and starts out identical to `basic` — put a
 `second` key on the Basic keypad and it becomes the layout that key
 switches to.
+
+The Scientific keypad's leftmost column ships empty. Every calculator
+function already has a cell, so rather than repeat one there it is left
+as room: name a key in it and it appears. A `config.toml` written before
+that column existed keeps working — its rows are one short, so the empty
+cell lands on the right-hand end instead. Delete the `[keypad]` section
+to take the shipped layout, empty column on the left, back.
 
 Because the two tables are independent, the `2nd` key toggles exactly
 what you decide: cell (2, 1) of the shipped Scientific layout is `pi`
@@ -154,8 +161,8 @@ Key names, one per action:
 | App | `mode`, `angle`, `history`, `settings` |
 
 Common spellings are accepted as aliases, so `x^2`, `x2` and `square`
-are the same key, as are `π`/`pi`, `2nd`/`second`, `1/x`/`reciprocal`
-and `%`/`percent`.
+are the same key, as are `π`/`pi`, `2nd`/`second`, `1/x`/`reciprocal`,
+`+/-`/`±`/`negate` and `%`/`percent`.
 
 ## Out of scope for a simple calculator
 

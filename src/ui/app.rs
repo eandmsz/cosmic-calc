@@ -757,6 +757,7 @@ impl Application for AppModel {
         let mut row = widget::row::with_capacity(3);
         if history_open {
             row = row.push(crate::ui::panels::history_panel(
+                &active_theme,
                 &self.history,
                 &self.memory,
                 &self.config,
@@ -765,6 +766,7 @@ impl Application for AppModel {
         row = row.push(main_column);
         if settings_open {
             row = row.push(crate::ui::panels::settings_panel(
+                &active_theme,
                 &self.config,
                 &self.rand_min_text,
                 &self.rand_max_text,
@@ -839,8 +841,8 @@ impl AppModel {
         // The label reflects the CURRENT layout (so the user sees what
         // they're in), not the layout the press would switch to.
         let mode_label = match self.config.mode {
-            Mode::Basic => "Basic",
-            Mode::Scientific => "Scientific",
+            Mode::Basic => "Basic mode",
+            Mode::Scientific => "Scientific mode",
         };
         widget::row::with_capacity(3)
             .push(

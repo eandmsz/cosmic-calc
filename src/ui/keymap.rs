@@ -60,8 +60,9 @@ pub const KEY_NAMES: &[(&str, Button)] = &[
     (".", Button::Decimal),
     (",", Button::Decimal),
     ("negate", Button::Negate),
-    ("±", Button::Negate),
     ("+/-", Button::Negate),
+    ("+/−", Button::Negate),
+    ("±", Button::Negate),
     ("backspace", Button::Backspace),
     ("⌫", Button::Backspace),
     ("del", Button::Backspace),
@@ -220,7 +221,11 @@ pub fn label_for(button: Button, ctx: LabelContext) -> &'static str {
             _ => "?",
         },
         Button::Decimal => ctx.decimal,
-        Button::Negate => "±",
+        // Spelt out rather than `±` so it reads the same way `1/x`
+        // does — the minus is U+2212, which shares the `+` sign's
+        // height and weight where a hyphen would sit higher and
+        // lighter.
+        Button::Negate => "+/−",
         Button::Backspace => "⌫",
 
         Button::Clear => ctx.clear,

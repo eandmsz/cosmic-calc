@@ -20,6 +20,7 @@ use crate::theme::Theme;
 use crate::ui::app::Message;
 use crate::ui::button_style;
 use crate::ui::buttons::Button;
+use crate::ui::font_metrics::Centring;
 use crate::ui::keymap::{self, LabelContext};
 
 /// Number of rows in either keypad layout. Both Basic (4×5) and
@@ -192,13 +193,22 @@ pub fn control_button(
         width: cell_width,
     } = cell;
     let font_size = label_font_size(button_height, cell_width, label);
-    let label_el: Element<'static, Message> = widget::text(label).size(font_size).into();
+    // A key label never wraps. `label_font_size` sizes it to fit the
+    // cell, but the estimate it works from is per-character and can run
+    // a hair under what a face actually draws; without this a label
+    // that only just overflows — `+/−` in a nine-column keypad — breaks
+    // across two lines rather than sitting on one.
+    let label_el: Element<'static, Message> = widget::text(label)
+        .size(font_size)
+        .wrapping(cosmic::iced::advanced::text::Wrapping::None)
+        .into();
     let centred = widget::container(label_el)
         .padding(centring_padding(
             font_family,
             label,
             font_size,
             button_height,
+            centring_for(button),
         ))
         .width(Length::Fill)
         .height(Length::Fill)
@@ -220,6 +230,21 @@ pub fn control_button(
         .into()
 }
 
+/// Where a key's label is aimed vertically. Two keys are read against
+/// their neighbours rather than on their own and so take the target
+/// letters and digits take, rather than their own ink:
+///
+///   * the decimal separator, whose `.` or `,` belongs down on the
+///     baseline the digits beside it sit on — centring the dot's ink
+///     floats it halfway up the key, which reads as a bullet;
+///   * `+/−`, which sits next to `1/x` and has to match it.
+fn centring_for(button: Button) -> Centring {
+    match button {
+        Button::Decimal | Button::Negate => Centring::CapBand,
+        _ => Centring::Auto,
+    }
+}
+
 /// Padding that shifts a label onto the button's optical centre line.
 /// A centred container splits its padding, so a nudge of `n` pixels
 /// needs `2n` of padding on the side we are moving away from — see
@@ -228,9 +253,15 @@ pub fn control_button(
 /// The nudge is capped at the slack the cell actually has left over
 /// the text box, so the padding can never squeeze the label into a
 /// space too short to draw it.
-fn centring_padding(font_family: &str, label: &str, font_size: f32, cell_height: f32) -> Padding {
+fn centring_padding(
+    font_family: &str,
+    label: &str,
+    font_size: f32,
+    cell_height: f32,
+    centring: Centring,
+) -> Padding {
     let slack = (cell_height - font_size * TEXT_BOX_LINE_HEIGHT).max(0.0);
-    let nudge = crate::ui::font_metrics::label_nudge(font_family, label, font_size)
+    let nudge = crate::ui::font_metrics::label_nudge_with(font_family, label, font_size, centring)
         .clamp(-slack / 2.0, slack / 2.0);
     let (top, bottom) = if nudge >= 0.0 {
         (2.0 * nudge, 0.0)

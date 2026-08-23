@@ -458,7 +458,7 @@ fn a_keypad_press_is_not_second_mapped_a_second_time() {
 #[test]
 fn a_keystroke_follows_the_users_own_second_table() {
     let mut c = Config::default();
-    c.keypad.scientific_second[0] = "second rand cos tan clear backspace percent div".to_string();
+    c.keypad.scientific_second[0] = "_ second rand cos tan clear backspace percent div".to_string();
     let mut e = Engine::default();
     let mut s = UiState::default();
     apply_button(&mut e, &mut s, &c, Button::Second);

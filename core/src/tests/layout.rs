@@ -14,11 +14,21 @@ fn defaults_have_the_fixed_grid_shape() {
         for row in &grid {
             assert_eq!(row.len(), kind.columns(), "{kind:?} column count");
         }
-        // Nothing in the shipped tables is blank.
-        assert!(grid.iter().flatten().all(|c| !c.is_empty()), "{kind:?}");
+        // Every shipped cell carries a key except the Scientific
+        // keypad's leftmost column, which is room the user fills.
+        let blanks = grid.iter().flatten().filter(|c| c.is_empty()).count();
+        match kind {
+            LayoutKind::Basic | LayoutKind::BasicSecond => {
+                assert_eq!(blanks, 0, "{kind:?}");
+            }
+            LayoutKind::Scientific | LayoutKind::ScientificSecond => {
+                assert_eq!(blanks, KEYPAD_ROWS, "{kind:?}");
+                assert!(grid.iter().all(|row| row[0].is_empty()), "{kind:?}");
+            }
+        }
     }
     assert_eq!(BASIC_COLUMNS, 4);
-    assert_eq!(SCIENTIFIC_COLUMNS, 8);
+    assert_eq!(SCIENTIFIC_COLUMNS, 9);
 }
 
 #[test]
@@ -81,7 +91,7 @@ fn config_validation_normalizes_the_keypad() {
 #[test]
 fn layouts_round_trip_through_toml() {
     let mut c = Config::default();
-    c.keypad.scientific[0] = "rand _ _ _ clear backspace percent div".to_string();
+    c.keypad.scientific[0] = "_ rand _ _ _ clear backspace percent div".to_string();
     c.validate_and_clamp();
     let body = toml::to_string_pretty(&c).expect("serialises");
     let mut back: Config = toml::from_str(&body).expect("parses");
@@ -131,8 +141,8 @@ fn the_default_scientific_layout_matches_the_shipped_design() {
     let recip = l
         .position_of(LayoutKind::Scientific, "reciprocal")
         .expect("1/x");
-    assert_eq!(rand, (4, 0));
-    assert_eq!(recip, (4, 3));
+    assert_eq!(rand, (4, 1));
+    assert_eq!(recip, (4, 4));
     // The 2nd key keeps its cell in both tables, or it could not be
     // switched back off.
     let second = l
@@ -159,7 +169,7 @@ fn a_second_table_that_lost_its_2nd_key_gets_it_back() {
     // disarm it; without this the keypad would be stuck showing the
     // second functions.
     let mut l = KeypadLayouts::default();
-    l.scientific_second[0] = "rand asin acos atan clear backspace percent div".to_string();
+    l.scientific_second[0] = "_ rand asin acos atan clear backspace percent div".to_string();
     l.normalize();
     let second = l
         .position_of(LayoutKind::Scientific, "second")
@@ -176,15 +186,15 @@ fn a_second_key_the_user_moved_is_left_where_they_put_it() {
     let mut l = KeypadLayouts::default();
     // Off the first row, onto the last one — still reachable, so
     // nothing should be added back.
-    l.scientific_second[0] = "rand asin acos atan clear backspace percent div".to_string();
-    l.scientific_second[4] = "second ee factorial reciprocal negate 0 decimal equals".to_string();
+    l.scientific_second[0] = "_ rand asin acos atan clear backspace percent div".to_string();
+    l.scientific_second[4] = "second _ ee factorial reciprocal negate 0 decimal equals".to_string();
     l.normalize();
     assert_eq!(
         l.position_of(LayoutKind::ScientificSecond, "second"),
         Some((4, 0))
     );
     assert_eq!(
-        l.name_at(LayoutKind::ScientificSecond, 0, 0).as_deref(),
+        l.name_at(LayoutKind::ScientificSecond, 0, 1).as_deref(),
         Some("rand")
     );
 }
