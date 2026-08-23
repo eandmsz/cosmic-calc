@@ -34,6 +34,31 @@
   </categories>
 
   <releases>
+    <release version="0.1.2" date="2026-08-23">
+      <description>
+        <ul>
+          <li>The Scientific keypad fills all nine columns, and 2nd is left to the ten keys that genuinely have an inverse — π, xʸ, ʸ√x and √ now hold still under your fingers</li>
+          <li>New yˣ key: the same two operands as xʸ read the other way round, so 2, yˣ, 3 is 9 where 2, xʸ, 3 is 8</li>
+          <li>The caret is off the display — exponents are raised outright (2⁵), and one Unicode cannot raise is written at full size inside raised brackets (2⁽2!⁾)</li>
+          <li>ʸ√x and logᵧ close the argument they wrapped, so the second one can be reached at all, and root(16,4) wears the radical as √(16,4)</li>
+          <li>Power keys hold still where there is no operand, instead of taking a base you never typed</li>
+          <li>Opening a side panel no longer leaves the window scaled and blurry with the pointer landing on the wrong button</li>
+          <li>The settings panel opens without its first-time freeze: the font caches are warmed on a background thread</li>
+          <li>Panel scrollbars sit beside the rows they scroll rather than over them, and the separator and button-shape choices are visible rows of buttons rather than drop-downs</li>
+        </ul>
+      </description>
+    </release>
+    <release version="0.1.1" date="2026-08-22">
+      <description>
+        <ul>
+          <li>The keypad layout is now configurable: every cell of both keypads, and what the 2nd key toggles, is set in config.toml</li>
+          <li>One % key covers both percentage and modulo, decided by what follows it</li>
+          <li>Button labels are centred on their ink, so they no longer drift with the chosen font</li>
+          <li>The 2nd key is visibly lit while it is armed</li>
+          <li>Number properties are shown in the basic layout too</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.1.0" date="2026-08-14"/>
   </releases>
 </component>
