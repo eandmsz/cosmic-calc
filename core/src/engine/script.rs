@@ -8,28 +8,31 @@
 //!
 //! Two rules keep the pretty form honest:
 //!
-//!   * A glyph is only ever raised or lowered when Unicode has a real
-//!     superscript / subscript for it. There is no `×` or `!` in the
-//!     superscript block, so an exponent containing one is left in its
-//!     `^` form rather than rendered with a mix of sizes that would
-//!     read as a different expression.
+//!   * A glyph is only ever raised when Unicode has a real superscript
+//!     for it. There is no `×` or `!` in the superscript block, so an
+//!     exponent containing one is written at full size inside raised
+//!     brackets — `2⁽2!⁾` — rather than with a mix of sizes that would
+//!     read as a different expression. Either way the `^` the buffer
+//!     stores never reaches the pretty display; it is what the raising
+//!     is standing in for, and it is still there in the raw form and in
+//!     what the tokenizer is handed.
 //!   * [`exponent_span`] covers exactly what the parser treats as the
 //!     exponent — `power = postfix ('^' unary)?` — so `2^3π` raises
-//!     only the `3` (the `π` is a separate factor) while `2^2!` is
-//!     left alone (the `!` belongs to the exponent, and `2²!` would
-//!     read as `(2²)!`).
+//!     only the `3` (the `π` is a separate factor) while `2^2!` raises
+//!     the `2!` together, because the `!` belongs to the exponent and
+//!     `2²!` would read as `(2²)!`.
 
-use crate::engine::item::{unary_func_name, BinOp, InputItem, UnaryFunc};
+use crate::engine::item::{unary_func_name, BinOp, BinaryFunc, InputItem, UnaryFunc};
 
 /// How an expression is rendered for the user.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum Notation {
     /// Exactly what the buffer holds: `root(2^2,6)`, `log2(8)`,
-    /// `sin-1(1)`. Reachable through the settings panel's debug
-    /// toggle, and what the tokenizer sees either way.
+    /// `sin-1(1)`. Reachable through the settings panel's "Show ASCII
+    /// expression" toggle, and what the tokenizer sees either way.
     Raw,
-    /// Exponents raised and log bases lowered: `root(2²,6)`,
-    /// `log₂(8)`, `sin⁻¹(1)`.
+    /// Exponents raised and log bases lowered: `√(2²,6)`, `log₂(8)`,
+    /// `sin⁻¹(1)`.
     #[default]
     Pretty,
 }
@@ -86,10 +89,34 @@ pub fn subscript_char(c: char) -> Option<char> {
 
 /// Raise a whole string. `None` as soon as one character has no
 /// superscript form — a partially raised exponent would read as a
-/// different expression, so the caller falls back to `^`.
+/// different expression, so the caller falls back to [`raise`].
 pub fn to_superscript(s: &str) -> Option<String> {
     s.chars().map(superscript_char).collect()
 }
+
+/// What a power looks like without its `^`: the exponent raised
+/// outright when every character of it has a superscript, and written
+/// at full size inside raised brackets when one of them does not.
+///
+/// The brackets are the point — `2⁽π⁾` says "2 to the π" where a bare
+/// `2π` would say "2 times π", which is a different number. They are
+/// only reached by exponents Unicode cannot raise: a constant, a
+/// factorial, a decimal point, a function call.
+pub fn raise(exponent: &str) -> String {
+    match to_superscript(exponent) {
+        Some(raised) => raised,
+        None => format!("{EXPONENT_OPEN}{exponent}{EXPONENT_CLOSE}"),
+    }
+}
+
+/// The empty exponent slot, shown while the user has pressed a power
+/// key but not yet typed what to raise the base to. Standing in for a
+/// trailing `^`, which would otherwise be the one caret the pretty
+/// display still leaked.
+pub const EMPTY_EXPONENT: &str = "⁽⁾";
+
+const EXPONENT_OPEN: char = '⁽';
+const EXPONENT_CLOSE: char = '⁾';
 
 /// Lower a whole string, with the same all-or-nothing rule as
 /// [`to_superscript`].
@@ -104,6 +131,10 @@ pub fn to_subscript(s: &str) -> Option<String> {
 /// [`exponent_span`] in the renderer instead.
 pub fn pretty_display(it: &InputItem) -> String {
     match it {
+        // `root(x,n)` wears the radical the square and cube roots do —
+        // it is the same operation with the degree spelled out, and
+        // `root` is the buffer's spelling, not a notation.
+        InputItem::BinaryFunc(BinaryFunc::Root) => "√(".to_string(),
         InputItem::UnaryFunc(UnaryFunc::Log2) => "log₂(".to_string(),
         InputItem::UnaryFunc(UnaryFunc::Log10) => "log₁₀(".to_string(),
         InputItem::LogN(n) => {
@@ -123,13 +154,17 @@ pub fn pretty_display(it: &InputItem) -> String {
 }
 
 /// End (exclusive) of the exponent the `^` at `pow_idx` raises its
-/// base to, or `None` when that exponent has no superscript form.
+/// base to. `None` when there is no exponent to raise yet — nothing
+/// after the caret, or a bracketed group the user has not closed.
 ///
 /// The span follows the parser's `power = postfix ('^' unary)?` rule:
 /// any leading signs, then one primary (a number, a constant or a
-/// bracketed group), and nothing else. A postfix `!` / `%` or a
-/// chained `^` is part of the exponent but cannot be raised, so those
-/// return `None` and leave the whole run in its `^` form.
+/// bracketed group), then the postfix `!` / `%` that bind to it, and
+/// then — powers being right-associative — a chained `^` and whatever
+/// *it* raises. So `2^3π` covers only the `3`, the `π` being a factor
+/// of its own, while `2^2!` covers `2!` and `2^3^2` covers `3^2`:
+/// raising less than that would read as `(2²)!` and `(2³)²`, which are
+/// different numbers.
 pub fn exponent_span(items: &[InputItem], pow_idx: usize) -> Option<usize> {
     if !matches!(items.get(pow_idx), Some(InputItem::BinOp(BinOp::Pow))) {
         return None;
@@ -160,8 +195,8 @@ pub fn exponent_span(items: &[InputItem], pow_idx: usize) -> Option<usize> {
             let mut depth = 0usize;
             loop {
                 match items.get(i) {
-                    // Unclosed group: the exponent runs to the end of
-                    // the buffer, so there is nothing to raise it over.
+                    // A group the user is still inside: there is no
+                    // exponent to close over yet.
                     None => return None,
                     Some(
                         InputItem::LeftParen
@@ -180,11 +215,16 @@ pub fn exponent_span(items: &[InputItem], pow_idx: usize) -> Option<usize> {
         }
         _ => return None,
     }
-    if matches!(
+    while matches!(
         items.get(i),
-        Some(InputItem::Factorial | InputItem::Percent | InputItem::BinOp(BinOp::Pow))
+        Some(InputItem::Factorial | InputItem::Percent)
     ) {
-        return None;
+        i += 1;
+    }
+    if matches!(items.get(i), Some(InputItem::BinOp(BinOp::Pow))) {
+        // Right-associative: the chained power and its own exponent
+        // are part of this one.
+        return exponent_span(items, i);
     }
     Some(i)
 }

@@ -68,24 +68,28 @@ fn the_exponent_span_covers_one_operand() {
 }
 
 #[test]
-fn the_exponent_span_declines_what_it_cannot_raise() {
-    // Postfix `!` and `%` bind to the exponent, and neither has a
-    // raised form.
+fn the_exponent_span_covers_what_binds_to_it() {
+    // Postfix `!` and `%` bind to the exponent, so they are part of
+    // it: `2^2!` is 2^(2!), and a span stopping at the `2` would say
+    // (2²)!.
     let mut factorial = digits("2");
     factorial.push(InputItem::Factorial);
-    assert_eq!(exponent_span(&power(&factorial), 1), None);
+    assert_eq!(exponent_span(&power(&factorial), 1), Some(4));
 
     let mut percent = digits("2");
     percent.push(InputItem::Percent);
-    assert_eq!(exponent_span(&power(&percent), 1), None);
+    assert_eq!(exponent_span(&power(&percent), 1), Some(4));
 
     // A chained power is right-associative: `2^2^2` is 2^(2^2), so
-    // raising the first exponent alone would say (2²)².
+    // the span reaches the end of the inner power too.
     let mut chained = digits("2");
     chained.push(InputItem::BinOp(BinOp::Pow));
     chained.extend(digits("2"));
-    assert_eq!(exponent_span(&power(&chained), 1), None);
+    assert_eq!(exponent_span(&power(&chained), 1), Some(5));
+}
 
+#[test]
+fn the_exponent_span_declines_what_is_not_there_yet() {
     // An unclosed group has no end to stop at.
     let mut unclosed = vec![InputItem::LeftParen];
     unclosed.extend(digits("3"));
@@ -118,16 +122,38 @@ fn log_bases_and_inverses_get_their_pretty_spelling() {
         pretty_display(&InputItem::UnaryFunc(UnaryFunc::Acosh)),
         "cosh⁻¹("
     );
+    // `root(` is the buffer's spelling of the radical, so the pretty
+    // form wears the sign the square and cube roots already do.
+    assert_eq!(
+        pretty_display(&InputItem::BinaryFunc(BinaryFunc::Root)),
+        "√("
+    );
     // Everything else is spelled the same in both notations.
     for same in [
         InputItem::UnaryFunc(UnaryFunc::Sin),
         InputItem::UnaryFunc(UnaryFunc::Sqrt),
-        InputItem::BinaryFunc(BinaryFunc::Root),
         InputItem::Constant(ConstKind::E),
         InputItem::Digit('4'),
         InputItem::BinOp(BinOp::Pow),
     ] {
         assert_eq!(pretty_display(&same), same.display());
+    }
+}
+
+#[test]
+fn a_power_reads_without_its_caret() {
+    // What the display puts where the `^` was: the compact raise when
+    // Unicode has every glyph, raised brackets when it does not.
+    assert_eq!(raise("35"), "³⁵");
+    assert_eq!(raise("-3"), "⁻³");
+    assert_eq!(raise("(3+4)"), "⁽³⁺⁴⁾");
+    // `π` has no superscript, and a bare `2π` would read as 2×π.
+    assert_eq!(raise("π"), "⁽π⁾");
+    assert_eq!(raise("2!"), "⁽2!⁾");
+    assert_eq!(raise("1.5"), "⁽1.5⁾");
+    // Neither form is ever a caret.
+    for exponent in ["35", "-3", "(3+4)", "π", "2!", "1.5"] {
+        assert!(!raise(exponent).contains('^'), "{exponent}");
     }
 }
 

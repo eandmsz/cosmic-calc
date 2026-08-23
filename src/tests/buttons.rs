@@ -131,15 +131,59 @@ fn y_root_x_closes_its_bracket() {
 }
 
 #[test]
-fn y_root_x_wraps_a_trailing_operand_and_waits_inside() {
+fn y_root_x_closes_the_operand_it_wrapped_and_waits_for_the_degree() {
     let (mut e, mut s, c) = fresh();
     apply_button(&mut e, &mut s, &c, Button::Num(8));
     apply_button(&mut e, &mut s, &c, Button::YRootX);
-    assert_eq!(e.input.display_string(), "root(8)");
+    // The operand the user had already typed is the first argument and
+    // nothing more, so the comma goes in with the bracket.
+    assert_eq!(e.input.display_string(), "root(8,)");
     // Unlike √, the operand is not the whole argument list yet — the
-    // degree still has to be typed, so the cursor stays in front of
-    // the closer instead of past it.
-    assert_eq!(e.input.cursor(), 2);
+    // degree still has to be typed, so the cursor waits after the
+    // comma instead of past the closer.
+    assert_eq!(e.input.cursor(), 3);
+    // Which is what makes the degree reachable at all: before the
+    // comma it ran onto the end of the first argument, giving
+    // `root(84)` and no way to say the 4th root of 8.
+    apply_button(&mut e, &mut s, &c, Button::Num(3));
+    assert_eq!(e.input.display_string(), "root(8,3)");
+    assert_eq!(e.evaluate().expect("cube root of 8").display, "2");
+}
+
+#[test]
+fn squaring_nothing_squares_a_zero() {
+    // `x²` is postfix and needs a base. With no user input there is
+    // none, so it starts the expression the way `×` and `+` do — on a
+    // default `0` — rather than writing a `^2` with nothing under it
+    // for the parser to reject.
+    let (mut e, mut s, c) = fresh();
+    apply_button(&mut e, &mut s, &c, Button::Square);
+    assert_eq!(e.input.ascii_expression(), "0^2");
+    assert_eq!(e.evaluate().expect("evaluates").display, "0");
+
+    let (mut e, mut s, c) = fresh();
+    apply_button(&mut e, &mut s, &c, Button::Cube);
+    assert_eq!(e.input.ascii_expression(), "0^3");
+
+    // Same where an operator has just been pressed: there is no base
+    // to the left of the cursor there either.
+    let (mut e, mut s, c) = fresh();
+    apply_button(&mut e, &mut s, &c, Button::Num(5));
+    apply_button(&mut e, &mut s, &c, Button::Add);
+    apply_button(&mut e, &mut s, &c, Button::Square);
+    assert_eq!(e.input.ascii_expression(), "5+0^2");
+    assert_eq!(e.evaluate().expect("evaluates").display, "5");
+}
+
+#[test]
+fn squaring_an_operand_still_raises_that_operand() {
+    // The default base is only for when there is nothing to raise —
+    // a typed operand is squared as it always was.
+    let (mut e, mut s, c) = fresh();
+    apply_button(&mut e, &mut s, &c, Button::Num(5));
+    apply_button(&mut e, &mut s, &c, Button::Square);
+    assert_eq!(e.input.ascii_expression(), "5^2");
+    assert_eq!(e.evaluate().expect("evaluates").display, "25");
 }
 
 #[test]

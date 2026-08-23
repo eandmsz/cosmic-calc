@@ -48,12 +48,16 @@ make check                         # fmt + clippy + the whole workspace
 - Predictable operation: only the = sign evaluates the expressions
 - Intuitive Backspace and AC/C functions
 - Automatic scientific mode in landscape window
-- Easily readable expressions with superscript exponents and subscript
-  log bases: `2⁵`, `3×10⁴`, `log₂(8)`, `sin⁻¹(1)`. The "Show ASCII
-  expression" toggle in the settings panel switches the display back to
-  the raw form the buffer stores (`2^5`, `log2(8)`, `sin-1(1)`) — an exponent that has no
-  superscript spelling, such as the `2!` in `2^2!`, stays raw either way
-  rather than being rendered as something that reads differently
+- Easily readable expressions with superscript exponents, subscript log
+  bases and the radical sign: `2⁵`, `3×10⁴`, `log₂(8)`, `sin⁻¹(1)`,
+  `√(16,4)`. The `^` never reaches the display — the raising is what it
+  says. An exponent Unicode cannot raise goes inside raised brackets
+  instead, so `2^2!` reads as `2⁽2!⁾` and not as `2 × 2!`, and a power
+  key pressed before its exponent is typed shows the empty slot: `2⁽⁾`.
+  The "Show ASCII expression" toggle in the settings panel switches the
+  display back to the raw form the buffer stores (`2^5`, `log2(8)`,
+  `sin-1(1)`, `root(16,4)`), which is what the tokenizer is handed
+  either way — the notation changes, the value never does
 - Customizable Rand function, drawing from the OS entropy source
   (`getrandom`/`/dev/urandom` on Linux) so each press is independent of
   the last

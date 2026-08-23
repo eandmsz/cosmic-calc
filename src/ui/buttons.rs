@@ -471,14 +471,8 @@ pub fn apply_resolved_button(
         Button::YRootX => wrap_or_open_binary(engine, BinaryFunc::Root),
         Button::LogY => wrap_or_open_binary(engine, BinaryFunc::LogBase),
 
-        Button::Square => append_suffix(
-            engine,
-            &[InputItem::BinOp(BinOp::Pow), InputItem::Digit('2')],
-        ),
-        Button::Cube => append_suffix(
-            engine,
-            &[InputItem::BinOp(BinOp::Pow), InputItem::Digit('3')],
-        ),
+        Button::Square => raise_to(engine, '2'),
+        Button::Cube => raise_to(engine, '3'),
         Button::TenPowX => {
             // Force an auto-mul up front so `5` then `10ˣ` becomes
             // `5×10^` rather than glomming the leading `1` onto the
@@ -1114,14 +1108,23 @@ fn wrap_or_open_unary(engine: &mut Engine, f: UnaryFunc) -> ButtonEffect {
 /// finished operand, while `root(16` still needs its second argument,
 /// so parking the cursor past the closer would mean stepping back over
 /// it to type the degree.
+///
+/// An operand the user had already typed is closed off with the comma
+/// as well as the bracket, and the cursor lands after it. Without the
+/// comma the first argument stayed open and the degree ran onto the
+/// end of it: `16`, `ʸ√x`, `4` read back as `root(164)`, and with no
+/// comma key on the keypad the second argument could not be reached at
+/// all.
 fn wrap_or_open_binary(engine: &mut Engine, f: BinaryFunc) -> ButtonEffect {
     match engine.input.last_operand_range() {
         Some((start, end)) => {
             engine.input.insert_at(start, InputItem::BinaryFunc(f));
-            // The insert above bumped `end` by 1; the closer goes after
-            // the operand, and the cursor stays in front of it.
-            engine.input.insert_at(end + 1, InputItem::RightParen);
-            engine.input.set_cursor(end + 1);
+            // The insert above bumped `end` by 1; the comma closes the
+            // first argument, the bracket closes the call, and the
+            // cursor sits between them ready for the second.
+            engine.input.insert_at(end + 1, InputItem::Comma);
+            engine.input.insert_at(end + 2, InputItem::RightParen);
+            engine.input.set_cursor(end + 2);
         }
         None => {
             insert_with_auto_mul(engine, InputItem::BinaryFunc(f));
@@ -1193,17 +1196,20 @@ fn try_unwrap_reciprocal(engine: &mut Engine) -> bool {
     true
 }
 
-/// Append a constant sequence of items to the current operand. Used
-/// by Square (`^2`) and Cube (`^3`) – both postfix operations that
-/// only make sense when preceded by something.
+/// Raise whatever is to the left of the cursor to a fixed power. Used
+/// by `x²` and `x³`, which are postfix operations and so need a base.
 ///
-/// Inserted unconditionally: with no operand to the left the parser
-/// will reject the result, but that beats silently dropping the
-/// keystroke with no feedback at all.
-fn append_suffix(engine: &mut Engine, suffix: &[InputItem]) -> ButtonEffect {
-    for item in suffix {
-        engine.input.insert(item.clone());
+/// When there is nothing there to raise — an empty buffer, or an
+/// operator the user has just pressed — a `0` base goes in first,
+/// which is the default the binary operators already start an
+/// expression with. Before this the press wrote a `^2` with nothing
+/// under it, which the parser then rejected.
+fn raise_to(engine: &mut Engine, exponent: char) -> ButtonEffect {
+    if !has_left_operand_at_cursor(engine) {
+        engine.input.insert(InputItem::Digit('0'));
     }
+    engine.input.insert(InputItem::BinOp(BinOp::Pow));
+    engine.input.insert(InputItem::Digit(exponent));
     ButtonEffect::None
 }
 
