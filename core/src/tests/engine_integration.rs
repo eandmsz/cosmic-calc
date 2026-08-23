@@ -15,7 +15,7 @@
 
 use crate::engine::{
     evaluate_expression, evaluate_to_string, AngleMode, CalcError, DEFAULT_SIGNIFICANT_DIGITS,
-    ERR_INDETERMINATE, ERR_OVERFLOW, ERR_UNDEFINED,
+    ERR_INDETERMINATE, ERR_OVERFLOW, ERR_UNDEFINED, ERR_UNDERFLOW,
 };
 
 const DEC: u8 = DEFAULT_SIGNIFICANT_DIGITS;
@@ -31,12 +31,13 @@ fn rad(expr: &str) -> String {
     evaluate_to_string(expr, AngleMode::Rad, DEC)
 }
 
-/// Return the raw f64 value for a successful evaluation. Panics with
-/// a helpful message when the engine returns an error, to keep
-/// failure output readable.
+/// Return the value of a successful evaluation as a double, which is
+/// what the tolerance comparisons below work in. Panics with a helpful
+/// message when the engine returns an error, to keep failure output
+/// readable.
 fn val(expr: &str, mode: AngleMode) -> f64 {
     match evaluate_expression(expr, mode, DEC) {
-        Ok(out) => out.value,
+        Ok(out) => out.value.to_f64(),
         Err(e) => panic!("expected a value for `{expr}`; got {e}"),
     }
 }
@@ -888,4 +889,89 @@ fn even_root_of_a_negative_is_undefined_at_any_magnitude() {
     assert_eq!(deg("root(-8,3)"), "-2");
     assert_eq!(deg("root(-8,2)"), ERR_UNDEFINED);
     assert_eq!(deg("root(-8,1e30)"), ERR_UNDEFINED);
+}
+
+// --- decimal arithmetic ---------------------------------------------
+//
+// The four operations run in base ten, so the numbers a person types
+// are the numbers that get added. Every case here is one that binary
+// doubles get visibly wrong.
+
+#[test]
+fn a_tenth_plus_a_fifth_less_three_tenths_is_nothing_at_all() {
+    // The canonical demonstration that a calculator is not doing its
+    // arithmetic in binary. In f64 this is 5.551115123125783e-17.
+    assert_eq!(deg("0.1+0.2-0.3"), "0");
+    assert_eq!(deg("0.1+0.2"), "0.3");
+    assert_eq!(deg("0.3-0.1-0.1-0.1"), "0");
+    assert_eq!(deg("1.1+2.2"), "3.3");
+    assert_eq!(deg("4.5-4.4"), "0.1");
+}
+
+#[test]
+fn a_price_times_a_hundred_is_a_whole_number_of_cents() {
+    // 1.005 × 100 is 100.49999999999999 in binary, which is the bug
+    // behind every "why is my total a cent out" question ever asked.
+    assert_eq!(deg("1.005*100"), "100.5");
+    assert_eq!(deg("0.07*100"), "7");
+    assert_eq!(deg("19.99*3"), "59.97");
+    assert_eq!(deg("0.1*3"), "0.3");
+}
+
+#[test]
+fn the_guard_digits_keep_a_rounded_division_out_of_sight() {
+    // Eighteen digits are carried and fifteen are shown, so the digit
+    // a non-terminating division has to round is three places past
+    // anything the user sees.
+    assert_eq!(deg("1/3"), "0.333333333333333");
+    assert_eq!(deg("1/3*3"), "1");
+    assert_eq!(deg("2/3*3"), "2");
+    assert_eq!(deg("1/7*7"), "1");
+    assert_eq!(deg("100/3*3"), "100");
+}
+
+#[test]
+fn percent_and_modulo_are_exact_too() {
+    // A percent is a shift of the decimal point and a remainder is a
+    // subtraction, so both come out on the nose. `5 mod 3.2` was
+    // 1.7999999999999998 in binary.
+    assert_eq!(deg("200+10%"), "220");
+    assert_eq!(deg("3.5%*230"), "8.05");
+    assert_eq!(deg("5%3.2"), "1.8");
+    assert_eq!(deg("0.3 mod 0.1"), "0");
+}
+
+#[test]
+fn whole_powers_and_small_factorials_are_multiplied_out() {
+    assert_eq!(deg("1.1^2"), "1.21");
+    assert_eq!(deg("1.1^3"), "1.331");
+    assert_eq!(deg("2^10"), "1024");
+    // 20! is 2432902008176640000 exactly, and every digit of it is
+    // inside the working precision once its trailing zeros are set
+    // aside.
+    assert_eq!(dval("20!"), 2432902008176640000.0);
+}
+
+#[test]
+fn what_the_doubles_compute_comes_back_as_a_decimal() {
+    // A function with no decimal algorithm hands its argument to f64
+    // and reads the answer back as the shortest decimal that
+    // identifies it — so a root that lands on a tenth is a tenth, and
+    // what follows it is exact again.
+    assert_eq!(deg("sqrt(0.01)"), "0.1");
+    assert_eq!(deg("sqrt(0.01)+0.2-0.3"), "0");
+    assert_eq!(deg("sqrt(2)*sqrt(2)"), "2");
+    assert_eq!(deg("sin(30)"), "0.5");
+    assert_eq!(deg("sin(30)*2"), "1");
+    assert_eq!(deg("log2(8)"), "3");
+}
+
+#[test]
+fn the_range_is_still_the_double_range() {
+    // Decimals could carry these, but the calculator says what it has
+    // always said: its numbers live where f64 does.
+    assert_eq!(deg("1e308*10"), ERR_OVERFLOW);
+    assert_eq!(deg("1e-307/1e10"), ERR_UNDERFLOW);
+    assert_eq!(deg("0/0"), ERR_INDETERMINATE);
+    assert_eq!(deg("1/0"), ERR_UNDEFINED);
 }

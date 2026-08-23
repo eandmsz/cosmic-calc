@@ -17,7 +17,7 @@
 
 use crate::config::{Config, Mode};
 use crate::engine::item::{BinOp, BinaryFunc, ConstKind, InputItem, UnaryFunc};
-use crate::engine::{AngleMode, Engine};
+use crate::engine::{AngleMode, Decimal, Engine};
 use crate::rng::rand_value;
 
 /// Maximum number of significant digits the user is allowed to type
@@ -156,7 +156,7 @@ pub struct UiState {
     /// Numeric value behind `last_result`, used by `M+` / `M-` when the
     /// user stores the result of a just-evaluated expression without
     /// clearing the buffer first.
-    pub last_result_value: Option<f64>,
+    pub last_result_value: Option<Decimal>,
     /// Previous evaluated expression (and any error message from the
     /// most recent `=`). Shown as a caption above the main display; the
     /// main display itself renders the buffer, which now holds the
@@ -1522,11 +1522,12 @@ pub fn insert_number_string(engine: &mut Engine, s: &str) -> (usize, usize) {
 ///
 /// This is what keeps a result usable as an operand. `1÷3=` shows
 /// 0.333333333333333 either way, but multiplying those fifteen digits
-/// by three gives 0.999999999999999, while multiplying the value they
-/// stand for gives the 1 the user is expecting. The exactness lasts
-/// only as long as the digits are untouched — edit them and the buffer
-/// drops the annotation, because then they really are the number.
-pub fn insert_exact_value(engine: &mut Engine, shown: &str, value: f64) {
+/// by three gives 0.999999999999999, while multiplying the eighteen
+/// the division was computed to gives the 1 the user is expecting.
+/// The exactness lasts only as long as the digits are untouched — edit
+/// them and the buffer drops the annotation, because then they really
+/// are the number.
+pub fn insert_exact_value(engine: &mut Engine, shown: &str, value: Decimal) {
     let (start, end) = insert_number_string(engine, shown);
     engine.input.mark_exact(start, end, value);
 }

@@ -2,6 +2,7 @@
 //! tests consume and defines the top-level Engine struct.
 
 pub mod ast;
+pub mod decimal;
 pub mod errors;
 pub mod eval;
 pub mod format;
@@ -12,6 +13,7 @@ pub mod parser;
 pub mod script;
 pub mod tokenizer;
 
+pub use decimal::Decimal;
 pub use errors::{CalcError, ERR_INDETERMINATE, ERR_OVERFLOW, ERR_UNDEFINED, ERR_UNDERFLOW};
 pub use eval::AngleMode;
 pub use format::DEFAULT_SIGNIFICANT_DIGITS;
@@ -19,11 +21,12 @@ pub use input::{CursorMove, InputBuffer};
 pub use item::InputItem;
 pub use script::Notation;
 
-/// Output of a successful evaluation: the raw f64 value and the
-/// formatted display string.
+/// Output of a successful evaluation: the value at the working
+/// precision and the formatted display string, which is that value
+/// rounded to what the display shows.
 #[derive(Debug, Clone)]
 pub struct EvalOutput {
-    pub value: f64,
+    pub value: Decimal,
     pub display: String,
 }
 

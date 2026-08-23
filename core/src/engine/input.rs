@@ -6,23 +6,24 @@
 //!
 //! One thing rides alongside the items: an [`ExactRun`] per digit run
 //! that the calculator itself wrote (the result `=` leaves behind, a
-//! memory recall) recording the f64 it was rounded from. The digits
-//! are what the user sees and edits; the f64 is what evaluation reads,
-//! so a result carried into the next calculation is the value that was
-//! computed rather than the fifteen digits of it that fit on screen.
-//! Any edit that reaches into the run drops its annotation, and the
-//! digits stand on their own again.
+//! memory recall) recording the value it was rounded from. The digits
+//! are what the user sees and edits; the value is what evaluation
+//! reads, so a result carried into the next calculation keeps all
+//! eighteen of the digits it was computed to rather than the fifteen
+//! of them that fit on screen. Any edit that reaches into the run
+//! drops its annotation, and the digits stand on their own again.
 
+use crate::engine::decimal::Decimal;
 use crate::engine::item::InputItem;
 
 /// A digit run the calculator wrote, and the exact value behind it.
-/// `start..end` is a half-open item range; `value` is the unrounded
-/// f64 the run's digits were formatted from.
+/// `start..end` is a half-open item range; `value` is what the run's
+/// digits were rounded from.
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct ExactRun {
     start: usize,
     end: usize,
-    value: f64,
+    value: Decimal,
 }
 
 /// Direction passed to InputBuffer::move_cursor.
@@ -270,8 +271,8 @@ impl InputBuffer {
     ///
     /// Runs the new one overlaps are dropped: one span of items has
     /// one value behind it.
-    pub fn mark_exact(&mut self, start: usize, end: usize, value: f64) {
-        if start >= end || end > self.items.len() || !value.is_finite() {
+    pub fn mark_exact(&mut self, start: usize, end: usize, value: Decimal) {
+        if start >= end || end > self.items.len() {
             return;
         }
         self.exact.retain(|r| r.end <= start || r.start >= end);
@@ -346,12 +347,12 @@ impl InputBuffer {
                     // have carried its own `(-x)` brackets, and a bare
                     // `-` where an operand belongs reads as a sign the
                     // parser has to re-derive.
-                    if run.value.is_sign_negative() {
+                    if run.value.is_negative() {
                         out.push('(');
-                        out.push_str(&exact_literal(run.value));
+                        out.push_str(&run.value.to_literal());
                         out.push(')');
                     } else {
-                        out.push_str(&exact_literal(run.value));
+                        out.push_str(&run.value.to_literal());
                     }
                     i = run.end;
                 }
@@ -410,18 +411,5 @@ fn push_ascii(s: &mut String, it: &InputItem) {
         InputItem::LeftParen => s.push('('),
         InputItem::RightParen => s.push(')'),
         InputItem::Comma => s.push(','),
-    }
-}
-
-/// A value written so the tokenizer reads back exactly the f64 that
-/// went in. Rust's shortest round-trip form does that by construction;
-/// the exponent form is only to keep a 1e-300 from arriving as three
-/// hundred literal zeroes.
-fn exact_literal(value: f64) -> String {
-    let abs = value.abs();
-    if value != 0.0 && !(1e-4..1e15).contains(&abs) {
-        format!("{value:e}")
-    } else {
-        format!("{value}")
     }
 }

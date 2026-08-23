@@ -4,7 +4,8 @@ A scientific calculator for the COSMIC desktop.
 
 - Native Rust application. No dependency on any other language (no wrappers for C or Python)
 - Focusing on simplicity, ease of use, touch friendly operation, logical and aesthetic layout
-- IEEE 754 double-precision (64-bit) floating-point arithmetic
+- Decimal arithmetic, so `0.1 + 0.2 - 0.3` is 0 — the numbers you type
+  are the numbers it adds
 - Stateful operation for a more intuitive workflow
 
 ## Building and running
@@ -25,9 +26,10 @@ launcher.
 
 The code is a two-crate workspace:
 
-- **`core/`** — `cosmic-calc-core`: the tokenizer, parser, evaluator,
-  display formatter, configuration, themes, locale handling, clipboard
-  sanitising, history and memory. No GUI dependencies.
+- **`core/`** — `cosmic-calc-core`: the decimal number type, the
+  tokenizer, parser, evaluator, display formatter, configuration,
+  themes, locale handling, clipboard sanitising, history and memory.
+  No GUI dependencies.
 - **`src/`** — `cosmic-calc`: the libcosmic application, keypad, display
   and side panels, on top of the core.
 
@@ -47,7 +49,6 @@ make check                         # fmt + clippy + the whole workspace
 - Repeat last operation using =
 - Predictable operation: only the = sign evaluates the expressions
 - Intuitive Backspace and AC/C functions
-- Automatic scientific mode in landscape window
 - Easily readable expressions with superscript exponents, subscript log
   bases and the radical sign: `2⁵`, `3×10⁴`, `2¹·⁵`, `log₂(8)`,
   `sin⁻¹(1)`, `√(16,4)`. The `^` never reaches the display — the
@@ -83,22 +84,35 @@ make check                         # fmt + clippy + the whole workspace
 - Also compatible with alternative formatting and characters:
 	- 1-2 * −8mod5 *  4.5E3* 100/2^2^2*( ( 2^2 )^ 2) ^2*
 	- sQrt(SIN−1(1)＋atan(1))cbrt(8)rOOt(16, 4)3pI*2e＋2e3+(
-- IEEE 754 implemented with native f64 to keep the application fast, light and the codebase simple
-	- 1-bit sign (+/-)
-	- 11-bit exponent (limited to 10^307 to stay reliable)
-	- 52-bit mantissa (fraction) + 1 implicit bit, giving 15.95 digits of
-	  precision — so results are displayed to **15 significant digits**.
-	  Significant digits, not digits after the point: an f64 cannot back
-	  15 decimals *and* an integer part, and rounding as though it could
-	  is what makes other calculators print things like
-	  `8.2 + 8.2 = 16.399999999999999`.
+- Arithmetic in base ten, on a fixed-precision decimal of the kind
+  Apple's calculator uses. `+`, `−`, `×`, `÷`, percent, modulo,
+  whole-number powers and small factorials are all carried out in
+  decimal, so a number you can write down is a number it can hold
+  exactly and the binary representation error never enters:
+	- `0.1 + 0.2 − 0.3` is `0`, not `5.5511151231258e-17`
+	- `1.005 × 100` is `100.5`, not `100.49999999999999` — the reason
+	  every "my total is a cent out" bug ever filed exists
+	- `8.2 + 8.2` is `16.4` and `5 mod 3.2` is `1.8`
+	- `18` significant digits are carried and **15 are displayed**.
+	  Significant digits, not digits after the point: a value carries
+	  the same number of digits wherever its decimal point is. The
+	  three it does not show are guard digits, and they are what makes
+	  the rounding of a division invisible — `1÷3 = ×3 =` gives back
+	  `1`, because the eighteen threes that were divided out are the
+	  eighteen that get multiplied
 	- The rounding is the display's, not the calculator's. A result
 	  carried into the next calculation is used at the precision it was
-	  computed at, so `1÷3` `=` `×3` `=` gives back `1` rather than
-	  `0.999999999999999` — the fifteen digits on screen are a view of
-	  the value, and it is the value that is multiplied. Edit those
-	  digits and they become the number: what you can see is what is
-	  computed from
+	  computed at, and the fifteen digits on screen are a view of it.
+	  Edit those digits and they become the number: what you can see is
+	  what is computed from
+- Trigonometry, logarithms, roots and fractional powers have no
+  decimal algorithm worth writing, so those go out to IEEE 754
+  double-precision `f64` and come back as the shortest decimal that
+  identifies the answer. `√0.01` is therefore `0.1` and not
+  `0.1000000000000000055`, and the arithmetic that follows it is exact
+  again. The range is the double one either way: values above about
+  `10^308` report Overflow and non-zero values below `10^-308` report
+  Underflow
 - Opens where you left it: the window size is remembered, written out a
   couple of seconds after you stop dragging the edge rather than on
   every frame of the drag
@@ -203,7 +217,9 @@ are the same key, as are `π`/`pi`, `2nd`/`second`, `1/x`/`reciprocal`,
 
 ## Out of scope for a simple calculator
 
-- Arbitrary "infinite" precision arithmetic
+- Arbitrary "infinite" precision arithmetic (the decimal type is a
+  fixed 18 digits — enough that the 15 on screen are always right, not
+  enough to hold a number of any size you like)
 - Integral, derivative, lim, combinations (nCr), permutations (nPr), Fibonacci function
 - Complex numbers and their imaginary units (negative number under sqrt will give an error instead)
 - Programmer's operations: bitshift, binary, hexadecimal calculations

@@ -1,13 +1,71 @@
-//! AST evaluator. Performs all numeric computations in f64 and
-//! translates IEEE edge cases into the four calculator error states
-//! (Overflow, Underflow, Indeterminate, Undefined).
+//! AST evaluator.
+//!
+//! Values are [`Decimal`]s, and the four operations a calculator is
+//! mostly asked for — add, subtract, multiply, divide — are carried
+//! out in base ten. That is what makes `0.1 + 0.2 - 0.3` exactly zero
+//! instead of 5.55e-17: the numbers a person types have exact decimal
+//! representations, so arithmetic on them has no binary rounding to
+//! accumulate. The same goes for percent, modulo, whole-number powers
+//! and small factorials, which are exact decimal operations too.
+//!
+//! Everything else — the trigonometry, the logarithms, the roots, a
+//! power with a fractional exponent — has no decimal algorithm worth
+//! writing, so it is handed to `f64` through [`Decimal::to_f64`] and
+//! read back through [`from_float`]. The double comes back as the
+//! shortest decimal that identifies it, so `√0.01` re-enters the
+//! decimal world as `0.1` and the exactness of what follows it is
+//! unaffected.
+//!
+//! IEEE edge cases and out-of-range decimals alike are translated into
+//! the four calculator error states (Overflow, Underflow,
+//! Indeterminate, Undefined).
 
 use std::f64::consts::{E, PI};
 
 use crate::engine::ast::Node;
-use crate::engine::errors::{classify, CalcError};
+use crate::engine::decimal::Decimal;
+use crate::engine::errors::{classify, classify_decimal, CalcError};
 use crate::engine::gamma::factorial;
 use crate::engine::item::{BinOp, BinaryFunc, ConstKind, UnaryFunc};
+
+/// Largest `n` whose factorial still fits the working precision
+/// exactly. `22!` is 1124000727777607680000, eighteen significant
+/// digits once its trailing zeros are set aside; `23!` needs
+/// nineteen, so from there the gamma function takes over.
+const MAX_EXACT_FACTORIAL: i64 = 22;
+
+/// Bring an `f64` back into the decimal world, applying the same
+/// range checks the binary path always did. The double is read as the
+/// shortest decimal that identifies it — see [`Decimal::from_f64`].
+fn from_float(x: f64) -> Result<Decimal, CalcError> {
+    let checked = classify(x)?;
+    Decimal::from_f64(checked).ok_or(CalcError::Undefined)
+}
+
+/// Run a binary operation in decimal, falling back to the `f64` form
+/// if the decimal one leaves the range it can represent. The fallback
+/// is unreachable for values the calculator itself can display, and is
+/// here so that arithmetic never has an outcome other than a number or
+/// a named error.
+fn arithmetic(
+    l: Decimal,
+    r: Decimal,
+    exact: impl Fn(Decimal, Decimal) -> Option<Decimal>,
+    binary: impl Fn(f64, f64) -> f64,
+) -> Result<Decimal, CalcError> {
+    match exact(l, r) {
+        Some(value) => classify_decimal(value),
+        None => from_float(binary(l.to_f64(), r.to_f64())),
+    }
+}
+
+/// `x / 100`, the percent operator. A shift of the decimal point, so
+/// it is exact for every value: `200 + 10%` is 220 on the nose.
+fn percent_scale(x: Decimal) -> Result<Decimal, CalcError> {
+    x.scale_by_pow10(-2)
+        .map(Ok)
+        .unwrap_or_else(|| from_float(x.to_f64() / 100.0))
+}
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -18,44 +76,43 @@ pub enum AngleMode {
 }
 
 /// Evaluate `node` under the given angle mode.
-pub fn eval(node: &Node, mode: AngleMode) -> Result<f64, CalcError> {
+pub fn eval(node: &Node, mode: AngleMode) -> Result<Decimal, CalcError> {
     match node {
-        Node::Num(v) => classify(*v),
-        Node::Const(ConstKind::Pi) => Ok(PI),
-        Node::Const(ConstKind::E) => Ok(E),
-        Node::Neg(n) => {
-            let v = eval(n, mode)?;
-            Ok(-v)
-        }
+        Node::Num(v) => classify_decimal(*v),
+        // The constants are irrational, so they enter as the decimal
+        // nearest their double — which is what every calculator that
+        // is not doing symbolic algebra works with.
+        Node::Const(ConstKind::Pi) => from_float(PI),
+        Node::Const(ConstKind::E) => from_float(E),
+        Node::Neg(n) => Ok(-eval(n, mode)?),
         Node::Factorial(n) => {
             let v = eval(n, mode)?;
-            factorial(v)
+            decimal_factorial(v)
         }
         Node::Percent(n) => {
             // Standalone percent: x / 100.
             let v = eval(n, mode)?;
-            classify(v / 100.0)
+            percent_scale(v)
         }
         Node::Mod(a, b) => {
             let l = eval(a, mode)?;
             let r = eval_percent_as_scale(b, mode)?;
-            if r == 0.0 {
+            if r.is_zero() {
                 return Err(CalcError::Undefined);
             }
             // Truncated remainder (C's `fmod`): the result takes the
             // sign of the dividend, so `-7 mod 3` is -1. Note this is
-            // deliberately NOT `f64::rem_euclid`, which would give 2.
-            classify(l % r)
+            // deliberately NOT a Euclidean remainder, which would give
+            // 2. In decimal it is also exact — `5 mod 3.2` is 1.8, not
+            // 1.7999999999999998.
+            arithmetic(l, r, Decimal::checked_rem, |a, b| a % b)
         }
         Node::Bin(op, a, b) => eval_binary(*op, a, b, mode),
         Node::UnaryFn(f, x) => eval_unary_fn(*f, x, mode),
         Node::BinaryFn(BinaryFunc::LogBase, base, val) => {
             let b = eval(base, mode)?;
             let v = eval(val, mode)?;
-            if b <= 0.0 || b == 1.0 || v <= 0.0 {
-                return Err(CalcError::Undefined);
-            }
-            classify(v.ln() / b.ln())
+            log_base(b.to_f64(), v.to_f64())
         }
         Node::BinaryFn(BinaryFunc::Root, x, n) => {
             let xv = eval(x, mode)?;
@@ -64,105 +121,143 @@ pub fn eval(node: &Node, mode: AngleMode) -> Result<f64, CalcError> {
         }
         Node::LogN(base, x) => {
             let v = eval(x, mode)?;
-            if *base <= 0.0 || *base == 1.0 || v <= 0.0 {
-                return Err(CalcError::Undefined);
-            }
-            classify(v.ln() / base.ln())
+            log_base(base.to_f64(), v.to_f64())
         }
     }
 }
 
+/// log of `value` to `base`, both already in doubles: a ratio of two
+/// natural logarithms, which is where decimals stop being any help.
+fn log_base(base: f64, value: f64) -> Result<Decimal, CalcError> {
+    if base <= 0.0 || base == 1.0 || value <= 0.0 {
+        return Err(CalcError::Undefined);
+    }
+    from_float(value.ln() / base.ln())
+}
+
+/// `x!`. Whole numbers up to [`MAX_EXACT_FACTORIAL`] are multiplied
+/// out in decimal, so `20!` is every one of its digits rather than the
+/// nearest double to it. Everything else — a bigger number, a
+/// fractional one — goes to Γ.
+fn decimal_factorial(x: Decimal) -> Result<Decimal, CalcError> {
+    if let Some(n) = x.to_i64() {
+        if (0..=MAX_EXACT_FACTORIAL).contains(&n) {
+            let mut product = Decimal::ONE;
+            for factor in 2..=n {
+                match product.checked_mul(Decimal::from_i64(factor)) {
+                    Some(next) => product = next,
+                    None => return from_float(factorial(x.to_f64())?),
+                }
+            }
+            return classify_decimal(product);
+        }
+    }
+    from_float(factorial(x.to_f64())?)
+}
+
 /// Binary operator evaluation with context-aware percent handling on
 /// the right-hand operand.
-fn eval_binary(op: BinOp, a: &Node, b: &Node, mode: AngleMode) -> Result<f64, CalcError> {
+fn eval_binary(op: BinOp, a: &Node, b: &Node, mode: AngleMode) -> Result<Decimal, CalcError> {
     let l = eval(a, mode)?;
     if let Node::Percent(inner) = b {
-        let r = eval(inner, mode)?;
+        // `200 + 10%` is 220: the right operand is a proportion of the
+        // left one rather than a value in its own right.
+        let r = percent_scale(eval(inner, mode)?)?;
         return match op {
-            BinOp::Add => classify(l + l * r / 100.0),
-            BinOp::Sub => classify(l - l * r / 100.0),
-            BinOp::Mul => classify(l * r / 100.0),
+            BinOp::Add => {
+                let share = arithmetic(l, r, Decimal::checked_mul, |a, b| a * b)?;
+                arithmetic(l, share, Decimal::checked_add, |a, b| a + b)
+            }
+            BinOp::Sub => {
+                let share = arithmetic(l, r, Decimal::checked_mul, |a, b| a * b)?;
+                arithmetic(l, share, Decimal::checked_sub, |a, b| a - b)
+            }
+            BinOp::Mul => arithmetic(l, r, Decimal::checked_mul, |a, b| a * b),
             BinOp::Div => {
-                let s = r / 100.0;
-                if s == 0.0 {
+                if r.is_zero() {
                     return Err(CalcError::Undefined);
                 }
-                classify(l / s)
+                arithmetic(l, r, Decimal::checked_div, |a, b| a / b)
             }
-            BinOp::Pow => pow_checked(l, r / 100.0),
+            BinOp::Pow => pow_checked(l, r),
         };
     }
     let r = eval(b, mode)?;
     match op {
-        BinOp::Add => classify(l + r),
-        BinOp::Sub => classify(l - r),
-        BinOp::Mul => classify(l * r),
+        BinOp::Add => arithmetic(l, r, Decimal::checked_add, |a, b| a + b),
+        BinOp::Sub => arithmetic(l, r, Decimal::checked_sub, |a, b| a - b),
+        BinOp::Mul => arithmetic(l, r, Decimal::checked_mul, |a, b| a * b),
         BinOp::Div => {
-            if l == 0.0 && r == 0.0 {
+            if l.is_zero() && r.is_zero() {
                 return Err(CalcError::Indeterminate);
             }
-            if r == 0.0 {
+            if r.is_zero() {
                 return Err(CalcError::Undefined);
             }
-            classify(l / r)
+            arithmetic(l, r, Decimal::checked_div, |a, b| a / b)
         }
         BinOp::Pow => pow_checked(l, r),
     }
 }
 
 /// Evaluate `b`, unwrapping a top-level Percent as scale (x/100).
-fn eval_percent_as_scale(b: &Node, mode: AngleMode) -> Result<f64, CalcError> {
+fn eval_percent_as_scale(b: &Node, mode: AngleMode) -> Result<Decimal, CalcError> {
     if let Node::Percent(inner) = b {
-        let v = eval(inner, mode)?;
-        return classify(v / 100.0);
+        return percent_scale(eval(inner, mode)?);
     }
     eval(b, mode)
 }
 
-/// x^y with calculator-specific edge cases: 0^0 undefined,
-/// negative base with non-integer exponent undefined.
-fn pow_checked(x: f64, y: f64) -> Result<f64, CalcError> {
-    if x == 0.0 && y == 0.0 {
+/// x^y with calculator-specific edge cases: 0^0 undefined, negative
+/// base with non-integer exponent undefined.
+///
+/// A whole-number exponent is multiplied out in decimal, so `1.1²` is
+/// 1.21 rather than 1.2100000000000002, and `10^15` is the integer
+/// with fifteen zeroes. A fractional one is a root in disguise and
+/// goes to `powf`.
+fn pow_checked(x: Decimal, y: Decimal) -> Result<Decimal, CalcError> {
+    if x.is_zero() && y.is_zero() {
         return Err(CalcError::Undefined);
     }
-    if x < 0.0 && !is_integer(y) {
+    if x.is_negative() && !y.is_integer() {
         return Err(CalcError::Undefined);
     }
-    let v = x.powf(y);
-    classify(v)
+    if let Some(exponent) = y.to_i64().and_then(|n| i32::try_from(n).ok()) {
+        if let Some(value) = x.checked_powi(exponent) {
+            return classify_decimal(value);
+        }
+    }
+    let value = x.to_f64().powf(y.to_f64());
+    from_float(value)
 }
 
 /// Y-th root of X: X^(1/Y). Handles negative bases with odd-integer
 /// roots and reports Undefined for y = 0 or even roots of negatives.
-fn nth_root(x: f64, y: f64) -> Result<f64, CalcError> {
-    if y == 0.0 {
+fn nth_root(x: Decimal, y: Decimal) -> Result<Decimal, CalcError> {
+    if y.is_zero() {
         return Err(CalcError::Undefined);
     }
-    if x == 0.0 {
-        return Ok(0.0);
+    if x.is_zero() {
+        return Ok(Decimal::ZERO);
     }
-    if x < 0.0 {
+    let (xv, yv) = (x.to_f64(), y.to_f64());
+    if x.is_negative() {
         if is_odd_integer(y) {
-            let v = -(-x).powf(1.0 / y);
-            return classify(v);
+            return from_float(-(-xv).powf(1.0 / yv));
         }
         return Err(CalcError::Undefined);
     }
-    classify(x.powf(1.0 / y))
+    from_float(xv.powf(1.0 / yv))
 }
 
-/// True when `y` is an integer this f64 can still tell apart from its
-/// neighbours *and* that integer is odd.
+/// True when `y` is a whole number and that number is odd.
 ///
-/// Past 2^53 adjacent f64s differ by more than 1, so parity stops being
-/// a meaningful property of the value – and a plain `y as i64` cast
-/// saturates at `i64::MAX`, which is odd, so `root(-8, 1e30)` used to
-/// take the odd branch and return -1 instead of Undefined.
-fn is_odd_integer(y: f64) -> bool {
-    if !is_integer(y) || y.abs() > TRIG_SNAP_PRECISION_LIMIT {
-        return false;
-    }
-    (y as i64) % 2 != 0
+/// Asking the decimal rather than a double is what keeps
+/// `root(-8, 1e30)` undefined: 1e30 has no `i64` to be odd or even in,
+/// so it is neither, where a saturating cast would have made it
+/// `i64::MAX` and therefore odd.
+fn is_odd_integer(y: Decimal) -> bool {
+    y.to_i64().map(|n| n % 2 != 0).unwrap_or(false)
 }
 
 /// True when `x` is an integer value. Shared with `gamma`, which needs
@@ -171,9 +266,16 @@ pub(crate) fn is_integer(x: f64) -> bool {
     x.is_finite() && x.floor() == x
 }
 
-/// Unary-function dispatch. DEG/RAD conversion happens inside.
-fn eval_unary_fn(f: UnaryFunc, x: &Node, mode: AngleMode) -> Result<f64, CalcError> {
-    let v = eval(x, mode)?;
+/// Unary-function dispatch. Every one of these is transcendental (or
+/// a root), so the value goes out to `f64` here and the answer comes
+/// back through [`from_float`]. DEG/RAD conversion happens inside.
+fn eval_unary_fn(f: UnaryFunc, x: &Node, mode: AngleMode) -> Result<Decimal, CalcError> {
+    let v = eval(x, mode)?.to_f64();
+    from_float(eval_unary_f64(f, v, mode)?)
+}
+
+/// The `f64` half of [`eval_unary_fn`].
+fn eval_unary_f64(f: UnaryFunc, v: f64, mode: AngleMode) -> Result<f64, CalcError> {
     match f {
         UnaryFunc::Sin => classify(trig_sin(v, mode)),
         UnaryFunc::Cos => classify(trig_cos(v, mode)),

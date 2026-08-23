@@ -876,7 +876,12 @@ fn the_digits_on_screen_are_still_the_ones_on_screen() {
     // entry — is what was drawn.
     let (e, _s, _c) = run(&[Button::Num(1), Button::Div, Button::Num(3), Button::Equals]);
     assert_eq!(e.input.ascii_expression(), "0.333333333333333");
-    assert_eq!(e.input.ascii_expression_for_eval(), "0.3333333333333333");
+    // The evaluator gets all eighteen digits the division was carried
+    // to, written the way the tokenizer reads them back exactly.
+    assert_eq!(
+        e.input.ascii_expression_for_eval(),
+        "333333333333333333e-18"
+    );
 }
 
 #[test]

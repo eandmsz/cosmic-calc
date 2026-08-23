@@ -4,12 +4,13 @@
 //! classifies '%' as modulo (when followed by a digit or '(') or as a
 //! percent marker otherwise. Unknown characters produce a ParseError.
 
+use crate::engine::decimal::Decimal;
 use crate::engine::errors::CalcError;
 use crate::engine::item::{BinOp, BinaryFunc, ConstKind, UnaryFunc};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Token {
-    Num(f64),
+    Num(Decimal),
     Op(BinOp),
     Mod,
     Percent,
@@ -20,8 +21,8 @@ pub enum Token {
     UnaryFn(UnaryFunc),
     BinaryFn(BinaryFunc),
     /// log with a fixed base N baked in (e.g., log2, log6). The base
-    /// is stored as f64 so the evaluator doesn't recompute it.
-    LogN(f64),
+    /// is stored as a decimal so the evaluator doesn't recompute it.
+    LogN(Decimal),
     Const(ConstKind),
 }
 
@@ -247,7 +248,7 @@ fn parse_number(
     bytes: &[char],
     i: usize,
     allow_comma: bool,
-) -> Result<(f64, usize), TokenizeError> {
+) -> Result<(Decimal, usize), TokenizeError> {
     let mut j = i;
     let start = i;
     let mut has_digits = false;
@@ -285,12 +286,12 @@ fn parse_number(
             j = k;
         }
     }
-    // Build an f64. Normalise ',' → '.'.
+    // Build the decimal. Normalise ',' → '.'.
     let raw: String = bytes[start..j]
         .iter()
         .map(|c| if *c == ',' { '.' } else { *c })
         .collect();
-    let n: f64 = raw.parse().map_err(|_| TokenizeError)?;
+    let n = Decimal::parse(&raw).ok_or(TokenizeError)?;
     Ok((n, j - start))
 }
 
@@ -316,7 +317,7 @@ fn parse_ident(bytes: &[char], i: usize) -> Result<(Token, usize), TokenizeError
         }
         if k > dig_start {
             let digs: String = bytes[dig_start..k].iter().collect();
-            let base: f64 = digs.parse().map_err(|_| TokenizeError)?;
+            let base = Decimal::parse(&digs).ok_or(TokenizeError)?;
             consumed = k - start;
             return Ok((Token::LogN(base), consumed));
         }
