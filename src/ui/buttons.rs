@@ -92,6 +92,10 @@ pub enum Button {
     /// `x^y` – same behaviour as [`Button::Pow`] but bound to a
     /// dedicated keypad key for discoverability.
     XPowY,
+    /// `y^x` – [`Button::XPowY`] with its operands the other way
+    /// round: the operand already entered becomes the *exponent* and
+    /// the base is what the user keys next.
+    YPowX,
     TenPowX,
     TwoPowX,
     EPowX,
@@ -475,6 +479,7 @@ pub fn apply_resolved_button(
 
         Button::Square => raise_to(engine, '2'),
         Button::Cube => raise_to(engine, '3'),
+        Button::YPowX => raise_over(engine),
         Button::TenPowX => open_power(engine, &[InputItem::Digit('1'), InputItem::Digit('0')]),
         Button::TwoPowX => open_power(engine, &[InputItem::Digit('2')]),
         Button::EPowX => open_power(engine, &[InputItem::Constant(ConstKind::E)]),
@@ -689,12 +694,17 @@ fn builtin_second(button: Button) -> Button {
         Button::TwoPowX => Button::Log2,
         Button::Ln => Button::EPowX,
         Button::EPowX => Button::Ln,
-        // `x^y` is the inverse of `log_y(x)`; there is no separate
-        // `YPowX` button to route to.
+        // `x^y` is the inverse of `log_y(x)`: both take the base
+        // first and the second operand after it. `y^x` reads the two
+        // the other way round, so it is not the one to route to here
+        // even though it exists.
         Button::LogY => Button::XPowY,
         Button::Pow => Button::YRootX,
         Button::XPowY => Button::YRootX,
         Button::YRootX => Button::Pow,
+        // The two power keys are each other's operand swap, which is
+        // the only sense in which either inverts the other.
+        Button::YPowX => Button::XPowY,
         other => other,
     }
 }
@@ -1193,6 +1203,31 @@ fn raise_to(engine: &mut Engine, exponent: char) -> ButtonEffect {
     }
     engine.input.insert(InputItem::BinOp(BinOp::Pow));
     engine.input.insert(InputItem::Digit(exponent));
+    ButtonEffect::None
+}
+
+/// `yˣ` — [`raise_to`]'s mirror, and the one thing that keeps the key
+/// from being a second `xʸ`: the operand already on screen becomes the
+/// *exponent*, and the base is what the user keys next. `2`, `yˣ`, `3`
+/// reads back as `3^2`, where `2`, `xʸ`, `3` reads back as `2^3`.
+///
+/// The `^` therefore goes in *front* of the operand rather than after
+/// it, and the cursor parks in front of the `^` so the base lands in
+/// the slot it opened. Mid-expression the swap stays local — `5+2`
+/// then `yˣ` then `3` is `5+3^2`, the same two neighbours `^` would
+/// have bound either way round.
+///
+/// With nothing to raise — an empty buffer, a trailing operator, an
+/// open bracket — the press does nothing. `x²` treats an empty buffer
+/// as the one place to supply the missing operand, but the operand
+/// missing here is the exponent, and a `0` there would read `y^0`,
+/// which is 1 whatever base the user goes on to type.
+fn raise_over(engine: &mut Engine) -> ButtonEffect {
+    let Some((start, _)) = engine.input.last_operand_range() else {
+        return ButtonEffect::None;
+    };
+    engine.input.insert_at(start, InputItem::BinOp(BinOp::Pow));
+    engine.input.set_cursor(start);
     ButtonEffect::None
 }
 

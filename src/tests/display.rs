@@ -572,3 +572,21 @@ fn unary_func_paren_inactive_with_cursor_inside() {
     assert_eq!(last.text, ")");
     assert!(!last.active);
 }
+
+#[test]
+fn a_pending_base_leaves_the_exponent_raised_on_its_own() {
+    // What `yˣ` puts on screen between the two operands: the one the
+    // user has typed, raised, and the base slot in front of it still
+    // empty. There is no placeholder glyph for a missing base the way
+    // there is for a missing exponent — the digit visibly rising is
+    // what says the press landed.
+    let pending = vec![InputItem::BinOp(BinOp::Pow), InputItem::Digit('2')];
+    assert_eq!(render_str(&pending, DecimalSeparator::Dot, None), "²");
+    // Typing the base lands it under the exponent already raised.
+    let filled = vec![
+        InputItem::Digit('3'),
+        InputItem::BinOp(BinOp::Pow),
+        InputItem::Digit('2'),
+    ];
+    assert_eq!(render_str(&filled, DecimalSeparator::Dot, None), "3²");
+}
