@@ -178,24 +178,19 @@ fn squaring_an_operand_still_raises_that_operand() {
 }
 
 #[test]
-fn the_power_keys_hold_still_where_there_is_no_operand() {
+fn the_keys_that_need_a_base_hold_still_without_one() {
     // An expression under way with nothing to attach to — a trailing
     // operator, an open bracket — is not an empty buffer, and the
     // default base is not for it: a `0` there would be a base the user
-    // never typed, turning `5+` into `5+0²`. The press does nothing.
+    // never typed, turning `5+` into `5+0²`. `EE` is in the same
+    // position for a different reason: its `×10^` needs a mantissa to
+    // multiply, and after a `+` there is none.
     for lead in [
         vec![Button::Num(5), Button::Add],
         vec![Button::LeftParen],
         vec![Button::Sin],
     ] {
-        for key in [
-            Button::Square,
-            Button::Cube,
-            Button::EPowX,
-            Button::TenPowX,
-            Button::TwoPowX,
-            Button::EE,
-        ] {
+        for key in [Button::Square, Button::Cube, Button::EE] {
             let (mut e, mut s, c) = fresh();
             for b in &lead {
                 apply_button(&mut e, &mut s, &c, *b);
@@ -212,21 +207,42 @@ fn the_power_keys_hold_still_where_there_is_no_operand() {
 }
 
 #[test]
-fn a_key_carrying_its_own_base_needs_no_default() {
-    // `10ˣ`, `2ˣ` and `𝑒ˣ` have their base in the key, so an empty
-    // buffer asks nothing of them — only `x²` and `x³` are missing one
-    // there. `EE` is the odd one out the other way: it multiplies a
-    // mantissa, and a `0` mantissa would zero every exponent that
-    // followed, so from empty it stays put.
-    for (key, expected) in [
-        (Button::TenPowX, "10^"),
-        (Button::TwoPowX, "2^"),
-        (Button::EPowX, "\u{1d452}^"),
+fn a_key_carrying_its_own_base_starts_a_value_anywhere() {
+    // `10ˣ`, `2ˣ` and `𝑒ˣ` have their base in the key, so they ask
+    // nothing of what came before and act wherever a value can start.
+    for (key, from_empty, after_plus) in [
+        (Button::TenPowX, "10^", "5+10^"),
+        (Button::TwoPowX, "2^", "5+2^"),
+        (Button::EPowX, "\u{1d452}^", "5+\u{1d452}^"),
     ] {
         let (mut e, mut s, c) = fresh();
         apply_button(&mut e, &mut s, &c, key);
-        assert_eq!(e.input.ascii_expression(), expected);
+        assert_eq!(e.input.ascii_expression(), from_empty);
+
+        // After an operator the base goes in beside it. There is no
+        // value to the operator's left to multiply, so no auto-mul is
+        // inserted and the `+` stands as the user typed it.
+        let (mut e, mut s, c) = fresh();
+        apply_button(&mut e, &mut s, &c, Button::Num(5));
+        apply_button(&mut e, &mut s, &c, Button::Add);
+        apply_button(&mut e, &mut s, &c, key);
+        assert_eq!(e.input.ascii_expression(), after_plus);
+
+        // And after an operand it is the auto-mul that joins them, so
+        // the new base does not run onto the end of the old digits.
+        let (mut e, mut s, c) = fresh();
+        apply_button(&mut e, &mut s, &c, Button::Num(5));
+        apply_button(&mut e, &mut s, &c, key);
+        assert!(
+            e.input.ascii_expression().starts_with("5*"),
+            "{key:?} ran onto the operand: {}",
+            e.input.ascii_expression()
+        );
     }
+
+    // `EE` is the odd one out: it multiplies a mantissa, and a `0`
+    // mantissa would zero every exponent that followed, so from empty
+    // it stays put.
     let (mut e, mut s, c) = fresh();
     apply_button(&mut e, &mut s, &c, Button::EE);
     assert!(e.input.is_empty(), "EE started an expression from nothing");

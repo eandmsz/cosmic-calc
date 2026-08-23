@@ -1174,18 +1174,6 @@ fn try_unwrap_reciprocal(engine: &mut Engine) -> bool {
     true
 }
 
-/// Where the power keys are willing to act: on an operand, which is
-/// what they attach to, and on an empty buffer, where there is nothing
-/// for them to disagree with.
-///
-/// Anywhere else — a trailing operator, an open bracket — the press
-/// does nothing at all. Inserting a `0` there put a base under the
-/// power that the user had not typed and did not mean: `5+` then `x²`
-/// read back as `5+0²`.
-fn power_key_applies(engine: &Engine) -> bool {
-    engine.input.is_empty() || has_left_operand_at_cursor(engine)
-}
-
 /// Raise whatever is to the left of the cursor to a fixed power. Used
 /// by `x²` and `x³`, which are postfix operations and so need a base.
 ///
@@ -1193,12 +1181,15 @@ fn power_key_applies(engine: &Engine) -> bool {
 /// required: a press there starts the expression on a `0`, the same
 /// default the binary operators start one on. Before that the press
 /// wrote a `^2` with nothing under it, which the parser rejected.
+///
+/// Anywhere else without a base — a trailing operator, an open bracket
+/// — the press does nothing at all. A `0` there is a base the user did
+/// not type and did not mean: `5+` then `x²` read back as `5+0²`.
 fn raise_to(engine: &mut Engine, exponent: char) -> ButtonEffect {
-    if !power_key_applies(engine) {
-        return ButtonEffect::None;
-    }
     if engine.input.is_empty() {
         engine.input.insert(InputItem::Digit('0'));
+    } else if !has_left_operand_at_cursor(engine) {
+        return ButtonEffect::None;
     }
     engine.input.insert(InputItem::BinOp(BinOp::Pow));
     engine.input.insert(InputItem::Digit(exponent));
@@ -1206,16 +1197,19 @@ fn raise_to(engine: &mut Engine, exponent: char) -> ButtonEffect {
 }
 
 /// `10ˣ`, `2ˣ` and `𝑒ˣ`: a base of their own, and a power left waiting
-/// for its exponent. They ask nothing of what came before — the base is
-/// in the key — so an empty buffer needs no default, but they hold
-/// still in the same places the rest of the family does.
+/// for its exponent.
+///
+/// They ask nothing of what came before, because the base is in the
+/// key — so unlike `x²` and `EE` they act wherever a value can start,
+/// which is everywhere: an empty buffer, an open bracket, and after an
+/// operator, where `5+` becomes `5+10⁽⁾` with the `+` left as the user
+/// typed it.
 ///
 /// The auto-mul goes in first so `5` then `10ˣ` becomes `5×10^` rather
-/// than glomming the leading `1` onto the existing digit run.
+/// than glomming the leading `1` onto the existing digit run. After an
+/// operator there is no value to its left to multiply, so none is
+/// inserted and the operator stands.
 fn open_power(engine: &mut Engine, base: &[InputItem]) -> ButtonEffect {
-    if !power_key_applies(engine) {
-        return ButtonEffect::None;
-    }
     ensure_auto_mul_before_new_run(engine);
     for item in base {
         engine.input.insert(item.clone());
