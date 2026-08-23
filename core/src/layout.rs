@@ -290,20 +290,20 @@ pub const DEFAULT_BASIC: &[&str] = &[
 /// calculator function already has a cell, so shipping keys there would
 /// only be repeating ones that are reachable already.
 pub const DEFAULT_SCIENTIFIC: &[&str] = &[
-    "_ second sin cos tan clear backspace percent div",
-    "_ pi sinh cosh tanh 7 8 9 mul",
-    "_ cube ln log log2 4 5 6 sub",
-    "_ lparen rparen square xpowy 1 2 3 add",
-    "_ rand ee factorial reciprocal negate 0 decimal equals",
+    "second lparen rparen e ee clear backspace percent div",
+    "square cube xpowy epowx tenpowx 7 8 9 mul",
+    "sqrt cbrt yrootx ln log 4 5 6 sub",
+    "factorial sin cos tan pi 1 2 3 add",
+    "rand sinh cosh tanh reciprocal negate 0 decimal equals",
 ];
 
 /// Shipped Scientific layout, `2nd` on: each scientific key flips to
 /// its inverse, π turns into 𝑒 and log₂ into logᵧ. The Basic columns
 /// are left alone so the digits never move under the user.
 pub const DEFAULT_SCIENTIFIC_SECOND: &[&str] = &[
-    "_ second asin acos atan clear backspace percent div",
-    "_ e asinh acosh atanh 7 8 9 mul",
-    "_ cbrt epowx tenpowx logy 4 5 6 sub",
-    "_ lparen rparen sqrt yrootx 1 2 3 add",
-    "_ rand ee factorial reciprocal negate 0 decimal equals",
+    "second lparen rparen e ee clear backspace percent div",
+    "square cube xpowy ypowx twopowx 7 8 9 mul",
+    "sqrt cbrt yrootx logy log2 4 5 6 sub",
+    "factorial asin acos atan pi 1 2 3 add",
+    "rand asinh acosh atanh reciprocal negate 0 decimal equals",
 ];
