@@ -48,19 +48,35 @@ make check                         # fmt + clippy + the whole workspace
   what the `2nd` key toggles, is a table in `config.toml`
 - Repeat last operation using =
 - Predictable operation: only the = sign evaluates the expressions
-- Intuitive Backspace and AC/C functions
+- Intuitive Backspace and AC/C functions. `C` takes back the last
+  operand — the number, the bracketed group or the whole function call
+  you just finished — and leaves the expression it was part of
+  standing; with an operator under the cursor there is nothing to take
+  back, so the press only flips the key to `AC`, which clears the
+  display. Either way one `C` arms the `AC`, so the line is never more
+  than two presses from empty
 - Easily readable expressions with superscript exponents, subscript log
   bases and the radical sign: `2⁵`, `3×10⁴`, `2¹·⁵`, `log₂(8)`,
-  `sin⁻¹(1)`, `√(16,4)`. The `^` never reaches the display — the
-  raising is what it says. A fractional exponent raises whole, decimal
-  separator included (`2¹·⁵`, or `2¹ʼ⁵` where the separator is a
-  comma). An exponent Unicode cannot raise goes inside raised brackets
-  instead, so `2^2!` reads as `2⁽2!⁾` and not as `2 × 2!`, and a power
-  key pressed before its exponent is typed shows the empty slot: `2⁽⁾`.
-  The "Show ASCII expression" toggle in the settings panel switches the
-  display back to the raw form the buffer stores (`2^5`, `log2(8)`,
-  `sin-1(1)`, `root(16,4)`), which is what the tokenizer is handed
-  either way — the notation changes, the value never does
+  `sin⁻¹(1)`, `⁴√(16)`. The `^` never reaches the display — the raising
+  is what it says
+	- What goes up is the text itself, drawn smaller and moved off the
+	  line, rather than a superscript glyph swapped in for it. So
+	  anything can go up: a decimal separator (`2¹·⁵` in either
+	  locale), a factorial (`2^2!` reads as `2` with a small raised
+	  `2!`, never as `2 × 2!`), a whole call — `2^sin(30)` raises the
+	  `sin(30)` and stays legible as a power. A script inside a script
+	  steps again, so `2^3^2` shows its `2` smaller and higher still
+	- A slot you have opened but not filled shows as small brackets —
+	  `2⁽⁾` for a power key pressed before its exponent, `log₍₎(8)` for
+	  a base — and they are drawn dim while the cursor is in them, which
+	  is what says the next digit lands there rather than after the call
+	- The caption above the display and the history rows are single
+	  lines of one size, so there they fall back to Unicode's raised and
+	  lowered glyphs, and to brackets where those run out: `2⁽2!⁾`
+	- The "Show ASCII expression" toggle in the settings panel switches
+	  the display back to the raw form the buffer stores (`2^5`,
+	  `log2(8)`, `sin-1(1)`, `root(16,4)`), which is what the tokenizer
+	  is handed either way — the notation changes, the value never does
 - `logᵧ` writes its base where a base belongs — under the log — and
   shows the empty slot until you type one: press it and the display
   reads `log₍₎(8)`, key the base and it reads `log₂(8)`. With an
@@ -68,6 +84,11 @@ make check                         # fmt + clippy + the whole workspace
   `logᵧ`, `2` = 3); from an empty display the argument comes first and
   `)` moves down to the base (`logᵧ`, `8`, `)`, `2` = 3), with a second
   `)` leaving the call
+- `ʸ√x` writes its degree where a degree belongs — in front of the sign
+  — and reads the same way round: `16`, `ʸ√x`, `4` gives `⁴√(16)`. From
+  an empty display the radicand comes first and `)` moves out to the
+  degree (`ʸ√x`, `8`, `)`, `3` = 2), with a second `)` leaving the
+  call, exactly as `logᵧ` does with its base
 - Customizable Rand function, drawing from the OS entropy source
   (`getrandom`/`/dev/urandom` on Linux) so each press is independent of
   the last

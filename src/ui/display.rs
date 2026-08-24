@@ -56,6 +56,12 @@ pub struct Script {
     /// base inside an exponent lands just under that exponent rather
     /// than back on the line.
     pub raise: f32,
+    /// Which way the last step went. `raise` cannot answer that on its
+    /// own — a base inside an exponent hangs below the exponent while
+    /// still sitting above the line the whole thing is written on — and
+    /// the one-line rendering has to know which of Unicode's two blocks
+    /// to reach for. Meaningless, and `false`, on the line itself.
+    up: bool,
 }
 
 impl Default for Script {
@@ -69,6 +75,7 @@ impl Script {
     pub const ON_LINE: Self = Self {
         depth: 0,
         raise: 0.0,
+        up: false,
     };
 
     /// Size of this text as a fraction of the display's font size.
@@ -113,6 +120,7 @@ impl Script {
             } else {
                 self.raise - shift
             },
+            up,
         }
     }
 }
@@ -422,7 +430,7 @@ pub fn render_expression_string(
 ) -> String {
     let segs = render_expression(items, items.len(), decimal, thousands_glyph, None, notation);
     let mut out = String::new();
-    flatten(&segs, 0, 0.0, &mut out);
+    flatten(&segs, 0, &mut out);
     out
 }
 
@@ -431,7 +439,7 @@ pub fn render_expression_string(
 /// put off the line as a whole, so `2^2^2` comes back as `2⁽2²⁾` — the
 /// shape the value has — rather than a flat `2²²` that would read as
 /// the twenty-second power.
-fn flatten(segs: &[DisplaySegment], depth: u8, parent_raise: f32, out: &mut String) {
+fn flatten(segs: &[DisplaySegment], depth: u8, out: &mut String) {
     let mut i = 0;
     while i < segs.len() {
         if segs[i].script.depth <= depth {
@@ -444,10 +452,18 @@ fn flatten(segs: &[DisplaySegment], depth: u8, parent_raise: f32, out: &mut Stri
             i += 1;
         }
         let run = &segs[start..i];
-        let raise = run[0].script.raise;
+        // Which way the run went off the line is the direction of the
+        // step that took it there — the one the shallowest piece in it
+        // took. Its height cannot be read for that: a run can start on
+        // a piece deeper than this step (a root writes its degree
+        // before its sign), and a step down inside a step up still
+        // leaves everything above the line.
+        let up = run
+            .iter()
+            .min_by_key(|seg| seg.script.depth)
+            .is_some_and(|seg| seg.script.up);
         let mut inner = String::new();
-        flatten(run, depth + 1, raise, &mut inner);
-        let up = raise > parent_raise;
+        flatten(run, depth + 1, &mut inner);
         let mapped = if up {
             script::to_superscript(&inner)
         } else {

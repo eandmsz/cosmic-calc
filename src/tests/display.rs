@@ -646,6 +646,43 @@ fn a_root_wears_its_degree_in_front_of_the_sign() {
 }
 
 #[test]
+fn a_step_inside_a_step_keeps_its_own_direction() {
+    // A root writes its degree before its sign, so a run that has gone
+    // off the line can begin on a piece deeper than the step that took
+    // it there. The one-line rendering therefore reads the direction
+    // of the step rather than the height it ended at — a base holding
+    // a root is still a base — and on the display the inner step is
+    // measured from the outer one rather than from the line.
+    let mut base_is_a_root = vec![InputItem::BinaryFunc(BinaryFunc::LogBase)];
+    base_is_a_root.extend(root("16", &digits("4")));
+    base_is_a_root.push(InputItem::Comma);
+    base_is_a_root.push(InputItem::Digit('8'));
+    base_is_a_root.push(InputItem::RightParen);
+    assert_eq!(
+        render_str(&base_is_a_root, DecimalSeparator::Dot, None),
+        "log₍⁴√(16)₎(8)"
+    );
+    let segs = render_at(&base_is_a_root, base_is_a_root.len());
+    let degree = &segs[1];
+    let radical = &segs[2];
+    assert_eq!((degree.text.as_str(), radical.text.as_str()), ("4", "√("));
+    // The whole base hangs below the line, and the degree rides above
+    // the radical it belongs to without climbing back over the line.
+    assert!(radical.script.raise < 0.0);
+    assert!(degree.script.raise > radical.script.raise);
+    assert!(degree.script.raise < 0.0);
+
+    // And the mirror: a root inside an exponent is raised, not lowered.
+    let mut root_in_an_exponent = digits("2");
+    root_in_an_exponent.push(InputItem::BinOp(BinOp::Pow));
+    root_in_an_exponent.extend(root("16", &digits("4")));
+    assert_eq!(
+        render_str(&root_in_an_exponent, DecimalSeparator::Dot, None),
+        "2⁽⁴√(16)⁾"
+    );
+}
+
+#[test]
 fn a_root_still_missing_a_piece_is_drawn_as_it_is_stored() {
     // Nothing to move out yet: a call with no comma keeps the plain
     // radical and renders straight through, closer and all.
