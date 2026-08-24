@@ -306,9 +306,16 @@ fn a_raised_exponent_still_ends_a_value() {
         Notation::Pretty,
     );
     // The base keeps its own segment; the `^` and the items it raises
-    // share the one after it.
+    // share the one after it, whose text is the ordinary `3` — what
+    // makes it an exponent is the size and the height it is drawn at.
     let texts: Vec<&str> = segs.iter().map(|s| s.text.as_str()).collect();
-    assert_eq!(texts, vec!["2", "³", "×", "(", "4", ")"]);
+    assert_eq!(texts, vec!["2", "3", "×", "(", "4", ")"]);
+    assert!(segs[1].script.raise > 0.0);
+    assert!(segs[1].script.scale() < 1.0);
+    // And the base, the glyph and the group after it stay on the line.
+    for on_line in [0, 2, 3, 4, 5] {
+        assert!(segs[on_line].script.is_on_line());
+    }
     assert!(!segs[2].active);
 }
 
@@ -442,10 +449,11 @@ fn log_bases_are_lowered() {
 
 #[test]
 fn the_debug_toggle_swaps_the_two_spellings_of_one_expression() {
-    // `root(2^2,6)` against `√(2²,6)`: the radical is the notation and
+    // `root(2^2,6)` against `⁶√(2²)`: the radical is the notation and
     // `root` is the buffer's spelling of it, so the raw form keeps the
-    // word while the pretty one wears the sign — and the power inside
-    // the first argument raises as it does anywhere else.
+    // word while the pretty one wears the sign — with the degree in
+    // front of it, where a reader expects it, and the power inside the
+    // radicand raised as it would be anywhere else.
     let items = vec![
         InputItem::BinaryFunc(BinaryFunc::Root),
         InputItem::Digit('2'),
@@ -457,7 +465,7 @@ fn the_debug_toggle_swaps_the_two_spellings_of_one_expression() {
     ];
     assert_eq!(
         render_expression_string(&items, DecimalSeparator::Dot, None, Notation::Pretty),
-        "√(2²,6)"
+        "⁶√(2²)"
     );
     assert_eq!(
         render_expression_string(&items, DecimalSeparator::Dot, None, Notation::Raw),
@@ -477,6 +485,298 @@ fn inverse_functions_use_a_raised_minus_one() {
         render_expression_string(&items, DecimalSeparator::Dot, None, Notation::Raw),
         "sin-1(1)"
     );
+}
+
+// --- scripts drawn rather than substituted ---------------------------
+
+/// Every segment's text, in order.
+fn texts(segs: &[DisplaySegment]) -> Vec<&str> {
+    segs.iter().map(|s| s.text.as_str()).collect()
+}
+
+/// Render with the cursor somewhere in particular.
+fn render_at(items: &[InputItem], cursor: usize) -> Vec<DisplaySegment> {
+    render_expression(
+        items,
+        cursor,
+        DecimalSeparator::Dot,
+        None,
+        None,
+        Notation::Pretty,
+    )
+}
+
+#[test]
+fn a_script_is_the_same_characters_drawn_smaller_and_off_the_line() {
+    // The point of not reaching for Unicode's superscripts: what goes
+    // up is the text itself, so anything can go up. A decimal point,
+    // a factorial and a whole function call raise as they are, none of
+    // them dropped back to full size inside brackets.
+    let cases: Vec<(Vec<InputItem>, Vec<&str>)> = vec![
+        (power("2", &digits("1.5")), vec!["2", "1.5"]),
+        (
+            power("2", &{
+                let mut e = digits("2");
+                e.push(InputItem::Factorial);
+                e
+            }),
+            vec!["2", "2", "!"],
+        ),
+        (
+            power("2", &{
+                let mut e = vec![InputItem::UnaryFunc(UnaryFunc::Sin)];
+                e.extend(digits("30"));
+                e.push(InputItem::RightParen);
+                e
+            }),
+            vec!["2", "sin(", "30", ")"],
+        ),
+    ];
+    for (items, expected) in cases {
+        let segs = render_at(&items, items.len());
+        assert_eq!(texts(&segs), expected);
+        // The base stays on the line, the exponent goes above it at a
+        // fraction of the size.
+        assert!(segs[0].script.is_on_line());
+        for seg in &segs[1..] {
+            assert!(seg.script.raise > 0.0, "{:?} was not raised", seg.text);
+            assert!(seg.script.scale() < 1.0, "{:?} was not shrunk", seg.text);
+        }
+    }
+}
+
+#[test]
+fn a_script_inside_a_script_steps_again() {
+    // `2^3^2` is 2^(3²): the chained power raises within the exponent
+    // it is already in, so its own exponent is smaller again and
+    // higher again — and the one-line rendering, which has only one
+    // superscript to give, falls back to brackets rather than writing
+    // a flat `2³²`.
+    let mut items = digits("2");
+    items.push(InputItem::BinOp(BinOp::Pow));
+    items.extend(digits("3"));
+    items.push(InputItem::BinOp(BinOp::Pow));
+    items.extend(digits("2"));
+    let segs = render_at(&items, items.len());
+    assert_eq!(texts(&segs), vec!["2", "3", "2"]);
+    assert_eq!(segs[0].script.depth, 0);
+    assert_eq!(segs[1].script.depth, 1);
+    assert_eq!(segs[2].script.depth, 2);
+    assert!(segs[2].script.raise > segs[1].script.raise);
+    assert!(segs[2].script.scale() < segs[1].script.scale());
+    assert_eq!(render_str(&items, DecimalSeparator::Dot, None), "2⁽3²⁾");
+}
+
+#[test]
+fn a_log_base_steps_the_other_way() {
+    // The base of a `log_y` hangs below the line the `log` is on, and
+    // the bracket after it is back on that line: three pieces, not one
+    // substituted glyph.
+    let items = vec![
+        InputItem::BinaryFunc(BinaryFunc::LogBase),
+        InputItem::Digit('2'),
+        InputItem::Comma,
+        InputItem::Digit('8'),
+        InputItem::RightParen,
+    ];
+    let segs = render_at(&items, items.len());
+    assert_eq!(texts(&segs), vec!["log", "2", "(", "8", ")"]);
+    assert!(segs[1].script.raise < 0.0);
+    assert!(segs[1].script.scale() < 1.0);
+    for on_line in [0, 2, 3, 4] {
+        assert!(segs[on_line].script.is_on_line());
+    }
+    // The keypad's own log bases and the inverse functions are drawn
+    // the same way rather than spelled with substituted glyphs.
+    let log2 = vec![
+        InputItem::UnaryFunc(UnaryFunc::Log2),
+        InputItem::Digit('8'),
+        InputItem::RightParen,
+    ];
+    assert_eq!(texts(&render_at(&log2, 3)), vec!["log", "2", "(", "8", ")"]);
+    let asin = vec![
+        InputItem::UnaryFunc(UnaryFunc::Asin),
+        InputItem::Digit('1'),
+        InputItem::RightParen,
+    ];
+    let segs = render_at(&asin, 3);
+    assert_eq!(texts(&segs), vec!["sin", "-1", "(", "1", ")"]);
+    assert!(segs[1].script.raise > 0.0);
+}
+
+// --- the root degree, in front of the sign ---------------------------
+
+/// `root(16,<degree>)` as the buffer stores it.
+fn root(radicand: &str, degree: &[InputItem]) -> Vec<InputItem> {
+    let mut items = vec![InputItem::BinaryFunc(BinaryFunc::Root)];
+    items.extend(digits(radicand));
+    items.push(InputItem::Comma);
+    items.extend_from_slice(degree);
+    items.push(InputItem::RightParen);
+    items
+}
+
+#[test]
+fn a_root_wears_its_degree_in_front_of_the_sign() {
+    // `root(16,4)` in the buffer is ⁴√(16) on screen: the degree comes
+    // out from behind the comma and goes where the notation puts it,
+    // and the closing bracket is drawn where the radicand ends rather
+    // than after a degree that is no longer inside it.
+    let items = root("16", &digits("4"));
+    let segs = render_at(&items, items.len());
+    assert_eq!(texts(&segs), vec!["4", "√(", "16", ")"]);
+    assert!(segs[0].script.raise > 0.0);
+    assert!(segs[0].script.scale() < 1.0);
+    assert_eq!(render_str(&items, DecimalSeparator::Dot, None), "⁴√(16)");
+    // The comma and the buffer's own closer are drawn once each, as
+    // the bracket after the radicand — neither is emitted twice.
+    assert_eq!(texts(&segs).iter().filter(|t| **t == ")").count(), 1);
+    assert!(!texts(&segs).contains(&","));
+    // A degree Unicode has no superscript for raises like any other.
+    let items = root("16", &digits("2.5"));
+    assert_eq!(
+        texts(&render_at(&items, items.len())),
+        vec!["2.5", "√(", "16", ")"]
+    );
+    // And the raw notation still shows exactly what the buffer holds.
+    assert_eq!(
+        render_expression_string(&items, DecimalSeparator::Dot, None, Notation::Raw),
+        "root(16,2.5)"
+    );
+}
+
+#[test]
+fn a_step_inside_a_step_keeps_its_own_direction() {
+    // A root writes its degree before its sign, so a run that has gone
+    // off the line can begin on a piece deeper than the step that took
+    // it there. The one-line rendering therefore reads the direction
+    // of the step rather than the height it ended at — a base holding
+    // a root is still a base — and on the display the inner step is
+    // measured from the outer one rather than from the line.
+    let mut base_is_a_root = vec![InputItem::BinaryFunc(BinaryFunc::LogBase)];
+    base_is_a_root.extend(root("16", &digits("4")));
+    base_is_a_root.push(InputItem::Comma);
+    base_is_a_root.push(InputItem::Digit('8'));
+    base_is_a_root.push(InputItem::RightParen);
+    assert_eq!(
+        render_str(&base_is_a_root, DecimalSeparator::Dot, None),
+        "log₍⁴√(16)₎(8)"
+    );
+    let segs = render_at(&base_is_a_root, base_is_a_root.len());
+    let degree = &segs[1];
+    let radical = &segs[2];
+    assert_eq!((degree.text.as_str(), radical.text.as_str()), ("4", "√("));
+    // The whole base hangs below the line, and the degree rides above
+    // the radical it belongs to without climbing back over the line.
+    assert!(radical.script.raise < 0.0);
+    assert!(degree.script.raise > radical.script.raise);
+    assert!(degree.script.raise < 0.0);
+
+    // And the mirror: a root inside an exponent is raised, not lowered.
+    let mut root_in_an_exponent = digits("2");
+    root_in_an_exponent.push(InputItem::BinOp(BinOp::Pow));
+    root_in_an_exponent.extend(root("16", &digits("4")));
+    assert_eq!(
+        render_str(&root_in_an_exponent, DecimalSeparator::Dot, None),
+        "2⁽⁴√(16)⁾"
+    );
+}
+
+#[test]
+fn a_root_still_missing_a_piece_is_drawn_as_it_is_stored() {
+    // Nothing to move out yet: a call with no comma keeps the plain
+    // radical and renders straight through, closer and all.
+    let items = vec![
+        InputItem::BinaryFunc(BinaryFunc::Root),
+        InputItem::Digit('8'),
+        InputItem::RightParen,
+    ];
+    assert_eq!(texts(&render_at(&items, 3)), vec!["√(", "8", ")"]);
+}
+
+// --- which bracket the cursor is behind ------------------------------
+
+#[test]
+fn a_log_y_closer_lights_up_once_the_cursor_drops_to_the_base() {
+    // The bracket a `log_y` draws is its argument's, and the argument
+    // starts after the comma — the base is written under the `log`,
+    // in front of the bracket. So a cursor down in the base is *past*
+    // the group, and the closer belongs at full colour: the user has
+    // finished the operand and is naming the base.
+    let items = vec![
+        InputItem::BinaryFunc(BinaryFunc::LogBase),
+        InputItem::Digit('2'),
+        InputItem::Comma,
+        InputItem::Digit('8'),
+        InputItem::RightParen,
+    ];
+    let closer = |cursor| {
+        let segs = render_at(&items, cursor);
+        let last = segs.last().unwrap().clone();
+        assert_eq!(last.text, ")");
+        last.active
+    };
+    // In the base (cursor at 1 or 2, either side of the `2`).
+    assert!(closer(1));
+    assert!(closer(2));
+    // In the argument, which is what the bracket closes.
+    assert!(!closer(3));
+    assert!(!closer(4));
+    // Past the call altogether.
+    assert!(closer(5));
+}
+
+#[test]
+fn a_root_closer_follows_the_radicand_it_is_drawn_after() {
+    // The bracket on screen sits at the comma, so it dims for a cursor
+    // in the radicand and lights up for one out in the degree.
+    let items = root("16", &digits("4"));
+    let closer = |cursor: usize| {
+        let segs = render_at(&items, cursor);
+        let seg = segs.iter().find(|s| s.text == ")").unwrap().clone();
+        seg.active
+    };
+    assert!(!closer(2)); // between the 1 and the 6
+    assert!(!closer(3)); // at the end of the radicand
+    assert!(closer(4)); // out in the degree
+    assert!(closer(6)); // past the call
+}
+
+#[test]
+fn an_empty_slot_dims_while_the_cursor_is_in_it() {
+    // The display draws no cursor of its own, so the empty brackets
+    // going dim is the only thing saying that the next digit lands in
+    // the slot rather than after the call.
+    let slot = |items: &[InputItem], cursor: usize| {
+        render_at(items, cursor)
+            .into_iter()
+            .find(|s| s.text == "()")
+            .expect("an empty slot")
+    };
+
+    // A power key pressed before its exponent.
+    let mut pending = digits("2");
+    pending.push(InputItem::BinOp(BinOp::Pow));
+    assert!(!slot(&pending, 2).active);
+    assert!(slot(&pending, 1).active);
+    assert!(slot(&pending, 2).script.raise > 0.0);
+
+    // A `log_y` waiting for its base.
+    let log_y = vec![
+        InputItem::BinaryFunc(BinaryFunc::LogBase),
+        InputItem::Comma,
+        InputItem::Digit('8'),
+        InputItem::RightParen,
+    ];
+    assert!(!slot(&log_y, 1).active);
+    assert!(slot(&log_y, 2).active);
+    assert!(slot(&log_y, 1).script.raise < 0.0);
+
+    // A root waiting for its degree.
+    let root_call = root("16", &[]);
+    assert!(!slot(&root_call, 4).active);
+    assert!(slot(&root_call, 3).active);
+    assert!(slot(&root_call, 4).script.raise > 0.0);
 }
 
 // --- auto-multiplication --------------------------------------------

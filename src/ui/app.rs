@@ -1090,7 +1090,7 @@ impl AppModel {
         } else {
             segments
                 .iter()
-                .map(|s| crate::ui::keypad::label_width_units(&s.text))
+                .map(|s| crate::ui::keypad::label_width_units(&s.text) * s.script.scale())
                 .sum()
         };
         let (caption_slot_h, main_slot_h) =
@@ -1168,18 +1168,19 @@ impl AppModel {
         } else {
             let mut row = widget::row::with_capacity(metrics.segments.len());
             for seg in &metrics.segments {
+                let scale = seg.script.scale();
                 let t = widget::text::title1(seg.text.clone())
-                    .size(main_size)
+                    .size(main_size * scale)
                     .font(display_font)
                     .line_height(cosmic::iced::widget::text::LineHeight::Absolute(
-                        main_line_h.into(),
+                        (main_line_h * scale).into(),
                     ));
                 let t = if seg.active {
                     t
                 } else {
                     t.class(cosmic::theme::Text::Color(inactive_color))
                 };
-                row = row.push(t);
+                row = row.push(place_segment(t, seg.script.raise, main_line_h));
             }
             row.into()
         };
@@ -1386,6 +1387,33 @@ struct DisplayMetrics {
     caption_size: f32,
     caption_line_h: f32,
     segments: Vec<crate::ui::display::DisplaySegment>,
+}
+
+/// Place one display segment on the expression line. A piece written
+/// on the line goes in as it is; a piece drawn off it — an exponent, a
+/// log base — is put in a box the full height of the line, padded on
+/// the side it moves away from. The box centres what it holds, so half
+/// that padding is the distance moved, and the piece keeps the same
+/// place on the line whatever else the row is holding.
+fn place_segment<'a>(
+    text: widget::Text<'a, cosmic::Theme>,
+    raise: f32,
+    line_h: f32,
+) -> Element<'a, Message> {
+    if raise == 0.0 {
+        return text.into();
+    }
+    let shift = 2.0 * raise.abs() * line_h;
+    let padding = if raise > 0.0 {
+        Padding::from([0.0, 0.0, shift, 0.0])
+    } else {
+        Padding::from([shift, 0.0, 0.0, 0.0])
+    };
+    widget::container(text)
+        .height(Length::Fixed(line_h.max(1.0)))
+        .align_y(Alignment::Center)
+        .padding(padding)
+        .into()
 }
 
 /// How long after start the font warm-up waits before it begins. Long

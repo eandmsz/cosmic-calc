@@ -1,7 +1,7 @@
 //! Display renderer. Walks the input buffer and produces a list of
 //! [`DisplaySegment`]s that the app layer arranges as a row of text
 //! widgets, one per segment, so individual pieces of the rendered
-//! expression can be coloured independently.
+//! expression can be coloured — and sized — independently.
 //!
 //! On top of the raw [`InputItem::display`] we apply these touches:
 //!
@@ -11,43 +11,145 @@
 //!   * synthetic auto-multiplication glyphs between adjacent operand-end
 //!     and operand-start items, rendered inactive so the user can tell
 //!     they were inserted by the renderer rather than the buffer
-//!   * closing parens whose matching opener sits to the left of the
-//!     cursor (cursor is currently inside that paren group) are flagged
-//!     inactive so the user can tell at a glance which closer they're
-//!     about to step over.
-//!   * exponents raised and log bases lowered, unless the caller asks
-//!     for [`Notation::Raw`]. The glyph rules live in
-//!     [`crate::engine::script`]; what this module adds is folding a
-//!     `^` and the items it raises into one segment, so the caret the
-//!     buffer stores is never drawn — the raising is what it says —
-//!     and the same fold for a `log_y` call, whose base comes out from
-//!     between the brackets and goes under the `log`.
+//!   * closing parens whose group the cursor is currently inside are
+//!     flagged inactive so the user can tell at a glance which closer
+//!     they're about to step over
+//!   * exponents raised and bases lowered, unless the caller asks for
+//!     [`Notation::Raw`]. A raised piece is ordinary text drawn smaller
+//!     and moved off the line — see [`Script`] — so nothing here
+//!     depends on the font having a superscript for what is being
+//!     raised: a decimal separator, a factorial, a whole `sin(` call
+//!     all raise like any other run. What moves comes from
+//!     [`crate::engine::script`]: the `^` and the items it raises fold
+//!     into one raised run (so the caret the buffer stores is never
+//!     drawn — the raising is what it says), a `log_y` base comes out
+//!     from between the brackets and goes under the `log`, and a root
+//!     degree comes out and goes in front of the radical.
 
 use crate::engine::item::{BinOp, BinaryFunc, InputItem};
-use crate::engine::script::{self, Notation};
+use crate::engine::script::{self, Notation, Shift};
 use crate::locale::DecimalSeparator;
 
+/// How much smaller each script step draws its text, as a fraction of
+/// the size the line is set in.
+const SCRIPT_SCALE: f32 = 0.6;
+
+/// How far one script step moves off the line, as a fraction of the
+/// line height. Half of what the step gives up in size, which is what
+/// puts the small text flush with the top (or the bottom) of the line
+/// it belongs to.
+const SCRIPT_SHIFT: f32 = (1.0 - SCRIPT_SCALE) / 2.0;
+
+/// Where a segment sits relative to the line the expression is written
+/// on, and how big it is drawn there. A superscript is not a different
+/// glyph here — it is the same characters, smaller and higher up — so
+/// this is everything the app layer needs to place one.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Script {
+    /// Script steps away from the main line: 0 for text written on it,
+    /// 1 inside an exponent or a base, 2 inside the exponent of an
+    /// exponent. Drives how far the text shrinks.
+    pub depth: u8,
+    /// How far above the middle of the line the text sits, as a
+    /// fraction of the line height; negative for text that hangs below
+    /// it. Steps accumulate and each is smaller than the last, so a
+    /// base inside an exponent lands just under that exponent rather
+    /// than back on the line.
+    pub raise: f32,
+    /// Which way the last step went. `raise` cannot answer that on its
+    /// own — a base inside an exponent hangs below the exponent while
+    /// still sitting above the line the whole thing is written on — and
+    /// the one-line rendering has to know which of Unicode's two blocks
+    /// to reach for. Meaningless, and `false`, on the line itself.
+    up: bool,
+}
+
+impl Default for Script {
+    fn default() -> Self {
+        Self::ON_LINE
+    }
+}
+
+impl Script {
+    /// Full size, on the line.
+    pub const ON_LINE: Self = Self {
+        depth: 0,
+        raise: 0.0,
+        up: false,
+    };
+
+    /// Size of this text as a fraction of the display's font size.
+    pub fn scale(self) -> f32 {
+        SCRIPT_SCALE.powi(self.depth as i32)
+    }
+
+    /// True for text written on the line rather than off it.
+    pub fn is_on_line(self) -> bool {
+        self.depth == 0
+    }
+
+    /// One step up (an exponent, an inverse function's `-1`).
+    pub fn raised(self) -> Self {
+        self.step(true)
+    }
+
+    /// One step down (a log base).
+    pub fn lowered(self) -> Self {
+        self.step(false)
+    }
+
+    /// This placement with `shift` applied — the form
+    /// [`script::pretty_parts`] hands back.
+    fn shifted(self, shift: Shift) -> Self {
+        match shift {
+            Shift::OnLine => self,
+            Shift::Up => self.raised(),
+            Shift::Down => self.lowered(),
+        }
+    }
+
+    /// A step in either direction: the text shrinks by one factor and
+    /// moves by half of what it just gave up, so each step clears the
+    /// one it came from without ever reaching past the line above.
+    fn step(self, up: bool) -> Self {
+        let shift = SCRIPT_SHIFT * self.scale();
+        Self {
+            depth: self.depth.saturating_add(1),
+            raise: if up {
+                self.raise + shift
+            } else {
+                self.raise - shift
+            },
+            up,
+        }
+    }
+}
+
 /// One piece of the rendered display. Multiple segments line up
-/// horizontally; the `active` flag tells the app layer whether to use
-/// the full `text_active` colour or the dim `text_inactive` variant.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// horizontally; `active` tells the app layer whether to use the full
+/// `text_active` colour or the dim `text_inactive` variant, and
+/// `script` where and how big to draw it.
+#[derive(Debug, Clone, PartialEq)]
 pub struct DisplaySegment {
     pub text: String,
     pub active: bool,
+    pub script: Script,
 }
 
 impl DisplaySegment {
-    fn active(text: impl Into<String>) -> Self {
+    fn placed(text: impl Into<String>, active: bool, script: Script) -> Self {
         Self {
             text: text.into(),
-            active: true,
+            active,
+            script,
         }
     }
+
+    /// A dimmed piece written on the line: what the tests spell an
+    /// expected auto-multiplication glyph with.
+    #[cfg(test)]
     pub(crate) fn inactive(text: impl Into<String>) -> Self {
-        Self {
-            text: text.into(),
-            active: false,
-        }
+        Self::placed(text, false, Script::ON_LINE)
     }
 }
 
@@ -64,9 +166,7 @@ impl DisplaySegment {
 /// the surrounding expression keeps its normal active colour.
 ///
 /// `notation` picks between the raised/lowered rendering and the raw
-/// one the buffer stores. A raised exponent is folded into a single
-/// segment covering the `^` and every item it raises, so the whole
-/// power shares one colour.
+/// one the buffer stores.
 pub fn render_expression(
     items: &[InputItem],
     cursor: usize,
@@ -75,163 +175,253 @@ pub fn render_expression(
     inactive_range: Option<(usize, usize)>,
     notation: Notation,
 ) -> Vec<DisplaySegment> {
-    let matching_open = compute_matching_openers(items);
-    let decimal_glyph = decimal.to_char();
-    let mut segments: Vec<DisplaySegment> = Vec::new();
-    let mut prev_value_end = false;
+    let (opener_of, closer_of) = match_brackets(items);
+    let renderer = Renderer {
+        items,
+        cursor,
+        decimal: decimal.to_char(),
+        inactive_range,
+        notation,
+        opener_of,
+        closer_of,
+    };
+    let mut out = Vec::new();
+    renderer.render_run(0, items.len(), thousands_glyph, Script::ON_LINE, &mut out);
+    out
+}
 
-    let mut i = 0;
-    while i < items.len() {
-        let here = &items[i];
-        let begins_value_here = item_begins_value(here);
-        // A Constant abutting another value-producing item normally
-        // suppresses the auto-mul glyph (so `5π` reads cleanly), but
-        // when the left side is itself a non-digit value-producer
-        // (Constant, Factorial, Percent, `)`) the glyph IS shown so
-        // sequences like `π·π` or `5)·π` aren't ambiguous.
-        let constant_after_non_digit = prev_value_end
-            && i > 0
-            && matches!(here, InputItem::Constant(_))
-            && !matches!(items[i - 1], InputItem::Digit(_) | InputItem::DecimalPoint);
+/// Everything the walk needs that does not change as it goes.
+struct Renderer<'a> {
+    items: &'a [InputItem],
+    cursor: usize,
+    decimal: char,
+    inactive_range: Option<(usize, usize)>,
+    notation: Notation,
+    /// Index of the opener each `RightParen` matches, `None` when it
+    /// closes nothing.
+    opener_of: Vec<Option<usize>>,
+    /// Index of the closer each opening item matches, `None` while the
+    /// group is still open.
+    closer_of: Vec<Option<usize>>,
+}
 
-        if prev_value_end && (begins_value_here || constant_after_non_digit) {
-            segments.push(DisplaySegment::inactive("×"));
-        }
+impl Renderer<'_> {
+    /// Render `items[start..end]`, drawn at `script`. Called on the
+    /// whole buffer, and again on each run that moves off the line —
+    /// an exponent, a log base, a root degree — which is why every
+    /// index here stays an index into the whole buffer: the cursor and
+    /// the inactive range mean the same thing at any depth.
+    fn render_run(
+        &self,
+        start: usize,
+        end: usize,
+        thousands: Option<char>,
+        script: Script,
+        out: &mut Vec<DisplaySegment>,
+    ) {
+        let items = self.items;
+        let mut prev_value_end = false;
+        let mut i = start;
+        while i < end {
+            let here = &items[i];
+            let begins_value_here = item_begins_value(here);
+            // A Constant abutting another value-producing item normally
+            // suppresses the auto-mul glyph (so `5π` reads cleanly), but
+            // when the left side is itself a non-digit value-producer
+            // (Constant, Factorial, Percent, `)`) the glyph IS shown so
+            // sequences like `π·π` or `5)·π` aren't ambiguous.
+            let constant_after_non_digit = prev_value_end
+                && i > start
+                && matches!(here, InputItem::Constant(_))
+                && !matches!(items[i - 1], InputItem::Digit(_) | InputItem::DecimalPoint);
 
-        let item_start = i;
-        match here {
-            InputItem::Digit(_) | InputItem::DecimalPoint => {
-                let (run, consumed) = extract_numeric_run(&items[i..]);
-                let mut s = String::new();
-                write_formatted_number(&mut s, &run, decimal_glyph, thousands_glyph);
-                segments.push(DisplaySegment::active(s));
-                i += consumed;
-                prev_value_end = true;
+            if prev_value_end && (begins_value_here || constant_after_non_digit) {
+                out.push(DisplaySegment::placed("×", false, script));
             }
-            InputItem::RightParen => {
-                let active = match matching_open[i] {
-                    Some(opener_idx) => !(cursor > opener_idx && cursor <= i),
-                    None => true,
-                };
-                segments.push(DisplaySegment {
-                    text: ")".to_string(),
-                    active,
-                });
-                i += 1;
-                prev_value_end = true;
-            }
-            InputItem::AutoMul => {
-                // The buffer materialises auto-multiplication as a real
-                // item so backspace, history, and ASCII export all see
-                // it. Render it dimmed so the user can tell at a glance
-                // that the calculator inserted it on their behalf.
-                segments.push(DisplaySegment::inactive("×"));
-                i += 1;
-                prev_value_end = false;
-            }
-            // A power: one segment covering the `^` and everything it
-            // raises, with `i` jumped past the exponent items so they
-            // are not emitted a second time. The caret itself never
-            // reaches the pretty display — the raising is what it
-            // says, and the buffer still holds it for the tokenizer.
-            InputItem::BinOp(BinOp::Pow) if notation.is_pretty() => {
-                match script::exponent_span(items, i) {
-                    Some(end) => {
-                        let mut inner =
-                            render_expression_string(&items[i + 1..end], decimal, None, notation);
-                        // An exponent that is one bracketed group and
-                        // cannot be raised keeps one pair of brackets,
-                        // not two: the raised pair already says "this
-                        // is the power", so the group's own would only
-                        // repeat it. A group that *can* be raised never
-                        // gets here — its brackets raise with it.
-                        if script::to_superscript(&inner).is_none()
-                            && matches!(items[i + 1], InputItem::LeftParen)
-                            && matching_open[end - 1] == Some(i + 1)
-                        {
-                            inner = render_expression_string(
-                                &items[i + 2..end - 1],
-                                decimal,
-                                None,
-                                notation,
-                            );
+
+            let item_start = i;
+            let seg_start = out.len();
+            match here {
+                InputItem::Digit(_) | InputItem::DecimalPoint => {
+                    let (run, consumed) = extract_numeric_run(&items[i..end]);
+                    let mut s = String::new();
+                    write_formatted_number(&mut s, &run, self.decimal, thousands);
+                    out.push(DisplaySegment::placed(s, true, script));
+                    i += consumed;
+                    prev_value_end = true;
+                }
+                InputItem::RightParen => {
+                    let active = match self.opener_of[i] {
+                        Some(opener) => self.closer_active(opener, i),
+                        None => true,
+                    };
+                    out.push(DisplaySegment::placed(")", active, script));
+                    i += 1;
+                    prev_value_end = true;
+                }
+                InputItem::AutoMul => {
+                    // The buffer materialises auto-multiplication as a
+                    // real item so backspace, history, and ASCII export
+                    // all see it. Render it dimmed so the user can tell
+                    // at a glance that the calculator inserted it on
+                    // their behalf.
+                    out.push(DisplaySegment::placed("×", false, script));
+                    i += 1;
+                    prev_value_end = false;
+                }
+                // A power: the `^` and everything it raises, drawn one
+                // script step up, with `i` jumped past the exponent
+                // items so they are not emitted a second time. The
+                // caret itself never reaches the pretty display — it is
+                // what the raising is standing in for, and the buffer
+                // still holds it for the tokenizer.
+                InputItem::BinOp(BinOp::Pow) if self.notation.is_pretty() => {
+                    match script::exponent_span(items, i).map(|span| span.min(end)) {
+                        Some(span) if span > i + 1 => {
+                            self.render_run(i + 1, span, None, script.raised(), out);
+                            i = span;
+                            // The exponent closes the value the base
+                            // opened, so a following operand gets its
+                            // auto-multiplication glyph.
+                            prev_value_end = true;
                         }
-                        segments.push(DisplaySegment::active(script::raise(&inner)));
-                        i = end;
-                        // The exponent closes the value the base
-                        // opened, so a following operand gets its
-                        // auto-multiplication glyph.
-                        prev_value_end = true;
-                    }
-                    None => {
-                        // Power key pressed, exponent not typed yet.
-                        // The empty raised slot shows the press landed
-                        // and shows where the next digit will go.
-                        segments.push(DisplaySegment::active(script::EMPTY_EXPONENT));
-                        i += 1;
-                        prev_value_end = false;
+                        _ => {
+                            // Power key pressed, exponent not typed
+                            // yet. The empty raised slot shows the
+                            // press landed and shows where the next
+                            // digit will go.
+                            out.push(self.empty_slot(i + 1, script.raised()));
+                            i += 1;
+                            prev_value_end = false;
+                        }
                     }
                 }
-            }
-            // A `log_y` call: the base comes out of the brackets and
-            // goes under the `log`, where a reader expects it, and `i`
-            // jumps past it and its comma so neither is drawn twice.
-            // An empty base slot shows the lowered brackets, which is
-            // the only thing on screen saying that the next digit is
-            // going into the base rather than the argument.
-            InputItem::BinaryFunc(BinaryFunc::LogBase) if notation.is_pretty() => {
-                match script::argument_separator(items, i) {
-                    Some(comma) => {
-                        let base =
-                            render_expression_string(&items[i + 1..comma], decimal, None, notation);
-                        let lowered = if base.is_empty() {
-                            script::EMPTY_BASE.to_string()
-                        } else {
-                            script::lower(&base)
-                        };
-                        segments.push(DisplaySegment::active(format!("log{lowered}(")));
-                        i = comma + 1;
-                        prev_value_end = false;
-                    }
-                    None => {
-                        // No comma yet (a pasted `log(100)`, or a call
-                        // the user is still inside): one argument means
-                        // the log10 reading, and no base to lower.
-                        segments.push(DisplaySegment::active("log(".to_string()));
-                        i += 1;
-                        prev_value_end = false;
+                // A `log_y` call: the base comes out of the brackets
+                // and goes under the `log`, where a reader expects it,
+                // and `i` jumps past it and its comma so neither is
+                // drawn twice.
+                InputItem::BinaryFunc(BinaryFunc::LogBase) if self.notation.is_pretty() => {
+                    match script::argument_separator(items, i).filter(|comma| *comma < end) {
+                        Some(comma) => {
+                            out.push(DisplaySegment::placed("log", true, script));
+                            if comma == i + 1 {
+                                out.push(self.empty_slot(comma, script.lowered()));
+                            } else {
+                                self.render_run(i + 1, comma, None, script.lowered(), out);
+                            }
+                            out.push(DisplaySegment::placed("(", true, script));
+                            i = comma + 1;
+                            prev_value_end = false;
+                        }
+                        None => {
+                            // No comma yet (a pasted `log(100)`, or a
+                            // call the user is still inside): one
+                            // argument means the log10 reading, and no
+                            // base to lower.
+                            out.push(DisplaySegment::placed("log(", true, script));
+                            i += 1;
+                            prev_value_end = false;
+                        }
                     }
                 }
+                // A root call: the degree comes out of the brackets and
+                // goes in front of the radical, which is where the
+                // notation puts it — `⁴√(16)`, not `√(16,4)`. The
+                // closer the user sees is drawn at the comma, since
+                // that is where the radicand ends; the buffer's own
+                // closer, past the degree, is stepped over.
+                InputItem::BinaryFunc(BinaryFunc::Root) if self.notation.is_pretty() => {
+                    match self.root_call(i, end) {
+                        Some((comma, closer)) => {
+                            if closer == comma + 1 {
+                                out.push(self.empty_slot(comma + 1, script.raised()));
+                            } else {
+                                self.render_run(comma + 1, closer, None, script.raised(), out);
+                            }
+                            out.push(DisplaySegment::placed("√(", true, script));
+                            self.render_run(i + 1, comma, thousands, script, out);
+                            let active = !(self.cursor > i && self.cursor <= comma);
+                            out.push(DisplaySegment::placed(")", active, script));
+                            i = closer + 1;
+                            prev_value_end = true;
+                        }
+                        None => {
+                            out.push(DisplaySegment::placed("√(", true, script));
+                            i += 1;
+                            prev_value_end = false;
+                        }
+                    }
+                }
+                other => {
+                    if self.notation.is_pretty() {
+                        for (text, shift) in script::pretty_parts(other) {
+                            out.push(DisplaySegment::placed(text, true, script.shifted(shift)));
+                        }
+                    } else {
+                        out.push(DisplaySegment::placed(other.display(), true, script));
+                    }
+                    i += 1;
+                    prev_value_end = item_produces_value(other);
+                }
             }
-            other => {
-                let text = if notation.is_pretty() {
-                    script::pretty_display(other)
-                } else {
-                    other.display()
-                };
-                segments.push(DisplaySegment::active(text));
-                i += 1;
-                prev_value_end = item_produces_value(other);
-            }
-        }
 
-        // If this item-derived segment overlaps the inactive range,
-        // dim it. Synthetic auto-mul glyphs inserted above don't
-        // correspond to a buffer item, so they keep their own
-        // (already-inactive) colouring untouched.
-        if let Some((rs, re)) = inactive_range {
-            if item_start < re && rs < i {
-                if let Some(last) = segments.last_mut() {
-                    last.active = false;
+            // If the items this segment came from overlap the inactive
+            // range, dim it. Synthetic auto-mul glyphs inserted above
+            // don't correspond to a buffer item, so they keep their own
+            // (already-inactive) colouring untouched.
+            if let Some((rs, re)) = self.inactive_range {
+                if item_start < re && rs < i {
+                    for seg in &mut out[seg_start..] {
+                        seg.active = false;
+                    }
                 }
             }
         }
     }
-    segments
+
+    /// The comma and closer of the root call opened at `idx`, when it
+    /// is a complete `root(value,degree)` inside the run being
+    /// rendered. `None` for a call still missing one of them, which is
+    /// drawn as it is stored instead of reordered — there is nothing
+    /// yet to move in front of the sign.
+    fn root_call(&self, idx: usize, end: usize) -> Option<(usize, usize)> {
+        let comma = script::argument_separator(self.items, idx)?;
+        let closer = self.closer_of[idx]?;
+        (closer < end).then_some((comma, closer))
+    }
+
+    /// The empty script slot at item index `at`, dimmed while the
+    /// cursor sits in it. Nothing else on screen says which slot the
+    /// next digit lands in — the display draws no cursor — so the
+    /// brackets going dim is what says "here".
+    fn empty_slot(&self, at: usize, script: Script) -> DisplaySegment {
+        DisplaySegment::placed(script::EMPTY_SLOT, self.cursor != at, script)
+    }
+
+    /// Whether the `)` closing the group opened at `opener` draws in
+    /// the active colour. It dims while the cursor is inside the
+    /// brackets *as they are drawn*, which for a `log_y` call starts
+    /// after the comma: its base is written under the `log`, in front
+    /// of the bracket, so a cursor down there is outside the group and
+    /// the closer belongs back at full colour.
+    fn closer_active(&self, opener: usize, closer: usize) -> bool {
+        let opens_at = match self.items[opener] {
+            InputItem::BinaryFunc(BinaryFunc::LogBase) if self.notation.is_pretty() => {
+                script::argument_separator(self.items, opener).unwrap_or(opener)
+            }
+            _ => opener,
+        };
+        !(self.cursor > opens_at && self.cursor <= closer)
+    }
 }
 
-/// Convenience for tests and callers that only need the flat textual
-/// rendering – concatenates every segment's text in order.
+/// Convenience for tests and callers that need one line of text rather
+/// than a row of independently sized pieces – the caption above the
+/// display and the history rows, which are single text widgets.
+///
+/// The pieces drawn off the line come back in Unicode's superscript and
+/// subscript glyphs, all-or-nothing per run: see
+/// [`crate::engine::script`].
 pub fn render_expression_string(
     items: &[InputItem],
     decimal: DecimalSeparator,
@@ -239,18 +429,92 @@ pub fn render_expression_string(
     notation: Notation,
 ) -> String {
     let segs = render_expression(items, items.len(), decimal, thousands_glyph, None, notation);
-    let mut s = String::new();
-    for seg in segs {
-        s.push_str(&seg.text);
-    }
-    s
+    let mut out = String::new();
+    flatten(&segs, 0, &mut out);
+    out
 }
 
-/// For each item index, record the index of its matching opener when
-/// the item is a `RightParen`. Unmatched closers map to `None`. Used to
-/// answer "is the cursor inside the bracket pair this `)` closes?".
-fn compute_matching_openers(items: &[InputItem]) -> Vec<Option<usize>> {
-    let mut out: Vec<Option<usize>> = vec![None; items.len()];
+/// Append `segs` to `out` as one line of text. Pieces at `depth` are
+/// written as they are; a run of deeper ones is folded first and then
+/// put off the line as a whole, so `2^2^2` comes back as `2⁽2²⁾` — the
+/// shape the value has — rather than a flat `2²²` that would read as
+/// the twenty-second power.
+fn flatten(segs: &[DisplaySegment], depth: u8, out: &mut String) {
+    let mut i = 0;
+    while i < segs.len() {
+        if segs[i].script.depth <= depth {
+            out.push_str(&segs[i].text);
+            i += 1;
+            continue;
+        }
+        let start = i;
+        while i < segs.len() && segs[i].script.depth > depth {
+            i += 1;
+        }
+        let run = &segs[start..i];
+        // Which way the run went off the line is the direction of the
+        // step that took it there — the one the shallowest piece in it
+        // took. Its height cannot be read for that: a run can start on
+        // a piece deeper than this step (a root writes its degree
+        // before its sign), and a step down inside a step up still
+        // leaves everything above the line.
+        let up = run
+            .iter()
+            .min_by_key(|seg| seg.script.depth)
+            .is_some_and(|seg| seg.script.up);
+        let mut inner = String::new();
+        flatten(run, depth + 1, &mut inner);
+        let mapped = if up {
+            script::to_superscript(&inner)
+        } else {
+            script::to_subscript(&inner)
+        };
+        match mapped {
+            Some(text) => out.push_str(&text),
+            None => {
+                // A run that is one bracketed group and has no raised
+                // form keeps one pair of brackets, not two: the raised
+                // pair the fallback adds already says "this is the
+                // exponent", so the group's own would only repeat it.
+                let stripped = strip_matched_group(&inner).unwrap_or(&inner);
+                out.push_str(&if up {
+                    script::raise(stripped)
+                } else {
+                    script::lower(stripped)
+                });
+            }
+        }
+    }
+}
+
+/// The inside of `text` when the whole of it is one bracketed group,
+/// `None` otherwise — including for `(2)(3)`, where the first bracket
+/// does not match the last.
+fn strip_matched_group(text: &str) -> Option<&str> {
+    let inner = text.strip_prefix('(')?.strip_suffix(')')?;
+    let mut depth = 0i32;
+    for c in inner.chars() {
+        match c {
+            '(' => depth += 1,
+            ')' => {
+                depth -= 1;
+                if depth < 0 {
+                    return None;
+                }
+            }
+            _ => {}
+        }
+    }
+    (depth == 0).then_some(inner)
+}
+
+/// Pair up every bracket in `items`: for each `RightParen` the index of
+/// its opener, and for each opening item the index of its closer.
+/// Unmatched brackets map to `None`. Used to answer "is the cursor
+/// inside the pair this `)` closes?" and "where does this call end?".
+fn match_brackets(items: &[InputItem]) -> (Vec<Option<usize>>, Vec<Option<usize>>) {
+    let mut opener_of: Vec<Option<usize>> = vec![None; items.len()];
+    let mut closer_of: Vec<Option<usize>> = vec![None; items.len()];
     let mut stack: Vec<usize> = Vec::new();
     for (i, it) in items.iter().enumerate() {
         match it {
@@ -260,13 +524,14 @@ fn compute_matching_openers(items: &[InputItem]) -> Vec<Option<usize>> {
             | InputItem::LogN(_) => stack.push(i),
             InputItem::RightParen => {
                 if let Some(l) = stack.pop() {
-                    out[i] = Some(l);
+                    opener_of[i] = Some(l);
+                    closer_of[l] = Some(i);
                 }
             }
             _ => {}
         }
     }
-    out
+    (opener_of, closer_of)
 }
 
 /// Same predicates the engine tokenizer uses for implicit

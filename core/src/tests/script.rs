@@ -118,27 +118,51 @@ fn the_exponent_span_declines_what_is_not_there_yet() {
     assert_eq!(exponent_span(&digits("12"), 0), None);
 }
 
+/// One piece of a pretty form, spelled the way the tests read best.
+fn on_line(text: &str) -> (String, Shift) {
+    (text.to_string(), Shift::OnLine)
+}
+fn up(text: &str) -> (String, Shift) {
+    (text.to_string(), Shift::Up)
+}
+fn down(text: &str) -> (String, Shift) {
+    (text.to_string(), Shift::Down)
+}
+
 #[test]
 fn log_bases_and_inverses_get_their_pretty_spelling() {
-    assert_eq!(pretty_display(&InputItem::LogN(7)), "log₇(");
-    assert_eq!(pretty_display(&InputItem::LogN(128)), "log₁₂₈(");
+    // The base is a piece of its own, one step under the `log` — the
+    // display draws it smaller rather than swapping in a subscript
+    // glyph, so a base Unicode has no subscript for reads the same as
+    // any other.
     assert_eq!(
-        pretty_display(&InputItem::UnaryFunc(UnaryFunc::Log2)),
-        "log₂("
+        pretty_parts(&InputItem::LogN(7)),
+        vec![on_line("log"), down("7"), on_line("(")]
     );
     assert_eq!(
-        pretty_display(&InputItem::UnaryFunc(UnaryFunc::Log10)),
-        "log₁₀("
+        pretty_parts(&InputItem::LogN(128)),
+        vec![on_line("log"), down("128"), on_line("(")]
     );
     assert_eq!(
-        pretty_display(&InputItem::UnaryFunc(UnaryFunc::Acosh)),
-        "cosh⁻¹("
+        pretty_parts(&InputItem::UnaryFunc(UnaryFunc::Log2)),
+        vec![on_line("log"), down("2"), on_line("(")]
+    );
+    assert_eq!(
+        pretty_parts(&InputItem::UnaryFunc(UnaryFunc::Log10)),
+        vec![on_line("log"), down("10"), on_line("(")]
+    );
+    // And the inverse marker is the same idea one step the other way.
+    assert_eq!(
+        pretty_parts(&InputItem::UnaryFunc(UnaryFunc::Acosh)),
+        vec![on_line("cosh"), up("-1"), on_line("(")]
     );
     // `root(` is the buffer's spelling of the radical, so the pretty
-    // form wears the sign the square and cube roots already do.
+    // form wears the sign the square and cube roots already do. Its
+    // degree is not here: it is a run of items the renderer moves, not
+    // a glyph this can substitute.
     assert_eq!(
-        pretty_display(&InputItem::BinaryFunc(BinaryFunc::Root)),
-        "√("
+        pretty_parts(&InputItem::BinaryFunc(BinaryFunc::Root)),
+        vec![on_line("√(")]
     );
     // Everything else is spelled the same in both notations.
     for same in [
@@ -148,7 +172,7 @@ fn log_bases_and_inverses_get_their_pretty_spelling() {
         InputItem::Digit('4'),
         InputItem::BinOp(BinOp::Pow),
     ] {
-        assert_eq!(pretty_display(&same), same.display());
+        assert_eq!(pretty_parts(&same), vec![on_line(&same.display())]);
     }
 }
 
@@ -179,8 +203,12 @@ fn a_log_base_reads_under_its_log() {
     assert_eq!(lower("10"), "₁₀");
     assert_eq!(lower("π"), "₍π₎");
     assert_eq!(lower("1.5"), "₍1.5₎");
-    // The empty slot says a base is expected without claiming one.
-    assert_eq!(EMPTY_BASE, "₍₎");
+    // The empty slot says a slot is expected without claiming one. It
+    // is ordinary brackets, drawn small and off the line by the main
+    // display and mapped like any other run by the one-line one.
+    assert_eq!(EMPTY_SLOT, "()");
+    assert_eq!(lower(EMPTY_SLOT), "₍₎");
+    assert_eq!(raise(EMPTY_SLOT), "⁽⁾");
 }
 
 #[test]

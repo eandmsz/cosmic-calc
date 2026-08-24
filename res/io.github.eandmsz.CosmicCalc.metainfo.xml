@@ -34,6 +34,17 @@
   </categories>
 
   <releases>
+    <release version="0.1.4" date="2026-08-24">
+      <description>
+        <ul>
+          <li>Exponents and bases are drawn as ordinary text at a smaller size, moved off the line, rather than swapped for Unicode's raised glyphs — so anything can go up: a decimal separator (2¹·⁵ in either locale), a factorial, or a whole call. Press xʸ then sin and the call goes up as a call, and a power inside a power steps up again</li>
+          <li>ʸ√x writes its degree in front of the radical, ⁴√(16) rather than √(16,4), and the degree can now be reached from an empty display: ʸ√x, 8, ), 3 is the cube root of 8, the same gesture logᵧ uses for its base. Until now the degree could only be typed by entering the radicand first</li>
+          <li>C takes back the last operand — the number, the bracketed group or the whole function call you just finished — and leaves the expression it was part of standing. With an operator under the cursor there is nothing to take back, so the press only flips the key to AC, which clears the display</li>
+          <li>The closing bracket of a logᵧ goes back to the active colour once the cursor drops to the base, instead of staying dim as though the operand were still open</li>
+          <li>A slot you have opened but not filled — an exponent, a logᵧ base, a root degree — draws its small brackets dimmed while the cursor is in them, so it is clear where the next digit lands</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.1.3" date="2026-08-24">
       <description>
         <ul>
