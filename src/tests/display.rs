@@ -1,5 +1,5 @@
 use crate::engine::item::{BinOp, BinaryFunc, ConstKind, InputItem, UnaryFunc};
-use crate::engine::script::Notation;
+use crate::engine::script::{self, Notation};
 use crate::locale::DecimalSeparator;
 use crate::ui::display::*;
 
@@ -947,14 +947,15 @@ fn unary_func_paren_inactive_with_cursor_inside() {
 }
 
 #[test]
-fn a_pending_base_leaves_the_exponent_raised_on_its_own() {
+fn a_pending_base_shows_the_slot_it_is_waiting_for() {
     // What `yˣ` puts on screen between the two operands: the one the
-    // user has typed, raised, and the base slot in front of it still
-    // empty. There is no placeholder glyph for a missing base the way
-    // there is for a missing exponent — the digit visibly rising is
-    // what says the press landed.
+    // user has typed, raised, and an empty slot on the line in front
+    // of it for the base. The raised digit alone said a press had
+    // landed but not where the next one would go — which for this key
+    // is in front of what is already there, the one place a calculator
+    // never puts it.
     let pending = vec![InputItem::BinOp(BinOp::Pow), InputItem::Digit('2')];
-    assert_eq!(render_str(&pending, DecimalSeparator::Dot, None), "²");
+    assert_eq!(render_str(&pending, DecimalSeparator::Dot, None), "()²");
     // Typing the base lands it under the exponent already raised.
     let filled = vec![
         InputItem::Digit('3'),
@@ -962,4 +963,224 @@ fn a_pending_base_leaves_the_exponent_raised_on_its_own() {
         InputItem::Digit('2'),
     ];
     assert_eq!(render_str(&filled, DecimalSeparator::Dot, None), "3²");
+
+    // The slot is drawn dim while the cursor is in it — the same thing
+    // an empty exponent does, and the only cursor this display has.
+    let segs = render_at(&pending, 0);
+    assert_eq!(segs[0].text, script::EMPTY_SLOT);
+    assert!(segs[0].script.is_on_line());
+    assert!(!segs[0].active);
+    // With the cursor elsewhere it goes back to full colour.
+    assert!(render_at(&pending, 2)[0].active);
+}
+
+#[test]
+fn a_power_with_an_operand_under_it_shows_no_slot() {
+    // Only a base that is really missing gets one. A postfix `%` or
+    // `!` ends an operand as much as a digit does, so `5%` then `xʸ`
+    // is a power with a base, not a slot waiting for one.
+    for tail in [InputItem::Percent, InputItem::Factorial] {
+        let items = vec![
+            InputItem::Digit('5'),
+            tail.clone(),
+            InputItem::BinOp(BinOp::Pow),
+            InputItem::Digit('2'),
+        ];
+        let segs = render_at(&items, items.len());
+        let drawn = texts(&segs);
+        assert!(
+            !drawn.contains(&script::EMPTY_SLOT),
+            "{drawn:?} drew a slot over a base that is there"
+        );
+    }
+}
+
+#[test]
+fn a_root_degree_is_written_into_the_radical() {
+    // `⁴√` is one symbol rather than a small 4 standing next to a
+    // sign, so the degree slides half a character right, over the
+    // radical's opening stroke. Only the degree moves.
+    let items = root("16", &digits("4"));
+    let segs = render_at(&items, items.len());
+    assert_eq!(texts(&segs), vec!["4", "√(", "16", ")"]);
+    assert_eq!(segs[0].nudge, 0.5);
+    for seg in &segs[1..] {
+        assert_eq!(seg.nudge, 0.0, "{:?} moved sideways", seg.text);
+    }
+
+    // Every piece of a degree moves, not just the first, so a degree
+    // that is a whole expression keeps its shape as it slides.
+    let mut nested = vec![InputItem::BinaryFunc(BinaryFunc::Root)];
+    nested.extend(digits("16"));
+    nested.push(InputItem::Comma);
+    nested.extend(digits("2"));
+    nested.push(InputItem::BinOp(BinOp::Add));
+    nested.extend(digits("2"));
+    nested.push(InputItem::RightParen);
+    let segs = render_at(&nested, nested.len());
+    assert_eq!(texts(&segs), vec!["2", "+", "2", "√(", "16", ")"]);
+    for seg in &segs[..3] {
+        assert_eq!(seg.nudge, 0.5, "{:?} stayed behind", seg.text);
+    }
+
+    // The slot an empty degree shows moves with it, so the press lands
+    // where the degree will be.
+    let empty = vec![
+        InputItem::BinaryFunc(BinaryFunc::Root),
+        InputItem::Digit('9'),
+        InputItem::Comma,
+        InputItem::RightParen,
+    ];
+    assert_eq!(render_at(&empty, 3)[0].nudge, 0.5);
+}
+
+// --- the raw notation is the clipboard's text ------------------------
+
+/// The expression as the "Show ASCII expression" toggle draws it.
+fn raw_str(items: &[InputItem]) -> String {
+    render_expression_string(items, DecimalSeparator::Comma, Some('.'), Notation::Raw)
+}
+
+/// The same expression as the clipboard carries it.
+fn copied(items: &[InputItem]) -> String {
+    let mut buf = crate::engine::InputBuffer::new();
+    buf.replace(items.to_vec());
+    crate::clipboard::copy_text_for(&buf.ascii_expression())
+}
+
+#[test]
+fn the_raw_notation_is_what_the_clipboard_would_carry() {
+    // The toggle exists to show the expression the way the tokenizer
+    // is handed it, and Copy puts exactly that on the clipboard — so
+    // the two have to agree, character for character. They did not:
+    // the display kept the pretty letters (`π`, `𝑒`), the radical and
+    // the `×`, none of which is what got copied.
+    let cases: Vec<Vec<InputItem>> = vec![
+        vec![
+            InputItem::Constant(ConstKind::Pi),
+            InputItem::BinOp(BinOp::Mul),
+            InputItem::Constant(ConstKind::E),
+        ],
+        vec![
+            InputItem::Digit('2'),
+            InputItem::Constant(ConstKind::E),
+            InputItem::Digit('3'),
+        ],
+        vec![
+            InputItem::UnaryFunc(UnaryFunc::Sqrt),
+            InputItem::Digit('9'),
+            InputItem::RightParen,
+            InputItem::BinOp(BinOp::Div),
+            InputItem::UnaryFunc(UnaryFunc::Cbrt),
+            InputItem::Digit('8'),
+            InputItem::RightParen,
+        ],
+        power("2", &digits("1.5")),
+        root("16", &digits("4")),
+        vec![
+            InputItem::Digit('1'),
+            InputItem::Digit('2'),
+            InputItem::Digit('3'),
+            InputItem::Digit('4'),
+            InputItem::Digit('5'),
+            InputItem::Modulo,
+            InputItem::Digit('7'),
+        ],
+    ];
+    for items in cases {
+        assert_eq!(raw_str(&items), copied(&items));
+    }
+}
+
+#[test]
+fn the_raw_notation_spells_out_what_the_display_draws() {
+    assert_eq!(
+        raw_str(&[
+            InputItem::Constant(ConstKind::Pi),
+            InputItem::BinOp(BinOp::Mul),
+            InputItem::Constant(ConstKind::E),
+        ]),
+        "pi*e"
+    );
+    // Behind a digit run the constant carries the multiplication that
+    // keeps `2e3` from reading as an exponent.
+    assert_eq!(
+        raw_str(&[
+            InputItem::Digit('2'),
+            InputItem::Constant(ConstKind::E),
+            InputItem::Digit('3'),
+        ]),
+        "2*e3"
+    );
+    // The radicals are function calls, and division is a slash.
+    assert_eq!(
+        raw_str(&[
+            InputItem::UnaryFunc(UnaryFunc::Sqrt),
+            InputItem::Digit('9'),
+            InputItem::RightParen,
+            InputItem::BinOp(BinOp::Div),
+            InputItem::UnaryFunc(UnaryFunc::Cbrt),
+            InputItem::Digit('8'),
+            InputItem::RightParen,
+        ]),
+        "sqrt(9)/cbrt(8)"
+    );
+    // A number is digits and an ASCII point: the grouping and the
+    // locale separator are the display's, and the clipboard has
+    // neither. (Both of the arguments above ask for the comma locale.)
+    assert_eq!(raw_str(&digits("1234.5")), "1234.5");
+    // The `×` the calculator inserted is still dimmed, and still a
+    // `*` — it is what the tokenizer would put there anyway.
+    let auto = vec![
+        InputItem::Digit('2'),
+        InputItem::AutoMul,
+        InputItem::Digit('3'),
+    ];
+    let segs = render_expression(&auto, 3, DecimalSeparator::Dot, None, None, Notation::Raw);
+    assert_eq!(segs[1], DisplaySegment::inactive("*"));
+}
+
+#[test]
+fn a_sized_rendering_keeps_levels_a_single_line_cannot() {
+    // Why the caption above the display is drawn as segments rather
+    // than as one line of text: `2^2^2` has three levels, and a line
+    // of one size can only borrow Unicode's raised digits for the
+    // first of them. The second falls back to brackets, which is the
+    // same value written as a different expression.
+    let mut chain = digits("2");
+    chain.push(InputItem::BinOp(BinOp::Pow));
+    chain.extend(digits("2"));
+    chain.push(InputItem::BinOp(BinOp::Pow));
+    chain.extend(digits("2"));
+    assert_eq!(render_str(&chain, DecimalSeparator::Dot, None), "2⁽2²⁾");
+    let segs = render_at(&chain, chain.len());
+    assert_eq!(texts(&segs), vec!["2", "2", "2"]);
+    assert_eq!(
+        segs.iter().map(|s| s.script.depth).collect::<Vec<_>>(),
+        vec![0, 1, 2]
+    );
+
+    // The same holds the other way for a base under a base, which the
+    // one-line form has to bracket as soon as the inner one is not a
+    // digit Unicode can lower.
+    let nested_log = vec![
+        InputItem::BinaryFunc(BinaryFunc::LogBase),
+        InputItem::BinaryFunc(BinaryFunc::LogBase),
+        InputItem::Digit('2'),
+        InputItem::Comma,
+        InputItem::Digit('2'),
+        InputItem::RightParen,
+        InputItem::Comma,
+        InputItem::Digit('8'),
+        InputItem::RightParen,
+    ];
+    assert_eq!(
+        render_str(&nested_log, DecimalSeparator::Dot, None),
+        "log₍log₂(2)₎(8)"
+    );
+    let segs = render_at(&nested_log, nested_log.len());
+    assert_eq!(
+        segs.iter().map(|s| s.script.depth).collect::<Vec<_>>(),
+        vec![0, 1, 2, 1, 1, 1, 0, 0, 0]
+    );
 }

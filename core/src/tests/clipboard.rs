@@ -245,3 +245,65 @@ fn paste_keeps_an_arbitrary_log_base() {
     let items = items_from_paste("log(100)").expect("representable");
     assert!(matches!(items[0], InputItem::UnaryFunc(UnaryFunc::Log)));
 }
+
+#[test]
+fn copy_text_is_ascii_throughout() {
+    // What goes on the clipboard is what the tokenizer reads, and all
+    // of it is typeable: the pretty letters, the radical and the two
+    // operator glyphs the display draws are spelled out.
+    let items = vec![
+        InputItem::Constant(ConstKind::Pi),
+        InputItem::BinOp(BinOp::Mul),
+        InputItem::UnaryFunc(UnaryFunc::Sqrt),
+        InputItem::Digit('9'),
+        InputItem::RightParen,
+        InputItem::BinOp(BinOp::Div),
+        InputItem::UnaryFunc(UnaryFunc::Cbrt),
+        InputItem::Digit('8'),
+        InputItem::RightParen,
+        InputItem::AutoMul,
+        InputItem::Constant(ConstKind::E),
+    ];
+    assert_eq!(buffer_ascii(&items), "pi*sqrt(9)/cbrt(8)*e");
+    // And it is the same expression on the way back in: what the user
+    // pastes into the calculator is what they copied out of it.
+    let back = paste_items(Some(&buffer_ascii(&items))).expect("representable");
+    // One thing does not survive, and should not: the `×` the
+    // calculator inserted on the user's behalf comes back as one the
+    // text spells out. Same multiplication, no longer implicit.
+    let spelled: Vec<InputItem> = items
+        .iter()
+        .map(|it| match it {
+            InputItem::AutoMul => InputItem::BinOp(BinOp::Mul),
+            other => other.clone(),
+        })
+        .collect();
+    assert_eq!(back, spelled);
+}
+
+#[test]
+fn euler_behind_a_digit_carries_its_multiplication() {
+    // A bare `e` there would be read back as the exponent of the
+    // number in front of it — `2e3` is two thousand, where the buffer
+    // holds 2·𝑒·3. The `*` is the multiplication the tokenizer would
+    // insert anyway, written down so the text cannot be misread.
+    let items = vec![
+        InputItem::Digit('2'),
+        InputItem::Constant(ConstKind::E),
+        InputItem::Digit('3'),
+    ];
+    assert_eq!(buffer_ascii(&items), "2*e3");
+    // Anywhere the digits cannot reach it, it stays a plain `e`.
+    for (before, expected) in [
+        (InputItem::BinOp(BinOp::Add), "2+e"),
+        (InputItem::LeftParen, "2(e"),
+        (InputItem::BinOp(BinOp::Pow), "2^e"),
+    ] {
+        let items = vec![
+            InputItem::Digit('2'),
+            before,
+            InputItem::Constant(ConstKind::E),
+        ];
+        assert_eq!(buffer_ascii(&items), expected);
+    }
+}

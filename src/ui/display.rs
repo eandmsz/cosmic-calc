@@ -15,7 +15,10 @@
 //!     flagged inactive so the user can tell at a glance which closer
 //!     they're about to step over
 //!   * exponents raised and bases lowered, unless the caller asks for
-//!     [`Notation::Raw`]. A raised piece is ordinary text drawn smaller
+//!     [`Notation::Raw`] — which is the clipboard's text, spelled the
+//!     way the tokenizer reads it: `pi`, `e`, `sqrt(`, `*`, `/`, and a
+//!     number written plainly rather than grouped and localised. A
+//!     raised piece is ordinary text drawn smaller
 //!     and moved off the line — see [`Script`] — so nothing here
 //!     depends on the font having a superscript for what is being
 //!     raised: a decimal separator, a factorial, a whole `sin(` call
@@ -26,7 +29,7 @@
 //!     from between the brackets and goes under the `log`, and a root
 //!     degree comes out and goes in front of the radical.
 
-use crate::engine::item::{BinOp, BinaryFunc, InputItem};
+use crate::engine::item::{ascii_text, BinOp, BinaryFunc, InputItem};
 use crate::engine::script::{self, Notation, Shift};
 use crate::locale::DecimalSeparator;
 
@@ -125,15 +128,29 @@ impl Script {
     }
 }
 
+/// How far the degree of a root is drawn to the right of where the
+/// line would put it, in character widths of the size the degree
+/// itself is drawn at. Half a character puts its tail over the
+/// radical's opening stroke, which is where the notation has it —
+/// `⁴√` is one symbol, not a small 4 standing next to a sign. The
+/// pieces are separate widgets, so the overlap is a placement the app
+/// layer applies, not something the font is asked for.
+const ROOT_DEGREE_NUDGE: f32 = 0.5;
+
 /// One piece of the rendered display. Multiple segments line up
 /// horizontally; `active` tells the app layer whether to use the full
-/// `text_active` colour or the dim `text_inactive` variant, and
-/// `script` where and how big to draw it.
+/// `text_active` colour or the dim `text_inactive` variant, `script`
+/// where and how big to draw it, and `nudge` how far to slide it
+/// sideways from there.
 #[derive(Debug, Clone, PartialEq)]
 pub struct DisplaySegment {
     pub text: String,
     pub active: bool,
     pub script: Script,
+    /// Horizontal shift, in character widths of this piece's own size:
+    /// positive moves it right, over whatever comes after it. Zero for
+    /// everything but a root degree — see [`ROOT_DEGREE_NUDGE`].
+    pub nudge: f32,
 }
 
 impl DisplaySegment {
@@ -142,7 +159,15 @@ impl DisplaySegment {
             text: text.into(),
             active,
             script,
+            nudge: 0.0,
         }
+    }
+
+    /// A full-size piece written on the line, for a caller that has
+    /// text rather than items to show: the caption's "Random number"
+    /// hint, an error message.
+    pub fn on_line(text: impl Into<String>) -> Self {
+        Self::placed(text, true, Script::ON_LINE)
     }
 
     /// A dimmed piece written on the line: what the tests spell an
@@ -235,7 +260,15 @@ impl Renderer<'_> {
                 && matches!(here, InputItem::Constant(_))
                 && !matches!(items[i - 1], InputItem::Digit(_) | InputItem::DecimalPoint);
 
-            if prev_value_end && (begins_value_here || constant_after_non_digit) {
+            // Only in the pretty notation: the raw one is the text the
+            // clipboard carries and the tokenizer is handed, and this
+            // glyph is in neither. The multiplication is real, but it
+            // is the tokenizer's to insert, exactly as it does for the
+            // same text pasted in from somewhere else.
+            if self.notation.is_pretty()
+                && prev_value_end
+                && (begins_value_here || constant_after_non_digit)
+            {
                 out.push(DisplaySegment::placed("×", false, script));
             }
 
@@ -245,7 +278,14 @@ impl Renderer<'_> {
                 InputItem::Digit(_) | InputItem::DecimalPoint => {
                     let (run, consumed) = extract_numeric_run(&items[i..end]);
                     let mut s = String::new();
-                    write_formatted_number(&mut s, &run, self.decimal, thousands);
+                    if self.notation.is_pretty() {
+                        write_formatted_number(&mut s, &run, self.decimal, thousands);
+                    } else {
+                        // The raw form is the clipboard's: a number
+                        // there is digits and an ASCII point, with no
+                        // grouping the tokenizer would have to unpick.
+                        s.push_str(&run);
+                    }
                     out.push(DisplaySegment::placed(s, true, script));
                     i += consumed;
                     prev_value_end = true;
@@ -265,7 +305,7 @@ impl Renderer<'_> {
                     // all see it. Render it dimmed so the user can tell
                     // at a glance that the calculator inserted it on
                     // their behalf.
-                    out.push(DisplaySegment::placed("×", false, script));
+                    out.push(DisplaySegment::placed(self.times_glyph(), false, script));
                     i += 1;
                     prev_value_end = false;
                 }
@@ -276,6 +316,16 @@ impl Renderer<'_> {
                 // what the raising is standing in for, and the buffer
                 // still holds it for the tokenizer.
                 InputItem::BinOp(BinOp::Pow) if self.notation.is_pretty() => {
+                    // `yˣ` puts the caret in front of the operand and
+                    // parks the cursor where the base goes, so there is
+                    // a power here with nothing under it yet. The empty
+                    // slot is drawn on the line, dim while the cursor
+                    // is in it, for the same reason the exponent's is:
+                    // it is the only thing that says where the next
+                    // digit lands.
+                    if i == start || !item_ends_operand(&items[i - 1]) {
+                        out.push(self.empty_slot(i, script));
+                    }
                     match script::exponent_span(items, i).map(|span| span.min(end)) {
                         Some(span) if span > i + 1 => {
                             self.render_run(i + 1, span, None, script.raised(), out);
@@ -333,10 +383,18 @@ impl Renderer<'_> {
                 InputItem::BinaryFunc(BinaryFunc::Root) if self.notation.is_pretty() => {
                     match self.root_call(i, end) {
                         Some((comma, closer)) => {
+                            let degree_start = out.len();
                             if closer == comma + 1 {
                                 out.push(self.empty_slot(comma + 1, script.raised()));
                             } else {
                                 self.render_run(comma + 1, closer, None, script.raised(), out);
+                            }
+                            // Written into the radical rather than
+                            // beside it: every piece of the degree
+                            // slides half a character right, so the end
+                            // of it sits over the sign's left stroke.
+                            for seg in &mut out[degree_start..] {
+                                seg.nudge = ROOT_DEGREE_NUDGE;
                             }
                             out.push(DisplaySegment::placed("√(", true, script));
                             self.render_run(i + 1, comma, thousands, script, out);
@@ -358,7 +416,8 @@ impl Renderer<'_> {
                             out.push(DisplaySegment::placed(text, true, script.shifted(shift)));
                         }
                     } else {
-                        out.push(DisplaySegment::placed(other.display(), true, script));
+                        let text = ascii_text(other, last_char(out));
+                        out.push(DisplaySegment::placed(text, true, script));
                     }
                     i += 1;
                     prev_value_end = item_produces_value(other);
@@ -390,6 +449,17 @@ impl Renderer<'_> {
         (closer < end).then_some((comma, closer))
     }
 
+    /// How an auto-multiplication the buffer holds is spelled: the `×`
+    /// the display reads best in, the `*` the clipboard and the
+    /// tokenizer use.
+    fn times_glyph(&self) -> &'static str {
+        if self.notation.is_pretty() {
+            "×"
+        } else {
+            "*"
+        }
+    }
+
     /// The empty script slot at item index `at`, dimmed while the
     /// cursor sits in it. Nothing else on screen says which slot the
     /// next digit lands in — the display draws no cursor — so the
@@ -415,9 +485,18 @@ impl Renderer<'_> {
     }
 }
 
+/// The last character written so far, which is what decides how the
+/// next item is spelled: Euler's number is `*e` behind a digit run and
+/// a bare `e` anywhere else. See [`ascii_text`].
+fn last_char(out: &[DisplaySegment]) -> Option<char> {
+    out.last().and_then(|seg| seg.text.chars().next_back())
+}
+
 /// Convenience for tests and callers that need one line of text rather
-/// than a row of independently sized pieces – the caption above the
-/// display and the history rows, which are single text widgets.
+/// than a row of independently sized pieces – the history rows, which
+/// are single text widgets. (The caption above the display is a row of
+/// pieces like the display itself, so an expression reads the same in
+/// both.)
 ///
 /// The pieces drawn off the line come back in Unicode's superscript and
 /// subscript glyphs, all-or-nothing per run: see
@@ -548,6 +627,23 @@ fn item_produces_value(it: &InputItem) -> bool {
     matches!(
         it,
         InputItem::Constant(_) | InputItem::RightParen | InputItem::Factorial
+    )
+}
+
+/// True for an item a power can raise: whatever the buffer counts as
+/// the end of an operand. Wider than [`item_produces_value`], which
+/// answers a different question — whether to draw the auto-mul glyph —
+/// and deliberately leaves `%` out of it, so `5%` would have read as a
+/// power with no base under it.
+fn item_ends_operand(it: &InputItem) -> bool {
+    matches!(
+        it,
+        InputItem::Digit(_)
+            | InputItem::DecimalPoint
+            | InputItem::Constant(_)
+            | InputItem::RightParen
+            | InputItem::Factorial
+            | InputItem::Percent
     )
 }
 
