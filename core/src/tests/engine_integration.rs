@@ -894,24 +894,64 @@ fn even_root_of_a_negative_is_undefined_at_any_magnitude() {
 // --- decimal arithmetic ---------------------------------------------
 //
 // The four operations run in base ten, so the numbers a person types
-// are the numbers that get added. Every case here is one that binary
-// doubles get visibly wrong.
+// are the numbers that get added.
+//
+// Rounding the display to fifteen of the eighteen digits carried hides
+// most of what binary got wrong on its own — `1.005 × 100` printed
+// `100.5` under doubles too, because the 100.49999999999999 they held
+// rounds back to it. The tests that follow are split accordingly: what
+// binary printed wrongly, and what it merely held wrongly.
+
+// Cases the display could not save. The error is the answer here, not
+// a nick in its last digit, so these are the ones a user saw.
 
 #[test]
-fn a_tenth_plus_a_fifth_less_three_tenths_is_nothing_at_all() {
-    // The canonical demonstration that a calculator is not doing its
-    // arithmetic in binary. In f64 this is 5.551115123125783e-17.
+fn cancellation_no_longer_leaves_the_error_behind_as_the_answer() {
+    // Subtracting near-equal values destroys the leading digits and
+    // promotes whatever error was in the low ones to the whole result.
+    // In binary these printed 5.55111512312578e-17,
+    // 8.32667268468867e-17 and 0.0999999999999943.
     assert_eq!(deg("0.1+0.2-0.3"), "0");
-    assert_eq!(deg("0.1+0.2"), "0.3");
-    assert_eq!(deg("0.3-0.1-0.1-0.1"), "0");
-    assert_eq!(deg("1.1+2.2"), "3.3");
-    assert_eq!(deg("4.5-4.4"), "0.1");
+    assert_eq!(deg("1.1-1.0-0.1"), "0");
+    assert_eq!(deg("0.3-0.2-0.1"), "0");
+    assert_eq!(deg("100.1-100"), "0.1");
+    // Including when the value came back from a double: a root that
+    // lands on a tenth re-enters as a tenth.
+    assert_eq!(deg("sqrt(0.01)+0.2-0.3"), "0");
 }
 
 #[test]
-fn a_price_times_a_hundred_is_a_whole_number_of_cents() {
-    // 1.005 × 100 is 100.49999999999999 in binary, which is the bug
-    // behind every "why is my total a cent out" question ever asked.
+fn a_remainder_of_an_exact_multiple_is_nothing() {
+    // Being a hair under a multiple changes the answer rather than its
+    // last digit, so binary printed a clean-looking and wrong `0.1`
+    // for the first two of these, and 6.66133814775094e-16 for the
+    // third.
+    assert_eq!(deg("0.3 mod 0.1"), "0");
+    assert_eq!(deg("1 mod 0.1"), "0");
+    assert_eq!(deg("10.5 mod 0.7"), "0");
+}
+
+#[test]
+fn eighteen_digits_reach_further_than_a_double_does() {
+    // A double has 15 to 17 significant digits, so `1e16 + 1` is just
+    // 1e16 to it and the difference came out as 0.
+    assert_eq!(deg("10000000000000000+1-10000000000000000"), "1");
+    assert_eq!(deg("1000000000000000+1"), "1000000000000001");
+}
+
+// Cases binary got wrong in digits the display was already rounding
+// away. Nothing on screen changes; what changes is that the value
+// behind it is now exact, so it stays right through whatever is done
+// to it next.
+
+#[test]
+fn everyday_sums_and_products_are_exact_in_the_value_too() {
+    assert_eq!(deg("0.1+0.2"), "0.3");
+    assert_eq!(deg("1.1+2.2"), "3.3");
+    assert_eq!(deg("4.5-4.4"), "0.1");
+    // 1.005 × 100 is 100.49999999999999 in binary — the arithmetic
+    // behind every "why is my total a cent out" question ever asked,
+    // even where the display happened to cover for it.
     assert_eq!(deg("1.005*100"), "100.5");
     assert_eq!(deg("0.07*100"), "7");
     assert_eq!(deg("19.99*3"), "59.97");
@@ -934,11 +974,11 @@ fn the_guard_digits_keep_a_rounded_division_out_of_sight() {
 fn percent_and_modulo_are_exact_too() {
     // A percent is a shift of the decimal point and a remainder is a
     // subtraction, so both come out on the nose. `5 mod 3.2` was
-    // 1.7999999999999998 in binary.
+    // 1.7999999999999998 in binary, which the display rounded back to
+    // 1.8 — right on screen, wrong in the register.
     assert_eq!(deg("200+10%"), "220");
     assert_eq!(deg("3.5%*230"), "8.05");
     assert_eq!(deg("5%3.2"), "1.8");
-    assert_eq!(deg("0.3 mod 0.1"), "0");
 }
 
 #[test]

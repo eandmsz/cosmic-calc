@@ -4,8 +4,8 @@ A scientific calculator for the COSMIC desktop.
 
 - Native Rust application. No dependency on any other language (no wrappers for C or Python)
 - Focusing on simplicity, ease of use, touch friendly operation, logical and aesthetic layout
-- Decimal arithmetic, so `0.1 + 0.2 - 0.3` is 0 — the numbers you type
-  are the numbers it adds
+- Decimal arithmetic, so `0.1 + 0.2 - 0.3` is 0 and `0.3 mod 0.1` is 0
+  — the numbers you type are the numbers it adds
 - Stateful operation for a more intuitive workflow
 
 ## Building and running
@@ -87,19 +87,31 @@ make check                         # fmt + clippy + the whole workspace
 - Arithmetic in base ten, on a fixed-precision decimal of the kind
   Apple's calculator uses. `+`, `−`, `×`, `÷`, percent, modulo,
   whole-number powers and small factorials are all carried out in
-  decimal, so a number you can write down is a number it can hold
-  exactly and the binary representation error never enters:
-	- `0.1 + 0.2 − 0.3` is `0`, not `5.5511151231258e-17`
-	- `1.005 × 100` is `100.5`, not `100.49999999999999` — the reason
-	  every "my total is a cent out" bug ever filed exists
-	- `8.2 + 8.2` is `16.4` and `5 mod 3.2` is `1.8`
+  decimal, so a number you can write down is one it holds exactly and
+  no binary representation error enters the arithmetic to begin with
 	- `18` significant digits are carried and **15 are displayed**.
 	  Significant digits, not digits after the point: a value carries
-	  the same number of digits wherever its decimal point is. The
-	  three it does not show are guard digits, and they are what makes
-	  the rounding of a division invisible — `1÷3 = ×3 =` gives back
-	  `1`, because the eighteen threes that were divided out are the
-	  eighteen that get multiplied
+	  the same number of digits wherever its decimal point is
+	- The three digits that are not shown are guard digits, and they
+	  are what makes the rounding of a division invisible: `1÷3 = ×3 =`
+	  gives back `1`, because the eighteen threes that were divided out
+	  are the eighteen that get multiplied
+	- Rounding the display to 15 digits already hid most of what binary
+	  got wrong, and still does: `1.005 × 100` printed `100.5` under
+	  doubles too, because the `100.49999999999999` they really held
+	  goes back to `100.5` once the last two digits are rounded off.
+	  What base ten changes is the cases where the error escapes those
+	  last digits — where it is the answer rather than a nick in it:
+		- **Cancellation.** Subtracting near-equal values destroys the
+		  leading digits and promotes the error to the whole result:
+		  `0.1 + 0.2 − 0.3` is `0`, not `5.5511151231258e-17`, and
+		  `100.1 − 100` is `0.1`, not `0.0999999999999943`
+		- **Remainders**, where being a hair under a multiple changes
+		  the answer instead of its last digit: `0.3 mod 0.1` is `0`,
+		  where binary printed a clean-looking, wrong `0.1`
+		- **Sums across scales**, where 18 digits reach further than a
+		  double's 15-to-17: `10000000000000000 + 1 − 10000000000000000`
+		  is `1`, where a double had nowhere to put the `1` and gave `0`
 	- The rounding is the display's, not the calculator's. A result
 	  carried into the next calculation is used at the precision it was
 	  computed at, and the fifteen digits on screen are a view of it.
