@@ -311,11 +311,21 @@ pub fn apply_resolved_button(
         }
         Button::Clear => {
             match state.clear_mode {
+                // `C` takes back the last thing entered rather than the
+                // whole line: the operand the cursor sits after, with
+                // the expression it was part of left standing. An
+                // operator there is not an operand to take back, so the
+                // press only arms the `AC` — it is one backspace away,
+                // and clearing the line over it would be the opposite
+                // of what the key is for. Either way the key flips to
+                // `AC`, so the line is always two presses from empty.
                 ClearMode::Single => {
-                    engine.clear();
+                    clear_last_operand(engine);
                     state.clear_mode = ClearMode::AllClear;
-                    state.last_expression.clear();
-                    state.last_expression_items.clear();
+                    if engine.input.is_empty() {
+                        state.last_expression.clear();
+                        state.last_expression_items.clear();
+                    }
                 }
                 ClearMode::AllClear => {
                     engine.clear();
@@ -359,34 +369,8 @@ pub fn apply_resolved_button(
             ButtonEffect::None
         }
         Button::RightParen => {
-            // `LeftParen` always inserts a matched closer, so a bare
-            // `)` press never NEEDS to add a closer of its own. Either
-            // step over the existing closer (when the cursor sits right
-            // before one) or no-op. This eliminates the footgun of
-            // typing past a closer and ending up with a stray `)`.
-            //
-            // A `log_y` call is the exception at both ends: closing its
-            // argument moves into the base slot instead of past the
-            // call, and closing again from the base leaves the call for
-            // good. That is the whole gesture the key exists for —
-            // `logy 8 ) 2` reads log₂(8) — and it is why the display
-            // draws the empty base as `log₍₎(`.
-            if close_log_base_slot(engine) {
-                state.clear_mode = ClearMode::Single;
-                return ButtonEffect::None;
-            }
-            let cursor = engine.input.cursor();
-            let next_is_right_paren = engine
-                .input
-                .items()
-                .get(cursor)
-                .map(|i| matches!(i, InputItem::RightParen))
-                .unwrap_or(false);
-            if next_is_right_paren {
-                match empty_log_base_before_closer(engine, cursor) {
-                    Some(base_slot) => engine.input.set_cursor(base_slot),
-                    None => engine.input.move_cursor(crate::engine::CursorMove::Right),
-                }
+            if let Some(target) = right_paren_target(engine) {
+                engine.input.set_cursor(target);
                 state.clear_mode = ClearMode::Single;
             }
             ButtonEffect::None
@@ -489,7 +473,7 @@ pub fn apply_resolved_button(
         Button::Log10 => wrap_or_open_unary(engine, UnaryFunc::Log10),
         Button::Log2 => wrap_or_open_unary(engine, UnaryFunc::Log2),
 
-        Button::YRootX => wrap_or_open_binary(engine, BinaryFunc::Root),
+        Button::YRootX => open_root(engine),
         Button::LogY => open_log_base(engine),
 
         Button::Square => raise_to(engine, '2'),
@@ -1071,6 +1055,19 @@ fn has_left_operand_at_cursor(engine: &Engine) -> bool {
     )
 }
 
+/// Delete the operand the cursor sits after — the digits of a number,
+/// a constant, a whole bracketed group or function call, along with
+/// whatever postfix `!` / `%` hangs off it. What `C` takes back.
+///
+/// A cursor that is not sitting after an operand — one on an operator,
+/// an open bracket, an empty buffer — has nothing to take back, and
+/// the press leaves the expression alone.
+fn clear_last_operand(engine: &mut Engine) {
+    if let Some((start, end)) = engine.input.last_operand_range() {
+        engine.input.delete_range(start, end);
+    }
+}
+
 /// Wrap the last operand in a unary function or, when there is no
 /// operand, insert an open-function item plus its matching closer and
 /// park the cursor between them so the user can type the argument.
@@ -1092,37 +1089,43 @@ fn wrap_or_open_unary(engine: &mut Engine, f: UnaryFunc) -> ButtonEffect {
     ButtonEffect::None
 }
 
-/// Open a two-argument function — `root(value, n)` or
-/// `log(base, value)` — with its closing bracket already in place,
-/// the way `√` and `∛` do. Both used to insert the opener alone and
-/// leave the user to notice the bracket was still hanging open.
+/// Open a `root(value, degree)` call — `ʸ√(x)` on the display — with
+/// its comma and its closing bracket already in place, the way `√` and
+/// `∛` put theirs in, and the cursor in whichever slot the user fills
+/// first.
 ///
-/// The cursor lands *inside* the brackets in both branches, which is
-/// where the unary version and this one part company: `√(16)` is a
-/// finished operand, while `root(16` still needs its second argument,
-/// so parking the cursor past the closer would mean stepping back over
-/// it to type the degree.
+/// An operand already typed is the radicand: `16`, `ʸ√x` gives
+/// `⁽⁾√(16)` with the cursor in the degree, so the next digit is the
+/// degree. Without the comma the first argument stayed open and the
+/// degree ran onto the end of it — `16`, `ʸ√x`, `4` read back as
+/// `root(164)` — and with no comma key on the keypad the second
+/// argument could not be reached at all.
 ///
-/// An operand the user had already typed is closed off with the comma
-/// as well as the bracket, and the cursor lands after it. Without the
-/// comma the first argument stayed open and the degree ran onto the
-/// end of it: `16`, `ʸ√x`, `4` read back as `root(164)`, and with no
-/// comma key on the keypad the second argument could not be reached at
-/// all.
-fn wrap_or_open_binary(engine: &mut Engine, f: BinaryFunc) -> ButtonEffect {
+/// From an empty operand the radicand comes first, the way it is
+/// written, and `)` moves out to the degree: `ʸ√x`, `16`, `)`, `4`.
+/// That is the same gesture [`open_log_base`] uses for its base, and
+/// it is why the comma goes in up front either way — the slot has to
+/// exist before the display can show it empty, and before `)` has
+/// anywhere to move to. Without it the degree of a root opened from an
+/// empty display could not be typed at all.
+fn open_root(engine: &mut Engine) -> ButtonEffect {
+    let call = InputItem::BinaryFunc(BinaryFunc::Root);
     match engine.input.last_operand_range() {
         Some((start, end)) => {
-            engine.input.insert_at(start, InputItem::BinaryFunc(f));
+            engine.input.insert_at(start, call);
             // The insert above bumped `end` by 1; the comma closes the
-            // first argument, the bracket closes the call, and the
-            // cursor sits between them ready for the second.
+            // radicand, the bracket closes the call, and the cursor
+            // sits between them ready for the degree.
             engine.input.insert_at(end + 1, InputItem::Comma);
             engine.input.insert_at(end + 2, InputItem::RightParen);
             engine.input.set_cursor(end + 2);
         }
         None => {
-            insert_with_auto_mul(engine, InputItem::BinaryFunc(f));
+            insert_with_auto_mul(engine, call);
+            engine.input.insert(InputItem::Comma);
             engine.input.insert(InputItem::RightParen);
+            // Back over the closer and the comma, into the radicand.
+            engine.input.move_cursor(crate::engine::CursorMove::Left);
             engine.input.move_cursor(crate::engine::CursorMove::Left);
         }
     }
@@ -1167,37 +1170,76 @@ fn open_log_base(engine: &mut Engine) -> ButtonEffect {
     ButtonEffect::None
 }
 
-/// The `log(base, value)` call whose base slot holds the cursor, as
-/// `(opener_idx, comma_idx)`. Innermost call wins, so a `log_y` nested
-/// in another one answers for itself.
-fn log_base_slot_at_cursor(engine: &Engine) -> Option<(usize, usize)> {
+/// Where `)` puts the cursor, or `None` when the press does nothing.
+///
+/// [`Button::LeftParen`] always inserts a matched closer, so a bare
+/// `)` press never NEEDS to add a closer of its own: it either steps
+/// over one that is already there or does nothing at all. That is what
+/// keeps a stray `)` — typed past a closer the calculator had already
+/// written — off the display.
+///
+/// The two-argument calls are the exception at both ends, because each
+/// of them draws one argument outside its brackets: the `log_y` base
+/// under the `log`, the root degree in front of the radical. Closing
+/// the bracketed argument moves into that slot while it is still
+/// empty, and a press from inside the slot leaves the call for good.
+/// That is the whole gesture the two keys exist for — `logy 8 ) 2`
+/// reads log₂(8), `yrootx 16 ) 4` reads ⁴√(16) — and it is why the
+/// display draws the empty slot at all.
+fn right_paren_target(engine: &Engine) -> Option<usize> {
+    // In the slot a call draws outside its brackets, the bracket is
+    // already closed on screen, so the press leaves the call.
+    if let Some((_, closer)) = call_with_cursor_in_outer_slot(engine) {
+        return Some(closer + 1);
+    }
+    let items = engine.input.items();
+    let cursor = engine.input.cursor();
+    match items.get(cursor)? {
+        // The end of a bracketed argument: into the outer slot when it
+        // is still waiting to be typed, past the closer when it is not.
+        InputItem::RightParen => {
+            Some(empty_log_base_before_closer(engine, cursor).unwrap_or(cursor + 1))
+        }
+        // A root's radicand ends at the call's comma — its degree is
+        // drawn in front of the sign, so the `)` on screen there is the
+        // one the comma stands for.
+        InputItem::Comma => close_root_radicand(engine, cursor),
+        _ => None,
+    }
+}
+
+/// The two-argument call whose outer slot — the `log_y` base, the root
+/// degree — holds the cursor, as `(opener, closer)`. Innermost call
+/// wins, so one nested in another answers for itself, and a cursor
+/// inside a bracket group *within* the slot belongs to that group
+/// rather than to the slot.
+fn call_with_cursor_in_outer_slot(engine: &Engine) -> Option<(usize, usize)> {
     let items = engine.input.items();
     let cursor = engine.input.cursor();
     let mut found = None;
-    for idx in 0..cursor {
-        if !matches!(items[idx], InputItem::BinaryFunc(BinaryFunc::LogBase)) {
+    for opener in 0..cursor {
+        let InputItem::BinaryFunc(kind) = items[opener] else {
             continue;
-        }
-        if let Some(comma) = crate::engine::script::argument_separator(items, idx) {
-            if cursor <= comma {
-                found = Some((idx, comma));
-            }
+        };
+        let (Some(comma), Some(closer)) = (
+            crate::engine::script::argument_separator(items, opener),
+            closer_for_opener(items, opener),
+        ) else {
+            continue;
+        };
+        let (from, to) = match kind {
+            // The base is written under the `log`, in front of the
+            // bracket: the slot is the first argument.
+            BinaryFunc::LogBase => (opener + 1, comma),
+            // The degree is written in front of the radical: the slot
+            // is the second.
+            BinaryFunc::Root => (comma + 1, closer),
+        };
+        if (from..=to).contains(&cursor) && depth_between(items, from, cursor) == 0 {
+            found = Some((opener, closer));
         }
     }
     found
-}
-
-/// `)` pressed with the cursor in a base slot: leave the call
-/// altogether, landing past its closer. Returns whether it fired.
-fn close_log_base_slot(engine: &mut Engine) -> bool {
-    let Some((opener, _)) = log_base_slot_at_cursor(engine) else {
-        return false;
-    };
-    let Some(closer) = closer_for_opener(engine.input.items(), opener) else {
-        return false;
-    };
-    engine.input.set_cursor(closer + 1);
-    true
 }
 
 /// Index the cursor moves to when `)` is pressed in front of the
@@ -1215,6 +1257,42 @@ fn empty_log_base_before_closer(engine: &Engine, cursor: usize) -> Option<usize>
     (comma == opener + 1).then_some(opener + 1)
 }
 
+/// Index the cursor moves to when `)` closes the radicand of a root
+/// call — the press lands on the call's comma, which is where the
+/// closing bracket is drawn. Into the degree while it is still empty,
+/// past the call when it has already been typed. `None` when the comma
+/// belongs to something else.
+fn close_root_radicand(engine: &Engine, comma: usize) -> Option<usize> {
+    let items = engine.input.items();
+    let opener = opener_for_comma(items, comma)?;
+    if !matches!(items[opener], InputItem::BinaryFunc(BinaryFunc::Root)) {
+        return None;
+    }
+    let closer = closer_for_opener(items, opener)?;
+    Some(if closer == comma + 1 {
+        comma + 1
+    } else {
+        closer + 1
+    })
+}
+
+/// Net bracket depth over `items[from..to]`: zero when the position at
+/// `to` sits at the level the run started on, and positive when it is
+/// inside a group opened along the way.
+fn depth_between(items: &[InputItem], from: usize, to: usize) -> i32 {
+    items[from..to]
+        .iter()
+        .map(|it| match it {
+            InputItem::LeftParen
+            | InputItem::UnaryFunc(_)
+            | InputItem::BinaryFunc(_)
+            | InputItem::LogN(_) => 1,
+            InputItem::RightParen => -1,
+            _ => 0,
+        })
+        .sum()
+}
+
 /// Index of the closer that matches the paren-opening item at
 /// `opener_idx` (`(`, `sin(`, `log(`, …). `None` when the group is
 /// still open.
@@ -1227,6 +1305,27 @@ fn closer_for_opener(items: &[InputItem], opener_idx: usize) -> Option<usize> {
             | InputItem::BinaryFunc(_)
             | InputItem::LogN(_) => depth += 1,
             InputItem::RightParen => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(j);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// The call whose argument list the comma at `comma_idx` separates.
+fn opener_for_comma(items: &[InputItem], comma_idx: usize) -> Option<usize> {
+    let mut depth = 1usize;
+    for j in (0..comma_idx).rev() {
+        match items[j] {
+            InputItem::RightParen => depth += 1,
+            InputItem::LeftParen
+            | InputItem::UnaryFunc(_)
+            | InputItem::BinaryFunc(_)
+            | InputItem::LogN(_) => {
                 depth -= 1;
                 if depth == 0 {
                     return Some(j);

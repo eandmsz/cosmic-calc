@@ -6,27 +6,44 @@
 //! the history panel all reach the same conclusion about a given run
 //! of items.
 //!
-//! Two rules keep the pretty form honest:
+//! Two renderings come out of that, and they part company over *how*
+//! a glyph gets raised:
 //!
-//!   * A glyph is only ever raised when Unicode has a real superscript
-//!     for it. There is no `×` or `!` in the superscript block, so an
-//!     exponent containing one is written at full size inside raised
-//!     brackets — `2⁽2!⁾` — rather than with a mix of sizes that would
-//!     read as a different expression. Either way the `^` the buffer
-//!     stores never reaches the pretty display; it is what the raising
-//!     is standing in for, and it is still there in the raw form and in
-//!     what the tokenizer is handed.
-//!   * [`exponent_span`] covers exactly what the parser treats as the
-//!     exponent — `power = postfix ('^' unary)?` — so `2^3π` raises
-//!     only the `3` (the `π` is a separate factor) while `2^2!` raises
-//!     the `2!` together, because the `!` belongs to the exponent and
-//!     `2²!` would read as `(2²)!`.
+//!   * The main display draws a script as ordinary characters at a
+//!     smaller size, moved off the line. Nothing there depends on the
+//!     font having a superscript for what is being raised, so an
+//!     exponent can hold a decimal separator, a factorial, or a whole
+//!     `sin(` call and still read as an exponent. That rendering is
+//!     the display module's; what this module gives it is where each
+//!     piece belongs — [`pretty_parts`] for the items whose form is a
+//!     substitution, [`exponent_span`] and [`argument_separator`] for
+//!     the runs that move.
+//!   * A one-line rendering — the caption above the display, a history
+//!     row — has one font size to work with, so it borrows Unicode's
+//!     superscript and subscript blocks through [`raise`] and
+//!     [`lower`]. Those are all-or-nothing: a run raises only when
+//!     every character of it has a raised form, and otherwise is
+//!     written at full size inside raised brackets — `2⁽2!⁾` — rather
+//!     than with a mix of sizes that would read as a different
+//!     expression.
 //!
-//! The same two rules run the other way for the base of a `log_y`
-//! call: [`argument_separator`] finds where the base of the buffer's
-//! `log(base, value)` ends, [`lower`] puts it under the `log`, and a
-//! base not typed yet shows as [`EMPTY_BASE`] — so `log₍₎(8)` says
-//! which slot the next digit lands in.
+//! Either way the `^` the buffer stores never reaches the pretty
+//! display: it is what the raising is standing in for, and it is still
+//! there in the raw form and in what the tokenizer is handed.
+//!
+//! [`exponent_span`] covers exactly what the parser treats as the
+//! exponent — `power = postfix ('^' unary)?` — so `2^3π` raises only
+//! the `3` (the `π` is a separate factor) while `2^2!` raises the `2!`
+//! together, because the `!` belongs to the exponent and `2²!` would
+//! read as `(2²)!`.
+//!
+//! The same rule runs the other way for the two-argument calls:
+//! [`argument_separator`] finds the comma between the arguments, which
+//! is where the base of a `log(base, value)` ends and where the degree
+//! of a `root(value, degree)` starts. Both of those move out of the
+//! brackets — the base under the `log`, the degree in front of the
+//! radical — and a slot not typed yet shows as [`EMPTY_SLOT`], so
+//! `log₍₎(8)` says which slot the next digit lands in.
 
 use crate::engine::item::{unary_func_name, BinOp, BinaryFunc, InputItem, UnaryFunc};
 
@@ -37,7 +54,7 @@ pub enum Notation {
     /// `sin-1(1)`. Reachable through the settings panel's "Show ASCII
     /// expression" toggle, and what the tokenizer sees either way.
     Raw,
-    /// Exponents raised and log bases lowered: `√(2²,6)`, `log₂(8)`,
+    /// Exponents raised and log bases lowered: `⁶√(2²)`, `log₂(8)`,
     /// `sin⁻¹(1)`.
     #[default]
     Pretty,
@@ -49,6 +66,18 @@ impl Notation {
     pub fn is_pretty(self) -> bool {
         self == Notation::Pretty
     }
+}
+
+/// Where a piece of an item's pretty form sits relative to the line
+/// the expression is written on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Shift {
+    /// Full size, on the line: the `log` of `log₂(`, its bracket.
+    OnLine,
+    /// One script step up: the `-1` of `sin⁻¹(`.
+    Up,
+    /// One script step down: the `2` of `log₂(`.
+    Down,
 }
 
 /// Superscript form of one character, or `None` when Unicode has no
@@ -110,26 +139,22 @@ pub fn to_superscript(s: &str) -> Option<String> {
     s.chars().map(superscript_char).collect()
 }
 
-/// What a power looks like without its `^`: the exponent raised
-/// outright when every character of it has a superscript, and written
-/// at full size inside raised brackets when one of them does not.
+/// What a power looks like without its `^` on a one-line display: the
+/// exponent raised outright when every character of it has a
+/// superscript, and written at full size inside raised brackets when
+/// one of them does not.
 ///
 /// The brackets are the point — `2⁽π⁾` says "2 to the π" where a bare
 /// `2π` would say "2 times π", which is a different number. They are
 /// only reached by exponents Unicode cannot raise: a constant, a
-/// factorial, a decimal point, a function call.
+/// factorial, a decimal point, a function call. The main display,
+/// which can shrink a glyph instead of swapping it, never needs them.
 pub fn raise(exponent: &str) -> String {
     match to_superscript(exponent) {
         Some(raised) => raised,
         None => format!("{EXPONENT_OPEN}{exponent}{EXPONENT_CLOSE}"),
     }
 }
-
-/// The empty exponent slot, shown while the user has pressed a power
-/// key but not yet typed what to raise the base to. Standing in for a
-/// trailing `^`, which would otherwise be the one caret the pretty
-/// display still leaked.
-pub const EMPTY_EXPONENT: &str = "⁽⁾";
 
 const EXPONENT_OPEN: char = '⁽';
 const EXPONENT_CLOSE: char = '⁾';
@@ -141,10 +166,11 @@ pub fn to_subscript(s: &str) -> Option<String> {
 }
 
 /// What the base of a `log(base, value)` call looks like under the
-/// `log`: lowered outright when every character of it has a subscript,
-/// and written at full size inside lowered brackets when one of them
-/// does not. The mirror of [`raise`], and for the same reason — a base
-/// of `π` written as a bare `logπ(x)` would read as `log` times `π`.
+/// `log` on a one-line display: lowered outright when every character
+/// of it has a subscript, and written at full size inside lowered
+/// brackets when one of them does not. The mirror of [`raise`], and
+/// for the same reason — a base of `π` written as a bare `logπ(x)`
+/// would read as `log` times `π`.
 pub fn lower(base: &str) -> String {
     match to_subscript(base) {
         Some(lowered) => lowered,
@@ -152,44 +178,58 @@ pub fn lower(base: &str) -> String {
     }
 }
 
-/// The empty base slot, shown while a `log_y` call is waiting for its
-/// base. The lowered brackets are what tell the user that the digits
-/// they key next go *under* the log rather than into its argument —
-/// the display draws no cursor, so without them the base step would be
-/// invisible. Standing in the same place [`EMPTY_EXPONENT`] does for a
-/// power key pressed before its exponent.
-pub const EMPTY_BASE: &str = "₍₎";
-
 const BASE_OPEN: char = '₍';
 const BASE_CLOSE: char = '₎';
 
-/// Pretty glyphs for the items whose whole rendering is a substitution
-/// — the log bases and the inverse functions. Everything else (digits,
-/// operators, parens) renders the same in both notations, and the
-/// exponent after a `^` needs its span, so it goes through
-/// [`exponent_span`] in the renderer instead.
-pub fn pretty_display(it: &InputItem) -> String {
+/// The empty script slot: what a power shows before its exponent is
+/// typed, and what a two-argument call shows in the slot it draws
+/// outside its brackets — the `log_y` base, the root degree. Drawn
+/// small and off the line like anything else in that slot, so
+/// `log₍₎(8)` and `⁽⁾√(16)` say which slot the next digit lands in.
+/// The display draws no cursor of its own, so without them the base
+/// step would be invisible.
+pub const EMPTY_SLOT: &str = "()";
+
+/// The pieces an item is drawn as in pretty notation, each with where
+/// it sits. Covers the items whose whole rendering is a substitution —
+/// the log bases and the inverse functions; everything else (digits,
+/// operators, parens) renders the same in both notations and comes
+/// back as a single on-line piece.
+///
+/// The runs that have to be found rather than substituted are not
+/// here: an exponent needs [`exponent_span`] and a two-argument call
+/// needs [`argument_separator`], so both are the renderer's business.
+pub fn pretty_parts(it: &InputItem) -> Vec<(String, Shift)> {
     match it {
         // `root(x,n)` wears the radical the square and cube roots do —
         // it is the same operation with the degree spelled out, and
-        // `root` is the buffer's spelling, not a notation.
-        InputItem::BinaryFunc(BinaryFunc::Root) => "√(".to_string(),
-        InputItem::UnaryFunc(UnaryFunc::Log2) => "log₂(".to_string(),
-        InputItem::UnaryFunc(UnaryFunc::Log10) => "log₁₀(".to_string(),
-        InputItem::LogN(n) => {
-            let digits = n.to_string();
-            match to_subscript(&digits) {
-                Some(sub) => format!("log{sub}("),
-                None => it.display(),
-            }
-        }
+        // `root` is the buffer's spelling, not a notation. The degree
+        // itself is moved in front of the sign by the renderer, which
+        // is the only place that can see where it ends.
+        InputItem::BinaryFunc(BinaryFunc::Root) => vec![("√(".to_string(), Shift::OnLine)],
+        InputItem::UnaryFunc(UnaryFunc::Log2) => log_parts("2"),
+        InputItem::UnaryFunc(UnaryFunc::Log10) => log_parts("10"),
+        InputItem::LogN(n) => log_parts(&n.to_string()),
         // `sin-1`, `cosh-1`, … are stored with an ASCII `-1` suffix.
         InputItem::UnaryFunc(f) => match unary_func_name(*f).strip_suffix("-1") {
-            Some(base) => format!("{base}⁻¹("),
-            None => it.display(),
+            Some(base) => vec![
+                (base.to_string(), Shift::OnLine),
+                ("-1".to_string(), Shift::Up),
+                ("(".to_string(), Shift::OnLine),
+            ],
+            None => vec![(it.display(), Shift::OnLine)],
         },
-        _ => it.display(),
+        _ => vec![(it.display(), Shift::OnLine)],
     }
+}
+
+/// `log`, its base under it, and the bracket the argument opens.
+fn log_parts(base: &str) -> Vec<(String, Shift)> {
+    vec![
+        ("log".to_string(), Shift::OnLine),
+        (base.to_string(), Shift::Down),
+        ("(".to_string(), Shift::OnLine),
+    ]
 }
 
 /// Index of the comma separating the two arguments of the call opened
@@ -197,9 +237,11 @@ pub fn pretty_display(it: &InputItem) -> String {
 /// a call the user is still typing the first argument of, or the
 /// one-argument reading of `log(`, which is log10.
 ///
-/// For a `log(base, value)` that comma is where the base ends, which
-/// is what the display needs to know to lower it under the `log`, so
-/// both ends come from one walk of the items rather than two guesses.
+/// For a `log(base, value)` that comma is where the base ends and for
+/// a `root(value, degree)` it is where the degree starts, which is
+/// what the display needs to know to move either of them out of the
+/// brackets, so both ends come from one walk of the items rather than
+/// two guesses.
 pub fn argument_separator(items: &[InputItem], call_idx: usize) -> Option<usize> {
     if !matches!(
         items.get(call_idx),
@@ -242,8 +284,8 @@ pub fn argument_separator(items: &[InputItem], call_idx: usize) -> Option<usize>
 /// any leading signs, then one primary (a number, a constant or a
 /// bracketed group), then the postfix `!` / `%` that bind to it, and
 /// then — powers being right-associative — a chained `^` and whatever
-/// *it* raises. So `2^3π` covers only the `3`, the `π` being a factor
-/// of its own, while `2^2!` covers `2!` and `2^3^2` covers `3^2`:
+/// *it* raises. So `2^3π` covers only the `3` (the `π` being a factor
+/// of its own), while `2^2!` covers `2!` and `2^3^2` covers `3^2`:
 /// raising less than that would read as `(2²)!` and `(2³)²`, which are
 /// different numbers.
 pub fn exponent_span(items: &[InputItem], pow_idx: usize) -> Option<usize> {

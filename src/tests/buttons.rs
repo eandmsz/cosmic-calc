@@ -99,6 +99,79 @@ fn clear_flips_from_single_to_all_clear() {
 }
 
 #[test]
+fn c_takes_back_the_last_operand_and_leaves_the_rest() {
+    let (mut e, mut s, c) = fresh();
+    for b in [
+        Button::Num(1),
+        Button::Num(2),
+        Button::Add,
+        Button::Num(3),
+        Button::Num(4),
+    ] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    apply_button(&mut e, &mut s, &c, Button::Clear);
+    // Only the operand the user was in the middle of goes; what it was
+    // being added to stays on the line.
+    assert_eq!(e.input.display_string(), "12+");
+    assert_eq!(s.clear_mode, ClearMode::AllClear);
+    // And with the key flipped, the next press takes the rest.
+    apply_button(&mut e, &mut s, &c, Button::Clear);
+    assert!(e.input.is_empty());
+}
+
+#[test]
+fn c_on_an_operator_only_arms_the_all_clear() {
+    let (mut e, mut s, c) = fresh();
+    for b in [Button::Num(1), Button::Num(2), Button::Add] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    apply_button(&mut e, &mut s, &c, Button::Clear);
+    // There is no operand to take back — the operator is one backspace
+    // away — so the press is the key flipping to `AC` and nothing else.
+    assert_eq!(e.input.display_string(), "12+");
+    assert_eq!(s.clear_mode, ClearMode::AllClear);
+    apply_button(&mut e, &mut s, &c, Button::Clear);
+    assert!(e.input.is_empty());
+}
+
+#[test]
+fn c_takes_a_whole_call_back_as_one_operand() {
+    // An operand is not only a digit run: a bracketed group or a
+    // function call is one thing to the user, so it is one press to
+    // take back.
+    let (mut e, mut s, c) = fresh();
+    for b in [
+        Button::Num(2),
+        Button::Add,
+        Button::Num(3),
+        Button::Num(0),
+        Button::Sin,
+    ] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert_eq!(e.input.display_string(), "2+sin(30)");
+    apply_button(&mut e, &mut s, &c, Button::Clear);
+    assert_eq!(e.input.display_string(), "2+");
+}
+
+#[test]
+fn c_after_an_equals_takes_the_result_back() {
+    // The result is the only operand on the line, so one `C` clears
+    // the display — and the caption goes with it, there being no
+    // expression left for it to be the history of.
+    let (mut e, mut s, c) = fresh();
+    for b in [Button::Num(2), Button::Add, Button::Num(3), Button::Equals] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert_eq!(e.input.display_string(), "5");
+    assert_eq!(s.last_expression, "2+3");
+    apply_button(&mut e, &mut s, &c, Button::Clear);
+    assert!(e.input.is_empty());
+    assert!(s.last_expression.is_empty());
+}
+
+#[test]
 fn backspace_clears_flag_when_buffer_empties() {
     let (mut e, mut s, c) = fresh();
     apply_button(&mut e, &mut s, &c, Button::Num(9));
@@ -131,11 +204,65 @@ fn sqrt_with_no_operand_inserts_matched_pair() {
 fn y_root_x_closes_its_bracket() {
     let (mut e, mut s, c) = fresh();
     apply_button(&mut e, &mut s, &c, Button::YRootX);
-    // Same matched pair √ and ∛ insert, rather than an opener left
-    // hanging for the user to close by hand.
-    assert_eq!(e.input.display_string(), "root()");
+    // The same matched pair √ and ∛ insert, rather than an opener left
+    // hanging for the user to close by hand — plus the comma, which is
+    // what gives the degree a slot to be typed into.
+    assert_eq!(e.input.display_string(), "root(,)");
+    // The cursor starts in the radicand: that is what is written
+    // first, even though the degree is read first.
     apply_button(&mut e, &mut s, &c, Button::Num(8));
-    assert_eq!(e.input.display_string(), "root(8)");
+    assert_eq!(e.input.display_string(), "root(8,)");
+}
+
+#[test]
+fn y_root_x_opens_its_radicand_first_and_its_degree_after() {
+    // From nothing the radicand is typed first and `)` moves out to
+    // the degree in front of the sign, the way `logᵧ` moves out to its
+    // base. Before the comma went in up front the press left `root()`
+    // behind, `)` stepped clean out of the call, and the degree of a
+    // root started from an empty display could not be typed at all.
+    let (mut e, mut s, c) = fresh();
+    apply_button(&mut e, &mut s, &c, Button::YRootX);
+    apply_button(&mut e, &mut s, &c, Button::Num(8));
+    apply_button(&mut e, &mut s, &c, Button::RightParen);
+    // Between the comma and the closer: the degree slot, which the
+    // display draws as the empty brackets in front of the sign.
+    assert_eq!(e.input.cursor(), 3);
+    apply_button(&mut e, &mut s, &c, Button::Num(3));
+    assert_eq!(e.input.display_string(), "root(8,3)");
+    assert_eq!(e.evaluate().expect("cube root of 8").display, "2");
+    // And `)` from the degree leaves the call for good, so what
+    // follows is not swallowed by the degree.
+    apply_button(&mut e, &mut s, &c, Button::RightParen);
+    apply_button(&mut e, &mut s, &c, Button::Add);
+    assert_eq!(e.input.display_string(), "root(8,3)+");
+}
+
+#[test]
+fn closing_a_filled_radicand_leaves_the_root_call() {
+    // With the degree already typed there is no empty slot to move
+    // into, so `)` does what it does everywhere else: it closes the
+    // call and puts the cursor past it.
+    let (mut e, mut s, c) = fresh();
+    for b in [
+        Button::Num(1),
+        Button::Num(6),
+        Button::YRootX,
+        Button::Num(4),
+    ] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert_eq!(e.input.display_string(), "root(16,4)");
+    apply_button(&mut e, &mut s, &c, Button::CursorHome);
+    for _ in 0..3 {
+        apply_button(&mut e, &mut s, &c, Button::CursorRight);
+    }
+    // Cursor after the `6`, which is where the radicand's bracket is
+    // drawn.
+    apply_button(&mut e, &mut s, &c, Button::RightParen);
+    assert_eq!(e.input.cursor(), e.input.items().len());
+    apply_button(&mut e, &mut s, &c, Button::Add);
+    assert_eq!(e.input.display_string(), "root(16,4)+");
 }
 
 #[test]
