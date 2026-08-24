@@ -34,6 +34,20 @@
   </categories>
 
   <releases>
+    <release version="0.1.3" date="2026-08-24">
+      <description>
+        <ul>
+          <li>Arithmetic is done in base ten, so the numbers you type are the numbers that get added: 0.1 + 0.2 − 0.3 is 0 and 0.3 mod 0.1 is 0, where binary answered 5.55e-17 and a clean-looking, wrong 0.1</li>
+          <li>A result carried into the next calculation keeps the precision it was computed at rather than the fifteen digits it was shown to, so 1÷3 = ×3 = gives back 1</li>
+          <li>A first run opens on the Basic keypad; Scientific is one press of the top bar away, and whichever you leave it on is the one it opens on next time</li>
+          <li>The window size is remembered, written out a couple of seconds after you stop dragging rather than on every frame of the drag</li>
+          <li>With a side panel open the window can no longer be dragged in narrower than the calculator plus the panel, which used to leave the keypad with nothing</li>
+          <li>Opening or closing a side panel no longer flashes a frame of shifted buttons</li>
+          <li>A fractional exponent stays raised — 2¹·⁵ rather than 2⁽1.5⁾ — in whichever decimal separator is in use</li>
+          <li>logᵧ writes its base under the log, and shows the empty slot until you type one: log₍₎(8) becomes log₂(8)</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.1.2" date="2026-08-23">
       <description>
         <ul>

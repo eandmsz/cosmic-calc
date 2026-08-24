@@ -856,7 +856,7 @@ dependencies = [
 
 [[package]]
 name = "cosmic-calc"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "cosmic-calc-core",
  "fontdb",
@@ -866,7 +866,7 @@ dependencies = [
 
 [[package]]
 name = "cosmic-calc-core"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "dirs",
  "libm",
