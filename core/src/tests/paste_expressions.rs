@@ -133,7 +133,13 @@ fn long_mixed_expressions_round_trip() {
         shown,
         "√(sin-1(1)+tan-1(1))∛(8)root(16,4)3π×2×10^2×10^8 mod 3"
     );
-    assert_eq!(value, "0.0009765625");
+    // The product is 8760481940103.00054 at the working precision, and
+    // what survives `mod 3` is its fractional tail — a residue of
+    // where the arithmetic ran out of digits, not of the mathematics.
+    // In binary that tail was 0.0009765625, which is 2⁻¹⁰ and just as
+    // much an artifact; in decimal the digits that are left are
+    // decimal ones.
+    assert_eq!(value, "0.00054");
 }
 
 #[test]
@@ -196,10 +202,10 @@ fn the_two_constant_formula_matches_to_the_last_representable_digit() {
     #[allow(clippy::excessive_precision)]
     let expected = 111.427158726630384_f64;
     let one_ulp = expected.next_up() - expected;
+    let value = out.value.to_f64();
     assert!(
-        (out.value - expected).abs() <= one_ulp,
-        "{} is more than one ulp from {expected}",
-        out.value
+        (value - expected).abs() <= one_ulp,
+        "{value} is more than one ulp from {expected}"
     );
     assert_eq!(out.display, "111.42715872663");
 }

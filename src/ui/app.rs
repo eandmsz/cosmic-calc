@@ -22,7 +22,7 @@ use crate::memory::Memory;
 use crate::props::{check_all, parse_simple_nonneg_int, NumberProperty};
 use crate::theme::{apply_cosmic_override, Theme, ThemeKind};
 use crate::ui::buttons::{
-    apply_resolved_button, insert_number_string, resolve_for_keyboard, toggled_angle_mode,
+    apply_resolved_button, insert_exact_value, resolve_for_keyboard, toggled_angle_mode,
     toggled_layout, Button, ButtonEffect, ClearMode, MemoryOp, UiState,
 };
 use crate::ui::cosmic_bridge::override_from_cosmic;
@@ -105,6 +105,9 @@ pub enum Message {
     /// Timer tick that writes a pending config change to disk. See
     /// `AppModel::config_dirty`.
     PersistConfig,
+    /// Timer tick that checks whether a window resize has settled. See
+    /// `AppModel::window_size_pending`.
+    WindowSizeSettled,
 }
 
 /// Application state. Engine owns the input buffer; `ui` holds the
@@ -152,6 +155,20 @@ pub struct AppModel {
     /// width the window reports, so a window the user widened by
     /// dragging its edge keeps that width when the panel goes.
     bare_width: f32,
+    /// Which side panels are actually on screen. Lags `ui`'s two
+    /// toggles by one resize round trip — see [`PanelsShown`].
+    panels_shown: PanelsShown,
+    /// Set while the window has a size that has not reached
+    /// `config.window_startup_*` yet. A drag of the window edge
+    /// reports a size per frame; writing each one would mean a
+    /// `config.toml` write per frame, so the size is held here and the
+    /// timer below commits it once the dragging stops. Both the flag
+    /// and the timer clear themselves, so an idle window costs
+    /// nothing.
+    window_size_pending: bool,
+    /// When the last differing window size arrived. The settle check
+    /// measures from here.
+    last_resize_at: Option<std::time::Instant>,
     /// Set once the font warm-up has been started, which stops the
     /// timer that starts it. The warm-up waits for the window to be up
     /// and idle rather than running from `init`: it wants the same font
@@ -190,12 +207,74 @@ impl AppModel {
 
     /// Flush from a `&self` context (the close handler). Skips the
     /// dirty-flag reset because the process is about to end.
+    ///
+    /// A window size still waiting out its settle delay is written too:
+    /// resizing a window and closing it straight away is an ordinary
+    /// thing to do, and the size the user left it at is the one they
+    /// meant to keep.
     fn save_pending_config(&self) {
-        if !self.config_dirty {
+        if !self.config_dirty && !self.window_size_pending {
             return;
         }
-        if let Err(e) = self.config.save() {
+        let mut config = self.config.clone();
+        Self::commit_window_size(&mut config, self.window_size_to_persist());
+        if let Err(e) = config.save() {
             eprintln!("cosmic-calc: failed to save config: {e}");
+        }
+    }
+
+    /// The startup size the current window geometry amounts to. The
+    /// width is `bare_width`, not the window's: a panel's share of the
+    /// width belongs to the panel, and opening as wide as the
+    /// calculator *plus* a panel that is no longer open would grow the
+    /// window a little every session.
+    fn window_size_to_persist(&self) -> (u32, u32) {
+        (
+            round_window_dim(self.bare_width),
+            round_window_dim(self.window_height),
+        )
+    }
+
+    /// Move the pending size into `config`, and say whether it changed
+    /// anything.
+    fn commit_window_size(config: &mut Config, (width, height): (u32, u32)) -> bool {
+        let changed =
+            config.window_startup_width != width || config.window_startup_height != height;
+        config.window_startup_width = width;
+        config.window_startup_height = height;
+        config.validate_and_clamp();
+        changed
+    }
+
+    /// Note that the window reported a size. Starts (or restarts) the
+    /// settle delay when it differs from what the config would open at.
+    fn note_window_size(&mut self) {
+        let (width, height) = self.window_size_to_persist();
+        if width != self.config.window_startup_width || height != self.config.window_startup_height
+        {
+            self.window_size_pending = true;
+            self.last_resize_at = Some(std::time::Instant::now());
+        }
+    }
+
+    /// Timer tick: commit the window size once it has held still long
+    /// enough that the user is plainly done dragging.
+    fn commit_window_size_if_settled(&mut self) {
+        if !self.window_size_pending {
+            return;
+        }
+        let settled = self
+            .last_resize_at
+            .map(|t| t.elapsed() >= WINDOW_SIZE_SETTLE)
+            .unwrap_or(true);
+        if !settled {
+            return;
+        }
+        self.window_size_pending = false;
+        self.last_resize_at = None;
+        let size = self.window_size_to_persist();
+        if Self::commit_window_size(&mut self.config, size) {
+            self.persist();
         }
     }
 
@@ -203,6 +282,12 @@ impl AppModel {
     /// rather than propagated – the settings panel keeps working even
     /// if the filesystem is read-only.
     fn flush_config(&mut self) {
+        if self.window_size_pending {
+            self.window_size_pending = false;
+            self.last_resize_at = None;
+            let size = self.window_size_to_persist();
+            self.config_dirty |= Self::commit_window_size(&mut self.config, size);
+        }
         if !self.config_dirty {
             return;
         }
@@ -306,7 +391,7 @@ impl AppModel {
                     // number the app shows.
                     let shown =
                         crate::engine::format::format_result(v, self.engine.significant_digits);
-                    insert_number_string(&mut self.engine, &shown);
+                    insert_exact_value(&mut self.engine, &shown, v);
                 }
             }
             ButtonEffect::MemoryStore(op) => {
@@ -321,16 +406,35 @@ impl AppModel {
         Task::none()
     }
 
-    /// Total width the open side panels occupy, gaps included.
+    /// Total width the side panels currently on screen occupy, gaps
+    /// included.
     fn panels_width(&self) -> f32 {
-        let mut width = 0.0;
-        if self.ui.history_panel_open {
-            width += crate::ui::panels::HISTORY_PANEL_WIDTH + crate::ui::panels::PANEL_SPACING;
+        self.panels_shown.width()
+    }
+
+    /// The panels the user has asked for, which is what the next
+    /// resize sizes the window against.
+    fn wanted_panels(&self) -> PanelsShown {
+        PanelsShown {
+            history: self.ui.history_panel_open,
+            settings: self.ui.settings_panel_open,
         }
-        if self.ui.settings_panel_open {
-            width += crate::ui::panels::SETTINGS_PANEL_WIDTH + crate::ui::panels::PANEL_SPACING;
-        }
-        width
+    }
+
+    /// Smallest window the calculator stays usable in with `panels`
+    /// docked beside it: the keypad's own floor plus the width those
+    /// panels take out of the window.
+    ///
+    /// Without the second term the floor only covered the keypad, so
+    /// with a panel open the window could be dragged in until the
+    /// panel had the whole width and the calculator none — the limit
+    /// was being enforced against a width the calculator did not have.
+    ///
+    /// A floor wider than the screen would be worse than none, so a
+    /// known monitor width caps it.
+    fn min_window_size(&self, panels: PanelsShown, monitor_width: Option<f32>) -> (f32, f32) {
+        let (keypad_min_w, min_h) = crate::ui::keypad::min_window_size(&self.config);
+        (min_window_width(keypad_min_w, panels, monitor_width), min_h)
     }
 
     /// Width left for the calculator column itself. The panels are
@@ -364,7 +468,10 @@ impl AppModel {
     /// window that has since been dragged to another screen honest.
     fn request_panel_resize(&self) -> Task<Message> {
         let Some(id) = self.core.main_window_id() else {
-            return Task::none();
+            // No window to measure, but the toggle still has to reach
+            // `apply_panel_resize` — that is what puts the panel on
+            // screen.
+            return Task::done(cosmic::action::app(Message::PanelGeometry(None)));
         };
         cosmic::iced::window::monitor_size(id)
             .map(|size| cosmic::action::app(Message::PanelGeometry(size.map(|s| s.width))))
@@ -381,11 +488,8 @@ impl AppModel {
     /// unclamped — the compositor still refuses anything it cannot
     /// honour.
     fn apply_panel_resize(&mut self, monitor_width: Option<f32>) -> Task<Message> {
-        let Some(id) = self.core.main_window_id() else {
-            return Task::none();
-        };
-        let wanted = self.panels_width();
-        let delta = wanted - self.panel_width_added;
+        let wanted = self.wanted_panels();
+        let delta = wanted.width() - self.panel_width_added;
         let change = if delta > 0.0 {
             let headroom = monitor_width
                 .map(|screen| (screen - self.window_width).max(0.0))
@@ -396,16 +500,31 @@ impl AppModel {
             // widened themselves keeps that width when the panel goes.
             delta.max(-self.panel_width_added)
         };
-        let min_width = crate::ui::keypad::min_window_size(&self.config).0;
+        let (min_width, min_height) = self.min_window_size(wanted, monitor_width);
         let new_width = (self.window_width + change).max(min_width);
-        if (new_width - self.window_width).abs() < 0.5 {
+        // Put the panel on screen (or take it off) in the same update
+        // that changes the width it is sized against. Drawing it any
+        // earlier would lay the calculator out inside the width the
+        // window is about to grow past, and the keypad would visibly
+        // shrink and spring back — one frame of buttons in the wrong
+        // places on every press of the Settings key.
+        self.panels_shown = wanted;
+        let Some(id) = self.core.main_window_id() else {
             return Task::none();
+        };
+        // The floor moves with the panels: while one is docked the
+        // window may not be dragged in past the calculator's own
+        // minimum plus the panel's width.
+        let limits = cosmic::iced::window::set_min_size(id, Some(Size::new(min_width, min_height)));
+        if (new_width - self.window_width).abs() < 0.5 {
+            return limits;
         }
         // Lay out against the width we asked for right away; the
         // resync below replaces it with the width the window really
         // ended up at, whether that is this one or not.
         self.adopt_window_width(new_width);
         Task::batch([
+            limits,
             cosmic::iced::window::resize(id, Size::new(new_width, self.window_height)),
             Task::done(cosmic::action::app(Message::ResyncWindowSize)),
         ])
@@ -501,6 +620,9 @@ impl Application for AppModel {
             flashing_button: None,
             panel_width_added: 0.0,
             bare_width: window_width,
+            panels_shown: PanelsShown::default(),
+            window_size_pending: false,
+            last_resize_at: None,
             fonts_preloaded: false,
             config_dirty: false,
         };
@@ -657,6 +779,7 @@ impl Application for AppModel {
             Message::WindowResized(w, h) => {
                 self.adopt_window_width(w);
                 self.window_height = h;
+                self.note_window_size();
             }
             Message::PanelGeometry(monitor_width) => return self.apply_panel_resize(monitor_width),
             Message::ResyncWindowSize => {
@@ -677,6 +800,7 @@ impl Application for AppModel {
                 crate::ui::font::preload_renderer_fonts();
             }
             Message::PersistConfig => self.flush_config(),
+            Message::WindowSizeSettled => self.commit_window_size_if_settled(),
         }
         Task::none()
     }
@@ -748,8 +872,12 @@ impl Application for AppModel {
         // right. Pushing them into a Row beside the main column means
         // toggling either one widens the window's logical content
         // instead of stacking vertically below the keypad.
-        let history_open = self.ui.history_panel_open;
-        let settings_open = self.ui.settings_panel_open;
+        //
+        // Drawn from `panels_shown` rather than the toggles themselves,
+        // so a panel appears in the frame that the window has the width
+        // for it — see `apply_panel_resize`.
+        let history_open = self.panels_shown.history;
+        let settings_open = self.panels_shown.settings;
         if !history_open && !settings_open {
             return main_column.into();
         }
@@ -779,14 +907,20 @@ impl Application for AppModel {
     }
 
     fn subscription(&self) -> cosmic::iced::Subscription<Self::Message> {
-        // Both timers stop themselves: the persist tick only runs while
-        // a write is pending, and the preload tick only until it has
-        // fired once. An idle calculator stays idle.
+        // Every timer here stops itself: the persist tick only runs
+        // while a write is pending, the settle tick only while a window
+        // size is waiting to be written, and the preload tick only
+        // until it has fired once. An idle calculator stays idle.
         let mut subs = vec![crate::ui::keys::subscription()];
         if self.config_dirty {
             subs.push(
                 cosmic::iced::time::every(std::time::Duration::from_millis(400))
                     .map(|_| Message::PersistConfig),
+            );
+        }
+        if self.window_size_pending {
+            subs.push(
+                cosmic::iced::time::every(WINDOW_SIZE_POLL).map(|_| Message::WindowSizeSettled),
             );
         }
         if !self.fonts_preloaded {
@@ -1259,6 +1393,70 @@ struct DisplayMetrics {
 /// enough that the settings panel is warm before a user is likely to
 /// reach for it.
 const PRELOAD_FONTS_DELAY: std::time::Duration = std::time::Duration::from_millis(750);
+
+/// How long a window size has to hold still before it is written to
+/// `config.toml`. A drag of the window edge reports a size per frame,
+/// and none of the sizes on the way to the one the user wants is worth
+/// a write.
+const WINDOW_SIZE_SETTLE: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// How often the settle check runs while a size is waiting. Only
+/// subscribed while there is something to wait for, so this is a timer
+/// during a resize and nothing at all the rest of the time.
+const WINDOW_SIZE_POLL: std::time::Duration = std::time::Duration::from_millis(500);
+
+/// Smallest window width that leaves `keypad_min` for the calculator
+/// with `panels` docked beside it. Capped at a known monitor width: a
+/// floor wider than the screen is one the user could never satisfy, so
+/// on a screen too narrow for both panels the calculator column is the
+/// one that gives way, exactly as it does when the compositor refuses
+/// to widen the window.
+pub fn min_window_width(keypad_min: f32, panels: PanelsShown, monitor_width: Option<f32>) -> f32 {
+    let wanted = keypad_min + panels.width();
+    match monitor_width {
+        Some(screen) => wanted.min(screen.max(keypad_min)),
+        None => wanted,
+    }
+}
+
+/// Round a logical-pixel dimension to the whole pixels `config.toml`
+/// stores. Negative or absurd values cannot reach the file: the config
+/// clamps what it is given.
+fn round_window_dim(v: f32) -> u32 {
+    if !v.is_finite() || v <= 0.0 {
+        return 0;
+    }
+    v.round() as u32
+}
+
+/// Which side panels are on screen, as opposed to which ones the user
+/// has asked for.
+///
+/// The two differ for exactly as long as it takes the window to change
+/// width around a toggle. A panel drawn before the window has grown
+/// would be laid out inside the width the window is about to give it,
+/// squeezing the calculator column for a frame or two and then letting
+/// it spring back — which is what the flash of shifted buttons on a
+/// panel toggle was.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct PanelsShown {
+    pub history: bool,
+    pub settings: bool,
+}
+
+impl PanelsShown {
+    /// Width these panels take out of the window, their gaps included.
+    pub fn width(self) -> f32 {
+        let mut width = 0.0;
+        if self.history {
+            width += crate::ui::panels::HISTORY_PANEL_WIDTH + crate::ui::panels::PANEL_SPACING;
+        }
+        if self.settings {
+            width += crate::ui::panels::SETTINGS_PANEL_WIDTH + crate::ui::panels::PANEL_SPACING;
+        }
+        width
+    }
+}
 
 /// Split a window width into the part the calculator column has on its
 /// own and the part the open side panels hold, returning

@@ -24,11 +24,23 @@ fn power(exponent: &[InputItem]) -> Vec<InputItem> {
 fn raising_is_all_or_nothing() {
     assert_eq!(to_superscript("-12").as_deref(), Some("⁻¹²"));
     assert_eq!(to_superscript("(3+4)").as_deref(), Some("⁽³⁺⁴⁾"));
-    // No superscript `×`, `!`, `.` or `^` exists, so a run holding one
-    // has no raised form at all rather than a partial one.
-    for flat in ["3×4", "2!", "1.5", "2^2"] {
+    // No superscript `×`, `!` or `^` exists, so a run holding one has
+    // no raised form at all rather than a partial one.
+    for flat in ["3×4", "2!", "2^2"] {
         assert_eq!(to_superscript(flat), None, "{flat:?} should not raise");
     }
+}
+
+#[test]
+fn a_decimal_exponent_stays_raised() {
+    // Both separators the display can be set to raise, so a fractional
+    // exponent is not dropped back to full size over its point.
+    assert_eq!(to_superscript("1.5").as_deref(), Some("¹·⁵"));
+    assert_eq!(to_superscript("1,5").as_deref(), Some("¹ʼ⁵"));
+    assert_eq!(to_superscript("0.25").as_deref(), Some("⁰·²⁵"));
+    // And the raised separator is not the multiplication sign this
+    // display uses, so `2¹·⁵` cannot be read as `2¹ × 5`.
+    assert!(!to_superscript("1.5").unwrap().contains('×'));
 }
 
 #[test]
@@ -150,11 +162,71 @@ fn a_power_reads_without_its_caret() {
     // `π` has no superscript, and a bare `2π` would read as 2×π.
     assert_eq!(raise("π"), "⁽π⁾");
     assert_eq!(raise("2!"), "⁽2!⁾");
-    assert_eq!(raise("1.5"), "⁽1.5⁾");
+    // A decimal exponent raises whole — brackets are for what Unicode
+    // has no raised glyph for, and the separators now have one.
+    assert_eq!(raise("1.5"), "¹·⁵");
     // Neither form is ever a caret.
     for exponent in ["35", "-3", "(3+4)", "π", "2!", "1.5"] {
         assert!(!raise(exponent).contains('^'), "{exponent}");
     }
+}
+
+#[test]
+fn a_log_base_reads_under_its_log() {
+    // The mirror of `raise`: lowered outright where Unicode has the
+    // glyphs, in lowered brackets where it does not.
+    assert_eq!(lower("2"), "₂");
+    assert_eq!(lower("10"), "₁₀");
+    assert_eq!(lower("π"), "₍π₎");
+    assert_eq!(lower("1.5"), "₍1.5₎");
+    // The empty slot says a base is expected without claiming one.
+    assert_eq!(EMPTY_BASE, "₍₎");
+}
+
+#[test]
+fn the_argument_separator_finds_the_comma_that_ends_the_base() {
+    let call = |items: Vec<InputItem>| {
+        let mut all = vec![InputItem::BinaryFunc(BinaryFunc::LogBase)];
+        all.extend(items);
+        all
+    };
+
+    // `log(2,8)`: the base ends at the comma.
+    let items = call(vec![
+        InputItem::Digit('2'),
+        InputItem::Comma,
+        InputItem::Digit('8'),
+        InputItem::RightParen,
+    ]);
+    assert_eq!(argument_separator(&items, 0), Some(2));
+
+    // An empty base slot is still a slot.
+    let items = call(vec![
+        InputItem::Comma,
+        InputItem::Digit('8'),
+        InputItem::RightParen,
+    ]);
+    assert_eq!(argument_separator(&items, 0), Some(1));
+
+    // A comma belonging to a nested call is not this one's.
+    let items = call(vec![
+        InputItem::BinaryFunc(BinaryFunc::Root),
+        InputItem::Digit('9'),
+        InputItem::Comma,
+        InputItem::Digit('2'),
+        InputItem::RightParen,
+        InputItem::Comma,
+        InputItem::Digit('8'),
+        InputItem::RightParen,
+    ]);
+    assert_eq!(argument_separator(&items, 0), Some(6));
+
+    // One argument and no comma is the log10 reading, not a base.
+    let items = call(vec![InputItem::Digit('8'), InputItem::RightParen]);
+    assert_eq!(argument_separator(&items, 0), None);
+
+    // And an index that is not a log call at all.
+    assert_eq!(argument_separator(&digits("12"), 0), None);
 }
 
 #[test]

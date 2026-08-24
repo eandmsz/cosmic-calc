@@ -12,6 +12,7 @@
 //! missing right parentheses at end of input.
 
 use crate::engine::ast::Node;
+use crate::engine::decimal::Decimal;
 use crate::engine::errors::CalcError;
 use crate::engine::item::{BinOp, BinaryFunc, UnaryFunc};
 use crate::engine::tokenizer::Token;
@@ -275,7 +276,7 @@ impl Parser {
         Ok(Node::BinaryFn(BinaryFunc::Root, Box::new(a), Box::new(b)))
     }
 
-    fn parse_logn_call(&mut self, base: f64) -> Result<Node, CalcError> {
+    fn parse_logn_call(&mut self, base: Decimal) -> Result<Node, CalcError> {
         if matches!(self.peek(), Some(Token::LParen)) {
             self.advance();
             let arg = self.parse_expr()?;

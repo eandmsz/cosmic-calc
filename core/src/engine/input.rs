@@ -3,8 +3,28 @@
 //! keystroke calls `insert` at the cursor, backspace calls
 //! `delete_before`, and the cursor can be moved arbitrarily so items
 //! can be inserted mid-expression.
+//!
+//! One thing rides alongside the items: an [`ExactRun`] per digit run
+//! that the calculator itself wrote (the result `=` leaves behind, a
+//! memory recall) recording the value it was rounded from. The digits
+//! are what the user sees and edits; the value is what evaluation
+//! reads, so a result carried into the next calculation keeps all
+//! eighteen of the digits it was computed to rather than the fifteen
+//! of them that fit on screen. Any edit that reaches into the run
+//! drops its annotation, and the digits stand on their own again.
 
+use crate::engine::decimal::Decimal;
 use crate::engine::item::InputItem;
+
+/// A digit run the calculator wrote, and the exact value behind it.
+/// `start..end` is a half-open item range; `value` is what the run's
+/// digits were rounded from.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct ExactRun {
+    start: usize,
+    end: usize,
+    value: Decimal,
+}
 
 /// Direction passed to InputBuffer::move_cursor.
 #[derive(Debug, Clone, Copy)]
@@ -20,6 +40,9 @@ pub enum CursorMove {
 pub struct InputBuffer {
     items: Vec<InputItem>,
     cursor: usize,
+    /// Digit runs whose exact value is still known. See the module
+    /// docs; kept sorted by `start` and never overlapping.
+    exact: Vec<ExactRun>,
 }
 
 impl InputBuffer {
@@ -33,10 +56,12 @@ impl InputBuffer {
     pub fn replace(&mut self, items: Vec<InputItem>) {
         self.items = items;
         self.cursor = self.items.len();
+        self.exact.clear();
     }
 
     /// Insert an item at the cursor and advance past it.
     pub fn insert(&mut self, item: InputItem) {
+        self.note_insert(self.cursor, &item);
         self.items.insert(self.cursor, item);
         self.cursor += 1;
     }
@@ -45,6 +70,7 @@ impl InputBuffer {
     pub fn delete_before(&mut self) {
         if self.cursor > 0 {
             self.cursor -= 1;
+            self.note_removal(self.cursor);
             self.items.remove(self.cursor);
         }
     }
@@ -55,6 +81,7 @@ impl InputBuffer {
     /// last operand in a prefix/suffix pair.
     pub fn insert_at(&mut self, idx: usize, item: InputItem) {
         let idx = idx.min(self.items.len());
+        self.note_insert(idx, &item);
         self.items.insert(idx, item);
         if self.cursor >= idx {
             self.cursor += 1;
@@ -154,6 +181,7 @@ impl InputBuffer {
         if start == end {
             return;
         }
+        self.note_range_removal(start, end);
         self.items.drain(start..end);
         let removed = end - start;
         if self.cursor >= end {
@@ -167,6 +195,7 @@ impl InputBuffer {
     pub fn clear(&mut self) {
         self.items.clear();
         self.cursor = 0;
+        self.exact.clear();
     }
 
     /// Move the cursor according to `dir`, clamping at boundaries.
@@ -214,7 +243,12 @@ impl InputBuffer {
     /// Mutable access to the underlying item slice. Intended only for
     /// the button dispatcher's wrap / substitute operations – prefer
     /// the structured methods where possible.
+    ///
+    /// Edits made through here cannot be tracked, so every exact-value
+    /// annotation is dropped: the digits on screen become the whole
+    /// truth again, which is the safe direction to be wrong in.
     pub fn items_mut(&mut self) -> &mut Vec<InputItem> {
+        self.exact.clear();
         &mut self.items
     }
 
@@ -225,46 +259,157 @@ impl InputBuffer {
         self.cursor = idx.min(self.items.len());
     }
 
+    // -----------------------------------------------------------------
+    // Exact-value annotations
+    // -----------------------------------------------------------------
+
+    /// Record that the items in `start..end` were written from `value`
+    /// — the digits of a result or a memory recall, rounded to what
+    /// the display shows. Evaluation then reads `value` instead of
+    /// re-parsing those digits, so `1÷3` carried into `×3` gives back
+    /// the 1 it came from rather than 0.999999999999999.
+    ///
+    /// Runs the new one overlaps are dropped: one span of items has
+    /// one value behind it.
+    pub fn mark_exact(&mut self, start: usize, end: usize, value: Decimal) {
+        if start >= end || end > self.items.len() {
+            return;
+        }
+        self.exact.retain(|r| r.end <= start || r.start >= end);
+        self.exact.push(ExactRun { start, end, value });
+        self.exact.sort_by_key(|r| r.start);
+    }
+
+    /// Drop every exact-value annotation, leaving the digits to speak
+    /// for themselves.
+    pub fn forget_exact(&mut self) {
+        self.exact.clear();
+    }
+
+    /// Fix up the annotations for an insertion of one item at `idx`.
+    /// A digit or point landing anywhere in `start..=end` grows the
+    /// run it lands in, and any other item landing strictly inside
+    /// splits it — either way the digits no longer spell the value, so
+    /// the annotation goes. Insertions outside just shift the range.
+    fn note_insert(&mut self, idx: usize, item: &InputItem) {
+        let extends_run = matches!(item, InputItem::Digit(_) | InputItem::DecimalPoint);
+        self.exact.retain(|r| {
+            if extends_run {
+                !(idx >= r.start && idx <= r.end)
+            } else {
+                !(idx > r.start && idx < r.end)
+            }
+        });
+        for r in &mut self.exact {
+            if idx <= r.start {
+                r.start += 1;
+                r.end += 1;
+            }
+        }
+    }
+
+    /// Fix up the annotations for the removal of the single item at
+    /// `idx`: a run losing one of its own digits loses its value too.
+    fn note_removal(&mut self, idx: usize) {
+        self.note_range_removal(idx, idx + 1);
+    }
+
+    /// Same for a removed half-open range.
+    fn note_range_removal(&mut self, start: usize, end: usize) {
+        if start >= end {
+            return;
+        }
+        let removed = end - start;
+        self.exact.retain(|r| r.end <= start || r.start >= end);
+        for r in &mut self.exact {
+            if r.start >= end {
+                r.start -= removed;
+                r.end -= removed;
+            }
+        }
+    }
+
+    /// The ASCII expression the evaluator is handed: as
+    /// [`InputBuffer::ascii_expression`], but with every digit run
+    /// whose exact value is still known replaced by that value in
+    /// full. What the user sees is unchanged; what is computed from
+    /// stops losing a digit per round trip.
+    pub fn ascii_expression_for_eval(&self) -> String {
+        if self.exact.is_empty() {
+            return self.ascii_expression();
+        }
+        let mut out = String::new();
+        let mut i = 0;
+        while i < self.items.len() {
+            match self.exact.iter().find(|r| r.start == i) {
+                Some(run) => {
+                    // Bracketed when negative: the span it replaces may
+                    // have carried its own `(-x)` brackets, and a bare
+                    // `-` where an operand belongs reads as a sign the
+                    // parser has to re-derive.
+                    if run.value.is_negative() {
+                        out.push('(');
+                        out.push_str(&run.value.to_literal());
+                        out.push(')');
+                    } else {
+                        out.push_str(&run.value.to_literal());
+                    }
+                    i = run.end;
+                }
+                None => {
+                    push_ascii(&mut out, &self.items[i]);
+                    i += 1;
+                }
+            }
+        }
+        out
+    }
+
     /// Render the input as an ASCII expression suitable for the
     /// tokenizer/parser pipeline. '×' becomes '*', '÷' becomes '/', π
     /// becomes 'pi', 𝑒 becomes 'e', √/∛ become function calls.
     pub fn ascii_expression(&self) -> String {
-        use crate::engine::item::{unary_func_name, BinOp, BinaryFunc, ConstKind, UnaryFunc};
         let mut s = String::new();
         for it in &self.items {
-            match it {
-                InputItem::Digit(c) => s.push(*c),
-                InputItem::DecimalPoint => s.push('.'),
-                InputItem::BinOp(BinOp::Add) => s.push('+'),
-                InputItem::BinOp(BinOp::Sub) => s.push('-'),
-                InputItem::BinOp(BinOp::Mul) | InputItem::AutoMul => s.push('*'),
-                InputItem::BinOp(BinOp::Div) => s.push('/'),
-                InputItem::BinOp(BinOp::Pow) => s.push('^'),
-                InputItem::Percent => s.push('%'),
-                InputItem::Modulo => s.push_str(" mod "),
-                InputItem::Factorial => s.push('!'),
-                InputItem::UnaryFunc(UnaryFunc::Sqrt) => s.push_str("sqrt("),
-                InputItem::UnaryFunc(UnaryFunc::Cbrt) => s.push_str("cbrt("),
-                InputItem::UnaryFunc(f) => {
-                    s.push_str(unary_func_name(*f));
-                    s.push('(');
-                }
-                InputItem::BinaryFunc(BinaryFunc::LogBase) => s.push_str("log("),
-                InputItem::BinaryFunc(BinaryFunc::Root) => s.push_str("root("),
-                InputItem::LogN(n) => s.push_str(&format!("log{}(", n)),
-                InputItem::Constant(ConstKind::Pi) => s.push_str("pi"),
-                // The italic `𝑒`, not a bare ASCII `e`. The tokenizer
-                // accepts both, but its number scanner absorbs
-                // `<digits>e<digits>` as an exponent — so a buffer of
-                // [3, 𝑒, 5] serialised to "3e5" and evaluated as
-                // 300000 while the display read 3·𝑒·5. `𝑒` is only ever
-                // the constant, so the round-trip cannot go wrong.
-                InputItem::Constant(ConstKind::E) => s.push('𝑒'),
-                InputItem::LeftParen => s.push('('),
-                InputItem::RightParen => s.push(')'),
-                InputItem::Comma => s.push(','),
-            }
+            push_ascii(&mut s, it);
         }
         s
+    }
+}
+
+/// The tokenizer's spelling of one item, appended to `out`.
+fn push_ascii(s: &mut String, it: &InputItem) {
+    use crate::engine::item::{unary_func_name, BinOp, BinaryFunc, ConstKind, UnaryFunc};
+    match it {
+        InputItem::Digit(c) => s.push(*c),
+        InputItem::DecimalPoint => s.push('.'),
+        InputItem::BinOp(BinOp::Add) => s.push('+'),
+        InputItem::BinOp(BinOp::Sub) => s.push('-'),
+        InputItem::BinOp(BinOp::Mul) | InputItem::AutoMul => s.push('*'),
+        InputItem::BinOp(BinOp::Div) => s.push('/'),
+        InputItem::BinOp(BinOp::Pow) => s.push('^'),
+        InputItem::Percent => s.push('%'),
+        InputItem::Modulo => s.push_str(" mod "),
+        InputItem::Factorial => s.push('!'),
+        InputItem::UnaryFunc(UnaryFunc::Sqrt) => s.push_str("sqrt("),
+        InputItem::UnaryFunc(UnaryFunc::Cbrt) => s.push_str("cbrt("),
+        InputItem::UnaryFunc(f) => {
+            s.push_str(unary_func_name(*f));
+            s.push('(');
+        }
+        InputItem::BinaryFunc(BinaryFunc::LogBase) => s.push_str("log("),
+        InputItem::BinaryFunc(BinaryFunc::Root) => s.push_str("root("),
+        InputItem::LogN(n) => s.push_str(&format!("log{}(", n)),
+        InputItem::Constant(ConstKind::Pi) => s.push_str("pi"),
+        // The italic `𝑒`, not a bare ASCII `e`. The tokenizer
+        // accepts both, but its number scanner absorbs
+        // `<digits>e<digits>` as an exponent — so a buffer of
+        // [3, 𝑒, 5] serialised to "3e5" and evaluated as
+        // 300000 while the display read 3·𝑒·5. `𝑒` is only ever
+        // the constant, so the round-trip cannot go wrong.
+        InputItem::Constant(ConstKind::E) => s.push('𝑒'),
+        InputItem::LeftParen => s.push('('),
+        InputItem::RightParen => s.push(')'),
+        InputItem::Comma => s.push(','),
     }
 }

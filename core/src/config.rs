@@ -6,7 +6,8 @@
 //! never crash on a bad file.
 //!
 //! Defaults: 15 significant digits on the display, a 300 × 700 startup
-//! window, the Cosmic theme, and an OS-detected decimal separator.
+//! window, the Basic keypad, the Cosmic theme, and an OS-detected
+//! decimal separator.
 
 use std::fs;
 use std::io;
@@ -66,13 +67,18 @@ pub const DEFAULT_FONT: &str = "Adwaita Sans";
 // Enums
 // ---------------------------------------------------------------------
 
-/// Which keypad is on screen. `Scientific` is the 8×5 grid,
+/// Which keypad is on screen. `Scientific` is the 9×5 grid,
 /// `Basic` the 4×5 one; [`crate::layout`] holds what goes in either.
+///
+/// A first run — no `config.toml` yet — opens on `Basic`: it is the
+/// keypad most of what a calculator is asked for needs, and the
+/// scientific one is a button press away on the top bar. An existing
+/// config keeps whatever the user last had on screen.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Mode {
-    Basic,
     #[default]
+    Basic,
     Scientific,
 }
 

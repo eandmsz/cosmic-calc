@@ -347,6 +347,79 @@ fn exponents_are_never_digit_grouped() {
 }
 
 #[test]
+fn a_decimal_exponent_is_raised_like_any_other() {
+    // The separator raises with the digits, in whichever glyph the
+    // locale is set to. Before this the point dropped the exponent
+    // back to full size inside brackets — `2⁽1.5⁾` — and the power
+    // stopped reading as a power.
+    let items = power("2", &digits("1.5"));
+    assert_eq!(render_str(&items, DecimalSeparator::Dot, None), "2¹·⁵");
+    assert_eq!(render_str(&items, DecimalSeparator::Comma, None), "2¹ʼ⁵");
+    // Raw notation is unmoved: it shows what the buffer holds.
+    assert_eq!(
+        render_expression_string(&items, DecimalSeparator::Dot, None, Notation::Raw),
+        "2^1.5"
+    );
+}
+
+#[test]
+fn a_log_y_call_wears_its_base_under_the_log() {
+    // `log(2,8)` in the buffer is log₂(8) on screen: the base comes
+    // out from between the brackets, and the comma goes with it.
+    let items = vec![
+        InputItem::BinaryFunc(BinaryFunc::LogBase),
+        InputItem::Digit('2'),
+        InputItem::Comma,
+        InputItem::Digit('8'),
+        InputItem::RightParen,
+    ];
+    assert_eq!(render_str(&items, DecimalSeparator::Dot, None), "log₂(8)");
+    assert_eq!(
+        render_expression_string(&items, DecimalSeparator::Dot, None, Notation::Raw),
+        "log(2,8)"
+    );
+}
+
+#[test]
+fn an_empty_log_y_base_shows_the_slot_it_is_waiting_for() {
+    // Nothing else on screen says the next digit goes under the log
+    // rather than into the argument — there is no cursor drawn — so
+    // the empty slot is drawn instead.
+    let items = vec![
+        InputItem::BinaryFunc(BinaryFunc::LogBase),
+        InputItem::Comma,
+        InputItem::Digit('8'),
+        InputItem::RightParen,
+    ];
+    assert_eq!(render_str(&items, DecimalSeparator::Dot, None), "log₍₎(8)");
+
+    // A base Unicode cannot lower keeps its brackets and its size,
+    // the way an exponent does.
+    let items = vec![
+        InputItem::BinaryFunc(BinaryFunc::LogBase),
+        InputItem::Constant(ConstKind::Pi),
+        InputItem::Comma,
+        InputItem::Digit('8'),
+        InputItem::RightParen,
+    ];
+    assert_eq!(render_str(&items, DecimalSeparator::Dot, None), "log₍π₎(8)");
+}
+
+#[test]
+fn a_one_argument_log_call_has_no_base_to_lower() {
+    // `log(100)` — pasted, or typed on the `log` key — is the log10
+    // reading, and there is no base slot in it to draw.
+    let items = vec![
+        InputItem::BinaryFunc(BinaryFunc::LogBase),
+        InputItem::Digit('1'),
+        InputItem::Digit('0'),
+        InputItem::Digit('0'),
+        InputItem::RightParen,
+    ];
+    assert_eq!(render_str(&items, DecimalSeparator::Dot, None), "log(100)");
+}
+
+#[test]
 fn log_bases_are_lowered() {
     let items = vec![
         InputItem::UnaryFunc(UnaryFunc::Log2),

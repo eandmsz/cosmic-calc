@@ -4,7 +4,8 @@ A scientific calculator for the COSMIC desktop.
 
 - Native Rust application. No dependency on any other language (no wrappers for C or Python)
 - Focusing on simplicity, ease of use, touch friendly operation, logical and aesthetic layout
-- IEEE 754 double-precision (64-bit) floating-point arithmetic
+- Decimal arithmetic, so `0.1 + 0.2 - 0.3` is 0 and `0.3 mod 0.1` is 0
+  — the numbers you type are the numbers it adds
 - Stateful operation for a more intuitive workflow
 
 ## Building and running
@@ -25,9 +26,10 @@ launcher.
 
 The code is a two-crate workspace:
 
-- **`core/`** — `cosmic-calc-core`: the tokenizer, parser, evaluator,
-  display formatter, configuration, themes, locale handling, clipboard
-  sanitising, history and memory. No GUI dependencies.
+- **`core/`** — `cosmic-calc-core`: the decimal number type, the
+  tokenizer, parser, evaluator, display formatter, configuration,
+  themes, locale handling, clipboard sanitising, history and memory.
+  No GUI dependencies.
 - **`src/`** — `cosmic-calc`: the libcosmic application, keypad, display
   and side panels, on top of the core.
 
@@ -47,17 +49,25 @@ make check                         # fmt + clippy + the whole workspace
 - Repeat last operation using =
 - Predictable operation: only the = sign evaluates the expressions
 - Intuitive Backspace and AC/C functions
-- Automatic scientific mode in landscape window
 - Easily readable expressions with superscript exponents, subscript log
-  bases and the radical sign: `2⁵`, `3×10⁴`, `log₂(8)`, `sin⁻¹(1)`,
-  `√(16,4)`. The `^` never reaches the display — the raising is what it
-  says. An exponent Unicode cannot raise goes inside raised brackets
+  bases and the radical sign: `2⁵`, `3×10⁴`, `2¹·⁵`, `log₂(8)`,
+  `sin⁻¹(1)`, `√(16,4)`. The `^` never reaches the display — the
+  raising is what it says. A fractional exponent raises whole, decimal
+  separator included (`2¹·⁵`, or `2¹ʼ⁵` where the separator is a
+  comma). An exponent Unicode cannot raise goes inside raised brackets
   instead, so `2^2!` reads as `2⁽2!⁾` and not as `2 × 2!`, and a power
   key pressed before its exponent is typed shows the empty slot: `2⁽⁾`.
   The "Show ASCII expression" toggle in the settings panel switches the
   display back to the raw form the buffer stores (`2^5`, `log2(8)`,
   `sin-1(1)`, `root(16,4)`), which is what the tokenizer is handed
   either way — the notation changes, the value never does
+- `logᵧ` writes its base where a base belongs — under the log — and
+  shows the empty slot until you type one: press it and the display
+  reads `log₍₎(8)`, key the base and it reads `log₂(8)`. With an
+  operand already typed the press goes straight to the base (`8`,
+  `logᵧ`, `2` = 3); from an empty display the argument comes first and
+  `)` moves down to the base (`logᵧ`, `8`, `)`, `2` = 3), with a second
+  `)` leaving the call
 - Customizable Rand function, drawing from the OS entropy source
   (`getrandom`/`/dev/urandom` on Linux) so each press is independent of
   the last
@@ -74,15 +84,53 @@ make check                         # fmt + clippy + the whole workspace
 - Also compatible with alternative formatting and characters:
 	- 1-2 * −8mod5 *  4.5E3* 100/2^2^2*( ( 2^2 )^ 2) ^2*
 	- sQrt(SIN−1(1)＋atan(1))cbrt(8)rOOt(16, 4)3pI*2e＋2e3+(
-- IEEE 754 implemented with native f64 to keep the application fast, light and the codebase simple
-	- 1-bit sign (+/-)
-	- 11-bit exponent (limited to 10^307 to stay reliable)
-	- 52-bit mantissa (fraction) + 1 implicit bit, giving 15.95 digits of
-	  precision — so results are displayed to **15 significant digits**.
-	  Significant digits, not digits after the point: an f64 cannot back
-	  15 decimals *and* an integer part, and rounding as though it could
-	  is what makes other calculators print things like
-	  `8.2 + 8.2 = 16.399999999999999`.
+- Arithmetic in base ten, on a fixed-precision decimal of the kind
+  Apple's calculator uses. `+`, `−`, `×`, `÷`, percent, modulo,
+  whole-number powers and small factorials are all carried out in
+  decimal, so a number you can write down is one it holds exactly and
+  no binary representation error enters the arithmetic to begin with
+	- `18` significant digits are carried and **15 are displayed**.
+	  Significant digits, not digits after the point: a value carries
+	  the same number of digits wherever its decimal point is
+	- The three digits that are not shown are guard digits, and they
+	  are what makes the rounding of a division invisible: `1÷3 = ×3 =`
+	  gives back `1`, because the eighteen threes that were divided out
+	  are the eighteen that get multiplied
+	- Rounding the display to 15 digits already hid most of what binary
+	  got wrong, and still does: `1.005 × 100` printed `100.5` under
+	  doubles too, because the `100.49999999999999` they really held
+	  goes back to `100.5` once the last two digits are rounded off.
+	  What base ten changes is the cases where the error escapes those
+	  last digits — where it is the answer rather than a nick in it:
+		- **Cancellation.** Subtracting near-equal values destroys the
+		  leading digits and promotes the error to the whole result:
+		  `0.1 + 0.2 − 0.3` is `0`, not `5.5511151231258e-17`, and
+		  `100.1 − 100` is `0.1`, not `0.0999999999999943`
+		- **Remainders**, where being a hair under a multiple changes
+		  the answer instead of its last digit: `0.3 mod 0.1` is `0`,
+		  where binary printed a clean-looking, wrong `0.1`
+		- **Sums across scales**, where 18 digits reach further than a
+		  double's 15-to-17: `10000000000000000 + 1 − 10000000000000000`
+		  is `1`, where a double had nowhere to put the `1` and gave `0`
+	- The rounding is the display's, not the calculator's. A result
+	  carried into the next calculation is used at the precision it was
+	  computed at, and the fifteen digits on screen are a view of it.
+	  Edit those digits and they become the number: what you can see is
+	  what is computed from
+- Trigonometry, logarithms, roots and fractional powers have no
+  decimal algorithm worth writing, so those go out to IEEE 754
+  double-precision `f64` and come back as the shortest decimal that
+  identifies the answer. `√0.01` is therefore `0.1` and not
+  `0.1000000000000000055`, and the arithmetic that follows it is exact
+  again. The range is the double one either way: values above about
+  `10^308` report Overflow and non-zero values below `10^-308` report
+  Underflow
+- Opens where you left it: the window size is remembered, written out a
+  couple of seconds after you stop dragging the edge rather than on
+  every frame of the drag
+- Side panels dock beside the calculator rather than over it, so the
+  window grows to make room for them and cannot be dragged in narrower
+  than the calculator plus whatever panels are open
 - One `%` key for both readings, decided by what follows it: on its own
   it is a percentage (`3.5%×230` = 8.05, `200+10%` = 220), and with an
   operand straight after it, it is modulo (`5%3.2` = 1.8, `7%(-3)` = 1)
@@ -90,6 +138,11 @@ make check                         # fmt + clippy + the whole workspace
  	- Miller-Rabin primality test is used with 9 deterministic bases which gives a fast and 100% accurate prime number detection up to 2^64 (~10^19)
 
 ## Customising the keypad
+
+A first run — before there is a `config.toml` — opens on the Basic
+keypad; the button in the middle of the top bar switches to Scientific
+and back, and whichever one you leave it on is the one it opens on next
+time.
 
 The keypad is laid out from `config.toml`
 (`~/.config/cosmic-calc/config.toml`). The grid size is fixed — Basic
@@ -176,7 +229,9 @@ are the same key, as are `π`/`pi`, `2nd`/`second`, `1/x`/`reciprocal`,
 
 ## Out of scope for a simple calculator
 
-- Arbitrary "infinite" precision arithmetic
+- Arbitrary "infinite" precision arithmetic (the decimal type is a
+  fixed 18 digits — enough that the 15 on screen are always right, not
+  enough to hold a number of any size you like)
 - Integral, derivative, lim, combinations (nCr), permutations (nPr), Fibonacci function
 - Complex numbers and their imaginary units (negative number under sqrt will give an error instead)
 - Programmer's operations: bitshift, binary, hexadecimal calculations

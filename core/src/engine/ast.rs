@@ -3,12 +3,13 @@
 //! apply its context-dependent semantics on the right-hand side of
 //! a binary operator.
 
+use crate::engine::decimal::Decimal;
 use crate::engine::item::{BinOp, BinaryFunc, ConstKind, UnaryFunc};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Node {
-    /// Numeric literal.
-    Num(f64),
+    /// Numeric literal, exact as the user wrote it.
+    Num(Decimal),
     /// π or 𝑒.
     Const(ConstKind),
     /// Unary negation.
@@ -28,5 +29,5 @@ pub enum Node {
     BinaryFn(BinaryFunc, Box<Node>, Box<Node>),
     /// log with an integer base baked into the function name
     /// (log2, log6, log10, …).
-    LogN(f64, Box<Node>),
+    LogN(Decimal, Box<Node>),
 }

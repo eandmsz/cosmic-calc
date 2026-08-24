@@ -7,6 +7,7 @@ mod clipboard;
 mod clipboard_spec;
 mod color;
 mod config;
+mod decimal;
 mod engine_input;
 mod engine_integration;
 mod history;

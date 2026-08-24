@@ -21,6 +21,12 @@
 //!     only the `3` (the `π` is a separate factor) while `2^2!` raises
 //!     the `2!` together, because the `!` belongs to the exponent and
 //!     `2²!` would read as `(2²)!`.
+//!
+//! The same two rules run the other way for the base of a `log_y`
+//! call: [`argument_separator`] finds where the base of the buffer's
+//! `log(base, value)` ends, [`lower`] puts it under the `log`, and a
+//! base not typed yet shows as [`EMPTY_BASE`] — so `log₍₎(8)` says
+//! which slot the next digit lands in.
 
 use crate::engine::item::{unary_func_name, BinOp, BinaryFunc, InputItem, UnaryFunc};
 
@@ -63,6 +69,16 @@ pub fn superscript_char(c: char) -> Option<char> {
         '-' => '⁻',
         '(' => '⁽',
         ')' => '⁾',
+        // Unicode has no superscript decimal separator, so the two the
+        // display can be set to borrow the nearest raised glyph there
+        // is: a middle dot for `.`, a modifier apostrophe for `,`.
+        // Without them one separator dropped the whole exponent back to
+        // full size — `2^1.5` read as `2⁽1.5⁾` — which is the case a
+        // power key is most often reached for. The middle dot is
+        // unambiguous here: this display spells multiplication `×`,
+        // never `·`.
+        '.' => '·',
+        ',' => 'ʼ',
         _ => return None,
     })
 }
@@ -124,6 +140,29 @@ pub fn to_subscript(s: &str) -> Option<String> {
     s.chars().map(subscript_char).collect()
 }
 
+/// What the base of a `log(base, value)` call looks like under the
+/// `log`: lowered outright when every character of it has a subscript,
+/// and written at full size inside lowered brackets when one of them
+/// does not. The mirror of [`raise`], and for the same reason — a base
+/// of `π` written as a bare `logπ(x)` would read as `log` times `π`.
+pub fn lower(base: &str) -> String {
+    match to_subscript(base) {
+        Some(lowered) => lowered,
+        None => format!("{BASE_OPEN}{base}{BASE_CLOSE}"),
+    }
+}
+
+/// The empty base slot, shown while a `log_y` call is waiting for its
+/// base. The lowered brackets are what tell the user that the digits
+/// they key next go *under* the log rather than into its argument —
+/// the display draws no cursor, so without them the base step would be
+/// invisible. Standing in the same place [`EMPTY_EXPONENT`] does for a
+/// power key pressed before its exponent.
+pub const EMPTY_BASE: &str = "₍₎";
+
+const BASE_OPEN: char = '₍';
+const BASE_CLOSE: char = '₎';
+
 /// Pretty glyphs for the items whose whole rendering is a substitution
 /// — the log bases and the inverse functions. Everything else (digits,
 /// operators, parens) renders the same in both notations, and the
@@ -151,6 +190,48 @@ pub fn pretty_display(it: &InputItem) -> String {
         },
         _ => it.display(),
     }
+}
+
+/// Index of the comma separating the two arguments of the call opened
+/// at `call_idx`. `None` when there is no top-level comma inside it —
+/// a call the user is still typing the first argument of, or the
+/// one-argument reading of `log(`, which is log10.
+///
+/// For a `log(base, value)` that comma is where the base ends, which
+/// is what the display needs to know to lower it under the `log`, so
+/// both ends come from one walk of the items rather than two guesses.
+pub fn argument_separator(items: &[InputItem], call_idx: usize) -> Option<usize> {
+    if !matches!(
+        items.get(call_idx),
+        Some(
+            InputItem::LeftParen
+                | InputItem::UnaryFunc(_)
+                | InputItem::BinaryFunc(_)
+                | InputItem::LogN(_)
+        )
+    ) {
+        return None;
+    }
+    // The item at `call_idx` is (or carries) the opening bracket, so
+    // the walk starts one level deep and ends when that level closes.
+    let mut depth = 1usize;
+    for (i, it) in items.iter().enumerate().skip(call_idx + 1) {
+        match it {
+            InputItem::LeftParen
+            | InputItem::UnaryFunc(_)
+            | InputItem::BinaryFunc(_)
+            | InputItem::LogN(_) => depth += 1,
+            InputItem::RightParen => {
+                depth -= 1;
+                if depth == 0 {
+                    return None;
+                }
+            }
+            InputItem::Comma if depth == 1 => return Some(i),
+            _ => {}
+        }
+    }
+    None
 }
 
 /// End (exclusive) of the exponent the `^` at `pow_idx` raises its

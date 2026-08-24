@@ -1,6 +1,8 @@
 //! Error constants surfaced to the main display and the typed
 //! CalcError enum returned by the evaluator.
 
+use crate::engine::decimal::Decimal;
+
 pub const ERR_OVERFLOW: &str = "Overflow";
 pub const ERR_UNDERFLOW: &str = "Underflow";
 pub const ERR_INDETERMINATE: &str = "Indeterminate";
@@ -49,6 +51,25 @@ pub fn classify(x: f64) -> Result<f64, CalcError> {
     }
     if x != 0.0 && x.abs() < UNDERFLOW_THRESHOLD {
         return Err(CalcError::Underflow);
+    }
+    Ok(x)
+}
+
+/// The same range check for a decimal result. The bounds are the
+/// binary ones — an f64 is still what the display and the rest of the
+/// app hand around — so a decimal too large to be a double reports
+/// Overflow exactly where the arithmetic used to, and one too small
+/// reports Underflow.
+pub fn classify_decimal(x: Decimal) -> Result<Decimal, CalcError> {
+    let Some(adjusted) = x.adjusted_exponent() else {
+        return Ok(x); // zero
+    };
+    if adjusted < -308 {
+        return Err(CalcError::Underflow);
+    }
+    // 1e308 and up may or may not still be a double; ask.
+    if adjusted > 308 || (adjusted == 308 && x.to_f64().is_infinite()) {
+        return Err(CalcError::Overflow);
     }
     Ok(x)
 }
