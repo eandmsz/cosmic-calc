@@ -81,7 +81,8 @@ pub enum Button {
     Log2,
 
     // --- binary functions ---
-    /// `y√x` – inserts `root(` then caller keys `x,y)`.
+    /// `y√x` – opens `root(value, degree)` with the cursor in
+    /// whichever of the two slots comes next. See [`open_root`].
     YRootX,
     /// `log_y(x)` – opens `log(base, value)` with the cursor in
     /// whichever of the two slots comes next. See [`open_log_base`].

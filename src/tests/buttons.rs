@@ -456,6 +456,104 @@ fn reciprocal_wraps_last_operand() {
     assert_eq!(e.input.display_string(), "4");
 }
 
+// --- what the keys put on the display -------------------------------
+
+/// The pieces the display draws for the current buffer, as
+/// `(text, script depth)` pairs, with the cursor where the user left
+/// it.
+fn drawn(e: &Engine) -> Vec<(String, u8)> {
+    crate::ui::display::render_expression(
+        e.input.items(),
+        e.input.cursor(),
+        crate::locale::DecimalSeparator::Dot,
+        None,
+        None,
+        crate::engine::script::Notation::Pretty,
+    )
+    .into_iter()
+    .map(|seg| (seg.text, seg.script.depth))
+    .collect()
+}
+
+#[test]
+fn a_whole_call_can_be_typed_into_an_exponent() {
+    // What the sized-script rendering buys at the keypad: press the
+    // power key, then a function key, and the call goes up as a call.
+    // Nothing here depends on the font having a raised `s`, an `i` or
+    // a bracket, and none of it drops back to full size.
+    let (mut e, mut s, c) = fresh();
+    for b in [
+        Button::Num(2),
+        Button::XPowY,
+        Button::Sin,
+        Button::Num(3),
+        Button::Num(0),
+    ] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert_eq!(e.input.display_string(), "2^sin(30)");
+    assert_eq!(
+        drawn(&e),
+        vec![
+            ("2".to_string(), 0),
+            ("sin(".to_string(), 1),
+            ("30".to_string(), 1),
+            (")".to_string(), 1),
+        ]
+    );
+
+    // And a fractional exponent, which used to be the case the raised
+    // brackets were reached for most often.
+    let (mut e, mut s, c) = fresh();
+    for b in [
+        Button::Num(2),
+        Button::XPowY,
+        Button::Num(1),
+        Button::Decimal,
+        Button::Num(5),
+    ] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert_eq!(
+        drawn(&e),
+        vec![("2".to_string(), 0), ("1.5".to_string(), 1)]
+    );
+}
+
+#[test]
+fn the_root_key_leaves_its_degree_slot_where_the_cursor_is() {
+    // `16`, `ʸ√x`: the radicand is already typed, so the press lands
+    // in the degree — and the empty brackets in front of the sign are
+    // drawn dim, which is what says so.
+    let (mut e, mut s, c) = fresh();
+    for b in [Button::Num(1), Button::Num(6), Button::YRootX] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    let segs = crate::ui::display::render_expression(
+        e.input.items(),
+        e.input.cursor(),
+        crate::locale::DecimalSeparator::Dot,
+        None,
+        None,
+        crate::engine::script::Notation::Pretty,
+    );
+    let slot = segs.iter().find(|seg| seg.text == "()").expect("the slot");
+    assert!(!slot.active);
+    assert!(slot.script.raise > 0.0);
+    // Keying the degree fills it in, in front of the sign.
+    apply_button(&mut e, &mut s, &c, Button::Num(4));
+    assert_eq!(
+        drawn(&e),
+        vec![
+            ("4".to_string(), 1),
+            ("√(".to_string(), 0),
+            ("16".to_string(), 0),
+            (")".to_string(), 0),
+        ]
+    );
+    assert_eq!(e.evaluate().expect("fourth root of 16").display, "2");
+}
+
 // --- second toggle -------------------------------------------------
 
 #[test]
