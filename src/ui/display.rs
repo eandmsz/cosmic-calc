@@ -106,7 +106,10 @@ impl Script {
     fn shifted(self, shift: Shift) -> Self {
         match shift {
             Shift::OnLine => self,
-            Shift::Up => self.raised(),
+            // A degree is a step up like any other; what makes it a
+            // degree is where it goes sideways from there, which is
+            // the segment's own business rather than the script's.
+            Shift::Up | Shift::Degree => self.raised(),
             Shift::Down => self.lowered(),
         }
     }
@@ -130,12 +133,13 @@ impl Script {
 
 /// How far the degree of a root is drawn to the right of where the
 /// line would put it, in character widths of the size the degree
-/// itself is drawn at. Half a character puts its tail over the
-/// radical's opening stroke, which is where the notation has it —
-/// `⁴√` is one symbol, not a small 4 standing next to a sign. The
-/// pieces are separate widgets, so the overlap is a placement the app
-/// layer applies, not something the font is asked for.
-const ROOT_DEGREE_NUDGE: f32 = 0.5;
+/// itself is drawn at. A whole character sits the degree in the
+/// radical's own opening rather than beside it, which is where the
+/// notation has it — `⁴√` is one symbol, not a small 4 standing next
+/// to a sign. The pieces are separate widgets, so the overlap is a
+/// placement the app layer applies, not something the font is asked
+/// for.
+const ROOT_DEGREE_NUDGE: f32 = 1.0;
 
 /// One piece of the rendered display. Multiple segments line up
 /// horizontally; `active` tells the app layer whether to use the full
@@ -323,7 +327,11 @@ impl Renderer<'_> {
                     // is in it, for the same reason the exponent's is:
                     // it is the only thing that says where the next
                     // digit lands.
-                    if i == start || !item_ends_operand(&items[i - 1]) {
+                    // `ends_operand` is wider than the auto-mul rule
+                    // below — it counts a `%`, which that one leaves
+                    // out — so `5%` reads as a power with a base
+                    // rather than one waiting for one.
+                    if i == start || !items[i - 1].ends_operand() {
                         out.push(self.empty_slot(i, script));
                     }
                     match script::exponent_span(items, i).map(|span| span.min(end)) {
@@ -391,8 +399,8 @@ impl Renderer<'_> {
                             }
                             // Written into the radical rather than
                             // beside it: every piece of the degree
-                            // slides half a character right, so the end
-                            // of it sits over the sign's left stroke.
+                            // slides a character right, so it sits in
+                            // the opening of the sign that follows.
                             for seg in &mut out[degree_start..] {
                                 seg.nudge = ROOT_DEGREE_NUDGE;
                             }
@@ -413,7 +421,11 @@ impl Renderer<'_> {
                 other => {
                     if self.notation.is_pretty() {
                         for (text, shift) in script::pretty_parts(other) {
-                            out.push(DisplaySegment::placed(text, true, script.shifted(shift)));
+                            let mut seg = DisplaySegment::placed(text, true, script.shifted(shift));
+                            if shift == Shift::Degree {
+                                seg.nudge = ROOT_DEGREE_NUDGE;
+                            }
+                            out.push(seg);
                         }
                     } else {
                         let text = ascii_text(other, last_char(out));
@@ -627,23 +639,6 @@ fn item_produces_value(it: &InputItem) -> bool {
     matches!(
         it,
         InputItem::Constant(_) | InputItem::RightParen | InputItem::Factorial
-    )
-}
-
-/// True for an item a power can raise: whatever the buffer counts as
-/// the end of an operand. Wider than [`item_produces_value`], which
-/// answers a different question — whether to draw the auto-mul glyph —
-/// and deliberately leaves `%` out of it, so `5%` would have read as a
-/// power with no base under it.
-fn item_ends_operand(it: &InputItem) -> bool {
-    matches!(
-        it,
-        InputItem::Digit(_)
-            | InputItem::DecimalPoint
-            | InputItem::Constant(_)
-            | InputItem::RightParen
-            | InputItem::Factorial
-            | InputItem::Percent
     )
 }
 

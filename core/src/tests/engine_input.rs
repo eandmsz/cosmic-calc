@@ -1,5 +1,5 @@
 use crate::engine::input::*;
-use crate::engine::item::{ConstKind, InputItem, UnaryFunc};
+use crate::engine::item::{BinOp, ConstKind, InputItem, UnaryFunc};
 
 fn buf(seq: &[InputItem]) -> InputBuffer {
     let mut b = InputBuffer::new();
@@ -237,4 +237,82 @@ fn clearing_and_replacing_forget_what_the_digits_stood_for() {
     let mut b = with_exact("5", "5.00000000000000012");
     b.items_mut().push(InputItem::Digit('1'));
     assert_eq!(b.ascii_expression_for_eval(), "51");
+}
+
+// --- taking back what the calculator wrote --------------------------
+
+#[test]
+fn a_deletion_takes_the_auto_multiplication_with_it() {
+    // The `×` between `5` and `(` is the calculator's, not the user's,
+    // so it goes when what it was multiplying goes. Leaving it behind
+    // put an operator on screen that nobody had typed and that the
+    // next press had to clean up.
+    let mut b = buf(&[
+        InputItem::Digit('5'),
+        InputItem::AutoMul,
+        InputItem::LeftParen,
+        InputItem::Digit('2'),
+        InputItem::RightParen,
+    ]);
+    b.delete_range(2, 5);
+    assert_eq!(b.display_string(), "5");
+    assert_eq!(b.cursor(), 1);
+
+    // A `×` the user typed is theirs and stays.
+    let mut b = buf(&[
+        InputItem::Digit('5'),
+        InputItem::BinOp(BinOp::Mul),
+        InputItem::Digit('2'),
+    ]);
+    b.delete_before();
+    assert_eq!(b.display_string(), "5×");
+}
+
+#[test]
+fn a_marked_press_comes_off_in_one_backspace() {
+    // What `x²` writes on `2^2`: a bracket in front, and `)^2` after.
+    // One backspace gives back the `2^2` it was pressed on, rather
+    // than a `(2^2)` nobody asked for or an empty exponent slot.
+    let mut b = buf(&[
+        InputItem::LeftParen,
+        InputItem::Digit('2'),
+        InputItem::BinOp(BinOp::Pow),
+        InputItem::Digit('2'),
+        InputItem::RightParen,
+        InputItem::BinOp(BinOp::Pow),
+        InputItem::Digit('2'),
+    ]);
+    b.mark_atomic(Some((0, 1)), (4, 7));
+    b.delete_before();
+    assert_eq!(b.display_string(), "2^2");
+    assert_eq!(b.cursor(), 3);
+}
+
+#[test]
+fn a_press_edited_into_is_no_longer_one_press() {
+    // The mark says "the calculator wrote this". Type into what it
+    // covers and it is the user's expression, so backspace goes back
+    // to deleting one item at a time.
+    let mut b = buf(&[
+        InputItem::Digit('5'),
+        InputItem::BinOp(BinOp::Pow),
+        InputItem::Digit('2'),
+    ]);
+    b.mark_atomic(None, (1, 3));
+    b.insert(InputItem::Digit('5'));
+    assert_eq!(b.display_string(), "5^25");
+    b.delete_before();
+    assert_eq!(b.display_string(), "5^2");
+    b.delete_before();
+    assert_eq!(b.display_string(), "5^");
+
+    // And one left alone still comes off whole.
+    let mut b = buf(&[
+        InputItem::Digit('5'),
+        InputItem::BinOp(BinOp::Pow),
+        InputItem::Digit('2'),
+    ]);
+    b.mark_atomic(None, (1, 3));
+    b.delete_before();
+    assert_eq!(b.display_string(), "5");
 }

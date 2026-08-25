@@ -1668,3 +1668,301 @@ fn a_key_with_its_own_base_starts_again_on_the_line() {
         assert!(drawn_depths(&e).iter().all(|d| *d < MAX_SCRIPT_LEVELS));
     }
 }
+
+// --- taking a press back, and what the keys leave behind -------------
+
+#[test]
+fn squaring_a_power_brackets_it_rather_than_stacking() {
+    // `x²` is one operation on what is on screen, so the power under
+    // it goes into brackets: `2^3` squared is `(2^3)²` = 64, where a
+    // second caret would have meant `2^3^2` = 2⁹ = 512. `xʸ` is the
+    // key for building a tower; this one squares the whole thing.
+    let (mut e, mut s, c) = fresh();
+    for b in [
+        Button::Num(2),
+        Button::XPowY,
+        Button::Num(3),
+        Button::Square,
+    ] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert_eq!(e.input.display_string(), "(2^3)^2");
+    assert_eq!(e.evaluate().expect("eight squared").display, "64");
+
+    // And again, one bracket per press.
+    let (mut e, mut s, c) = fresh();
+    for b in [
+        Button::Num(2),
+        Button::XPowY,
+        Button::Num(2),
+        Button::Square,
+        Button::Square,
+    ] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert_eq!(e.input.display_string(), "((2^2)^2)^2");
+    assert_eq!(drawn_depths(&e), vec![0, 0, 0, 1, 0, 1, 0, 1]);
+
+    // A plain operand has no power to bracket, so nothing is added.
+    let (mut e, mut s, c) = fresh();
+    for b in [Button::Num(2), Button::Square, Button::Cube] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert_eq!(e.input.display_string(), "(2^2)^3");
+}
+
+#[test]
+fn a_square_comes_off_in_one_press() {
+    // `x²` writes a caret and an exponent, so one backspace takes both
+    // back. Deleting the `2` on its own left `5⁽⁾` on screen — an
+    // empty slot the user then had to press backspace again to clear,
+    // and one they cannot usefully type into either, since the key
+    // that wrote it always writes a 2.
+    for key in [Button::Backspace, Button::Clear] {
+        let (mut e, mut s, c) = fresh();
+        for b in [Button::Num(5), Button::Square, key] {
+            apply_button(&mut e, &mut s, &c, b);
+        }
+        assert_eq!(e.input.display_string(), "5");
+    }
+
+    // The brackets a press adds are part of the press: taking it back
+    // gives the expression it was pressed on, not a bracketed one.
+    for key in [Button::Backspace, Button::Clear] {
+        let (mut e, mut s, c) = fresh();
+        for b in [
+            Button::Num(2),
+            Button::XPowY,
+            Button::Num(2),
+            Button::Square,
+            key,
+        ] {
+            apply_button(&mut e, &mut s, &c, b);
+        }
+        assert_eq!(e.input.display_string(), "2^2");
+    }
+
+    // An exponent the user has typed into is theirs, and comes apart a
+    // character at a time again.
+    let (mut e, mut s, c) = fresh();
+    for b in [Button::Num(5), Button::Square, Button::Num(4)] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert_eq!(e.input.display_string(), "5^24");
+    apply_button(&mut e, &mut s, &c, Button::Backspace);
+    assert_eq!(e.input.display_string(), "5^2");
+}
+
+#[test]
+fn a_deletion_never_leaves_an_auto_multiplication_behind() {
+    // The `×` in `5×(2)` is the calculator's — the user pressed `(`.
+    // Taking the bracket group away takes the `×` with it, whether it
+    // was backspace or `C` that did it.
+    let (mut e, mut s, c) = fresh();
+    for b in [
+        Button::Num(5),
+        Button::LeftParen,
+        Button::Num(2),
+        Button::CursorRight,
+    ] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert_eq!(e.input.display_string(), "5×(2)");
+    apply_button(&mut e, &mut s, &c, Button::Clear);
+    assert_eq!(e.input.display_string(), "5");
+
+    // Backspace gets there one item at a time and ends up the same.
+    let (mut e, mut s, c) = fresh();
+    for b in [
+        Button::Num(5),
+        Button::LeftParen,
+        Button::Num(2),
+        Button::CursorRight,
+        Button::Backspace,
+        Button::Backspace,
+        Button::Backspace,
+    ] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert_eq!(e.input.display_string(), "5");
+}
+
+#[test]
+fn backspace_retraces_the_cursor_the_press_moved() {
+    // `yˣ` puts the caret in front of the operand and the cursor in
+    // front of the caret, so there is nothing to the left of it to
+    // delete. Backspace used to stick there with `^2` on screen and no
+    // way to take it apart; it now takes back the press, and the
+    // cursor lands where the press found it.
+    let (mut e, mut s, c) = fresh();
+    for b in [Button::Num(2), Button::YPowX, Button::Num(3)] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert_eq!(e.input.display_string(), "3^2");
+    apply_button(&mut e, &mut s, &c, Button::Backspace);
+    assert_eq!(e.input.display_string(), "^2");
+    apply_button(&mut e, &mut s, &c, Button::Backspace);
+    assert_eq!(e.input.display_string(), "2");
+    assert_eq!(e.input.cursor(), 1);
+    apply_button(&mut e, &mut s, &c, Button::Backspace);
+    assert!(e.input.is_empty());
+
+    // Mid-expression it is the same move: the `+` in front of the
+    // operand is not what the press wrote and is not what comes off.
+    let (mut e, mut s, c) = fresh();
+    for b in [
+        Button::Num(5),
+        Button::Add,
+        Button::Num(2),
+        Button::YPowX,
+        Button::Backspace,
+    ] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert_eq!(e.input.display_string(), "5+2");
+    assert_eq!(e.input.cursor(), 3);
+}
+
+#[test]
+fn backspace_takes_back_a_call_whose_slot_is_still_empty() {
+    // The same rule for the slot `logᵧ` and `ʸ√x` park the cursor in:
+    // while it is empty the call is what the press wrote, so backspace
+    // takes the call back and leaves the argument that was typed.
+    // Deleting the comma under the cursor instead left `root(16)`,
+    // which is a call missing an argument.
+    let (mut e, mut s, c) = fresh();
+    for b in [
+        Button::Num(1),
+        Button::Num(6),
+        Button::YRootX,
+        Button::Backspace,
+    ] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert_eq!(e.input.display_string(), "16");
+    assert_eq!(e.input.cursor(), 2);
+
+    let (mut e, mut s, c) = fresh();
+    for b in [Button::Num(8), Button::LogY, Button::Backspace] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert_eq!(e.input.display_string(), "8");
+
+    // From an empty display both keys open both slots, and both come
+    // back off together once the argument is gone.
+    let (mut e, mut s, c) = fresh();
+    for b in [
+        Button::LogY,
+        Button::Num(8),
+        Button::Backspace,
+        Button::Backspace,
+    ] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert!(e.input.is_empty());
+}
+
+#[test]
+fn y_pow_x_counts_the_whole_power_it_would_raise() {
+    // The caret takes the operand *and* whatever is chained onto it up
+    // a level: pressing `yˣ` on the `4` of `4^3^2` moves all three
+    // levels, which would be a fourth. The press is refused, the same
+    // as `xʸ` refuses one.
+    let (mut e, mut s, c) = fresh();
+    for b in [
+        Button::Num(2),
+        Button::YPowX,
+        Button::Num(3),
+        Button::YPowX,
+        Button::Num(4),
+    ] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert_eq!(e.input.display_string(), "4^3^2");
+    assert_eq!(drawn_depths(&e), vec![0, 1, 2]);
+
+    let before = e.input.display_string();
+    apply_button(&mut e, &mut s, &c, Button::YPowX);
+    assert_eq!(e.input.display_string(), before);
+
+    // Two levels still go up, which is what `2^2` then `yˣ` asks for.
+    let (mut e, mut s, c) = fresh();
+    for b in [
+        Button::Num(2),
+        Button::XPowY,
+        Button::Num(2),
+        Button::YPowX,
+        Button::Num(3),
+    ] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert_eq!(e.input.display_string(), "2^3^2");
+    assert_eq!(drawn_depths(&e), vec![0, 1, 2]);
+}
+
+#[test]
+fn a_closing_bracket_with_nothing_open_brackets_the_operand() {
+    // `)` used to do nothing at all there. What the user is asking for
+    // is the operand they just typed set apart, so that is what it
+    // does: `5+2` then `)` is `5+(2)`.
+    let (mut e, mut s, c) = fresh();
+    for b in [
+        Button::Num(5),
+        Button::Add,
+        Button::Num(2),
+        Button::RightParen,
+    ] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert_eq!(e.input.display_string(), "5+(2)");
+    assert_eq!(e.input.cursor(), 5);
+
+    // With nothing to bracket the press still does nothing, rather
+    // than leaving an empty pair or a stray closer behind.
+    for keys in [
+        vec![Button::RightParen],
+        vec![Button::Num(5), Button::Add, Button::RightParen],
+    ] {
+        let (mut e, mut s, c) = fresh();
+        let mut expected = String::new();
+        for b in keys {
+            apply_button(&mut e, &mut s, &c, b);
+            if !matches!(b, Button::RightParen) {
+                expected = e.input.display_string();
+            }
+        }
+        assert_eq!(e.input.display_string(), expected);
+    }
+
+    // A bracket that is open is closed as it always was: the press
+    // steps over the closer the `(` key put there.
+    let (mut e, mut s, c) = fresh();
+    for b in [
+        Button::LeftParen,
+        Button::Num(2),
+        Button::RightParen,
+        Button::Num(3),
+    ] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert_eq!(e.input.display_string(), "(2)×3");
+}
+
+#[test]
+fn one_backspace_per_press_all_the_way_down() {
+    // Two squares, two backspaces: the outer press wrote the brackets
+    // and the second `^2`, the inner one the first, and each comes
+    // back off on its own. A press reaching around an older one does
+    // not disturb it.
+    let (mut e, mut s, c) = fresh();
+    for b in [Button::Num(5), Button::Square, Button::Square] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert_eq!(e.input.display_string(), "(5^2)^2");
+    apply_button(&mut e, &mut s, &c, Button::Backspace);
+    assert_eq!(e.input.display_string(), "5^2");
+    apply_button(&mut e, &mut s, &c, Button::Backspace);
+    assert_eq!(e.input.display_string(), "5");
+    apply_button(&mut e, &mut s, &c, Button::Backspace);
+    assert!(e.input.is_empty());
+}

@@ -83,6 +83,13 @@ pub enum Shift {
     Up,
     /// One script step down: the `2` of `log₂(`.
     Down,
+    /// One step up, and written *into* the radical that follows it
+    /// rather than beside it: the `3` of `³√(`. Where the step up ends
+    /// is the display's business — see the root degree — but which
+    /// pieces belong there has to be said here, since a cube root is
+    /// one item and the display cannot tell its degree from its sign
+    /// without being told.
+    Degree,
 }
 
 /// Superscript form of one character, or `None` when Unicode has no
@@ -212,6 +219,15 @@ pub fn pretty_parts(it: &InputItem) -> Vec<(String, Shift)> {
         // itself is moved in front of the sign by the renderer, which
         // is the only place that can see where it ends.
         InputItem::BinaryFunc(BinaryFunc::Root) => vec![("√(".to_string(), Shift::OnLine)],
+        // The cube root is the same radical with a degree of 3, and
+        // written that way it needs nothing of the font but a `3` and
+        // a `√`. `∛` is one glyph, and a font that lacks it (many do)
+        // leaves the user with a box where the operation should be.
+        // The buffer still holds `cbrt(`, and so does the ASCII form.
+        InputItem::UnaryFunc(UnaryFunc::Cbrt) => vec![
+            ("3".to_string(), Shift::Degree),
+            ("√(".to_string(), Shift::OnLine),
+        ],
         InputItem::UnaryFunc(UnaryFunc::Log2) => log_parts("2"),
         InputItem::UnaryFunc(UnaryFunc::Log10) => log_parts("10"),
         InputItem::LogN(n) => log_parts(&n.to_string()),

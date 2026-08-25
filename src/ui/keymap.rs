@@ -251,7 +251,10 @@ pub fn label_for(button: Button, ctx: LabelContext) -> &'static str {
         Button::EE => "EE",
 
         Button::Sqrt => "√",
-        Button::Cbrt => "∛",
+        // The radical with its degree in front of it, rather than the
+        // single `∛` glyph a good many fonts do not carry — and what
+        // the display draws for the same key.
+        Button::Cbrt => "³√",
         Button::Sin => "sin",
         Button::Cos => "cos",
         Button::Tan => "tan",

@@ -130,7 +130,7 @@ fn the_shipped_keypad_reads_as_designed() {
         [
             "2nd ( ) 𝑒 EE AC ⌫ % ÷",
             "x² x³ xʸ 𝑒ˣ 10ˣ 7 8 9 ×",
-            "√ ∛ ʸ√x ln log 4 5 6 −",
+            "√ ³√ ʸ√x ln log 4 5 6 −",
             "x! sin cos tan π 1 2 3 +",
             "Rand sinh cosh tanh 1/x +/− 0 . =",
         ]
@@ -140,7 +140,7 @@ fn the_shipped_keypad_reads_as_designed() {
         [
             "2nd ( ) 𝑒 EE AC ⌫ % ÷",
             "x² x³ xʸ yˣ 2ˣ 7 8 9 ×",
-            "√ ∛ ʸ√x logᵧ log₂ 4 5 6 −",
+            "√ ³√ ʸ√x logᵧ log₂ 4 5 6 −",
             "x! sin⁻¹ cos⁻¹ tan⁻¹ π 1 2 3 +",
             "Rand sinh⁻¹ cosh⁻¹ tanh⁻¹ 1/x +/− 0 . =",
         ]

@@ -55,10 +55,28 @@ make check                         # fmt + clippy + the whole workspace
   back, so the press only flips the key to `AC`, which clears the
   display. Either way one `C` arms the `AC`, so the line is never more
   than two presses from empty
+	- Neither key ever leaves the calculator's own work on screen. A
+	  `×` it inserted for you goes when the operand it was
+	  multiplying goes, so backspacing the `(2)` out of `5×(2)`
+	  leaves `5` and not `5×`
+	- What one press wrote, one press takes back: `x²` on `2^2`
+	  writes `(2^2)²`, and one backspace gives the `2^2` back rather
+	  than a `(2^2)` you did not ask for or an empty exponent slot
+	  waiting for a digit
+	- Backspace retraces a cursor the keypad moved. `yˣ` parks it in
+	  front of what you typed and `logᵧ`/`ʸ√x` park it in a slot, and
+	  in each case backspace takes the press back and returns the
+	  cursor to where that press found it — where it used to stick
+	  with nothing to its left to delete
 - Easily readable expressions with superscript exponents, subscript log
   bases and the radical sign: `2⁵`, `3×10⁴`, `2¹·⁵`, `log₂(8)`,
-  `sin⁻¹(1)`, `⁴√(16)`. The `^` never reaches the display — the raising
-  is what it says
+  `sin⁻¹(1)`, `³√(8)`, `⁴√(16)`. The `^` never reaches the display —
+  the raising is what it says
+	- Every root is the one radical with its degree written into it,
+	  the cube root included: `³√(8)` on the display and on the key,
+	  rather than the single `∛` glyph a good many fonts do not carry
+	  and draw as a box. The buffer and the clipboard still say
+	  `cbrt(8)`
 	- What goes up is the text itself, drawn smaller and moved off the
 	  line, rather than a superscript glyph swapped in for it. So
 	  anything can go up: a decimal separator (`2¹·⁵` in either
@@ -79,7 +97,10 @@ make check                         # fmt + clippy + the whole workspace
 	  `logᵧ` on `2^2^8` reads `log₍₎(2^2^8)`. Where nothing can make
 	  room — a base already two steps under the line, or `yˣ`, which
 	  takes its operand *up* a level — the press does nothing rather
-	  than draw a script too small to read
+	  than draw a script too small to read. `yˣ` counts the whole
+	  power it would raise, not just the operand under the cursor:
+	  pressed on the `4` of `4^3^2` it would move all three levels up
+	  and is refused
 	- The caption above the display is the same row of sized pieces the
 	  display below it is, so an expression reads the same in both.
 	  History rows are single lines of one size, and fall back there to
@@ -100,13 +121,17 @@ make check                         # fmt + clippy + the whole workspace
   `logᵧ`, `2` = 3); from an empty display the argument comes first and
   `)` moves down to the base (`logᵧ`, `8`, `)`, `2` = 3), with a second
   `)` leaving the call
-- `ʸ√x` writes its degree where a degree belongs — in front of the
-  sign and half a character into it, the way `⁴√` is printed as one
-  symbol rather than a small 4 standing beside a stroke — and reads the
+- `ʸ√x` writes its degree where a degree belongs — in the opening of
+  the sign rather than beside it, the way `⁴√` is printed as one symbol
+  rather than a small 4 standing next to a stroke — and reads the
   same way round: `16`, `ʸ√x`, `4` gives `⁴√(16)`. From an empty
   display the radicand comes first and `)` moves out to the degree
   (`ʸ√x`, `8`, `)`, `3` = 2), with a second `)` leaving the call,
   exactly as `logᵧ` does with its base
+- `)` with nothing open to close brackets the operand you just typed
+  instead of doing nothing: `5+2` then `)` reads `5+(2)`. Where a
+  bracket *is* open the key closes it as before, stepping over the
+  closer the `(` key already wrote
 - Customizable Rand function, drawing from the OS entropy source
   (`getrandom`/`/dev/urandom` on Linux) so each press is independent of
   the last
@@ -122,6 +147,11 @@ make check                         # fmt + clippy + the whole workspace
 	- `yˣ` puts the base slot in front of what you typed and parks the
 	  cursor in it, so `2`, `yˣ` reads `()²` with the brackets dim:
 	  the next digit goes under the 2, not after it
+	- `x²` and `x³` square and cube what is on screen rather than
+	  adding a level to it: `2^3` then `x²` is `(2^3)²` = 64, where a
+	  second caret would have said `2^3^2` = 512. Press it again and
+	  the brackets nest — `((2^3)^2)²` — which is what squaring twice
+	  is. `xʸ` is the key for building a tower
 - Fully compatible with COSMIC desktop themes and also inheriting accent color from KDE, GNOME, XFCE
 - Decimal separator is automatically based on the system locale
 - Fully compatible with iOS/macOS ASCII expressions e.g:

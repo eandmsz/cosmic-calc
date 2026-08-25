@@ -340,3 +340,24 @@ fn script_depths_nest_one_slot_inside_another() {
     ];
     assert_eq!(script_depths(&items), vec![0, 1, 2, 1, 1, 1, 0, 0, 0]);
 }
+
+#[test]
+fn a_cube_root_wears_the_radical_with_its_degree() {
+    // `∛` is one glyph, and a font without it draws a box where the
+    // operation should be. The radical and a `3` are two glyphs every
+    // font has, and they say the same thing — so that is what the
+    // display is given. The degree goes where a root degree goes: up,
+    // and into the sign rather than beside it.
+    assert_eq!(
+        pretty_parts(&InputItem::UnaryFunc(UnaryFunc::Cbrt)),
+        vec![
+            ("3".to_string(), Shift::Degree),
+            ("√(".to_string(), Shift::OnLine)
+        ]
+    );
+    // The square root has no degree to write, and keeps its plain sign.
+    assert_eq!(
+        pretty_parts(&InputItem::UnaryFunc(UnaryFunc::Sqrt)),
+        vec![("√(".to_string(), Shift::OnLine)]
+    );
+}

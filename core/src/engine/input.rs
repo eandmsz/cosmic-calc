@@ -12,6 +12,12 @@
 //! eighteen of the digits it was computed to rather than the fifteen
 //! of them that fit on screen. Any edit that reaches into the run
 //! drops its annotation, and the digits stand on their own again.
+//!
+//! A second annotation rides alongside it for the other direction:
+//! [`AtomicRun`] records the items a single press wrote, so backspace
+//! can take that press back in one go rather than leaving half of it
+//! on screen. `x²` on `2^2` writes a bracket, a closer, a caret and a
+//! digit; one backspace gives back the `2^2` it started from.
 
 use crate::engine::decimal::Decimal;
 use crate::engine::item::{ascii_text, InputItem};
@@ -24,6 +30,52 @@ struct ExactRun {
     start: usize,
     end: usize,
     value: Decimal,
+}
+
+/// Items one press wrote, which backspace takes back together.
+///
+/// `tail` is what the press wrote after what it acted on — `^2`, or
+/// `)^2` when it bracketed — and `head` the bracket it opened in
+/// front. Two ranges rather than one span because what lies between
+/// them is the user's own operand, which the take-back must leave
+/// exactly where it is.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct AtomicRun {
+    head: Option<(usize, usize)>,
+    tail: (usize, usize),
+}
+
+impl AtomicRun {
+    /// First index the run covers: the bracket when there is one, the
+    /// caret otherwise.
+    fn start(self) -> usize {
+        self.head.map_or(self.tail.0, |(start, _)| start)
+    }
+
+    /// One past the last index it covers.
+    fn end(self) -> usize {
+        self.tail.1
+    }
+
+    /// Shift both ranges by one, for an insertion in front of the run.
+    fn shift_up(&mut self) {
+        if let Some((start, end)) = self.head.as_mut() {
+            *start += 1;
+            *end += 1;
+        }
+        self.tail.0 += 1;
+        self.tail.1 += 1;
+    }
+
+    /// Shift both ranges down by `n`, for a removal in front of it.
+    fn shift_down(&mut self, n: usize) {
+        if let Some((start, end)) = self.head.as_mut() {
+            *start -= n;
+            *end -= n;
+        }
+        self.tail.0 -= n;
+        self.tail.1 -= n;
+    }
 }
 
 /// Direction passed to InputBuffer::move_cursor.
@@ -43,6 +95,11 @@ pub struct InputBuffer {
     /// Digit runs whose exact value is still known. See the module
     /// docs; kept sorted by `start` and never overlapping.
     exact: Vec<ExactRun>,
+    /// Presses backspace can take back whole. See [`AtomicRun`]; a run
+    /// is dropped as soon as anything is typed or deleted inside what
+    /// it covers, because then it is no longer the press that is
+    /// there.
+    atomic: Vec<AtomicRun>,
 }
 
 impl InputBuffer {
@@ -57,6 +114,7 @@ impl InputBuffer {
         self.items = items;
         self.cursor = self.items.len();
         self.exact.clear();
+        self.atomic.clear();
     }
 
     /// Insert an item at the cursor and advance past it.
@@ -66,13 +124,36 @@ impl InputBuffer {
         self.cursor += 1;
     }
 
-    /// Delete the item immediately before the cursor, if any.
+    /// Delete the item immediately before the cursor, if any — or the
+    /// whole press it ends, when the calculator wrote several items
+    /// there at once. See [`AtomicRun`].
     pub fn delete_before(&mut self) {
-        if self.cursor > 0 {
-            self.cursor -= 1;
-            self.note_removal(self.cursor);
-            self.items.remove(self.cursor);
+        if self.take_back_press() {
+            return;
         }
+        if self.cursor > 0 {
+            self.delete_range(self.cursor - 1, self.cursor);
+        }
+    }
+
+    /// Take back the press whose items end at the cursor, if there is
+    /// one: its closing bracket and caret go, and so does the opening
+    /// bracket it put in front of the operand. `true` when a press was
+    /// taken back and the caller has nothing more to delete.
+    ///
+    /// Backspace does this before deleting anything of its own, and
+    /// `C` before taking back an operand: both keys are undoing what
+    /// was entered, and what `x²` entered was a press.
+    pub fn take_back_press(&mut self) -> bool {
+        let Some(run) = self.atomic.iter().copied().find(|r| r.end() == self.cursor) else {
+            return false;
+        };
+        // Highest index first, so the lower one stays where it is.
+        self.delete_range(run.tail.0, run.tail.1);
+        if let Some((start, end)) = run.head {
+            self.delete_range(start, end);
+        }
+        true
     }
 
     /// Insert `item` at an explicit index without moving the cursor
@@ -199,6 +280,21 @@ impl InputBuffer {
         } else if self.cursor > start {
             self.cursor = start;
         }
+        self.drop_dangling_auto_mul();
+    }
+
+    /// Take out an auto-multiplication the deletion has just left with
+    /// nothing on its right. The calculator put it there when the
+    /// operand went in, so it goes when the operand does: a `×` the
+    /// user never typed should never be what is left on the display.
+    /// An explicit `×` stays — that one was asked for.
+    fn drop_dangling_auto_mul(&mut self) {
+        if self.cursor == 0 || !matches!(self.items[self.cursor - 1], InputItem::AutoMul) {
+            return;
+        }
+        self.cursor -= 1;
+        self.note_range_removal(self.cursor, self.cursor + 1);
+        self.items.remove(self.cursor);
     }
 
     /// Wipe the buffer (AllClear). Cursor is reset to 0.
@@ -206,6 +302,7 @@ impl InputBuffer {
         self.items.clear();
         self.cursor = 0;
         self.exact.clear();
+        self.atomic.clear();
     }
 
     /// Move the cursor according to `dir`, clamping at boundaries.
@@ -259,6 +356,7 @@ impl InputBuffer {
     /// truth again, which is the safe direction to be wrong in.
     pub fn items_mut(&mut self) -> &mut Vec<InputItem> {
         self.exact.clear();
+        self.atomic.clear();
         &mut self.items
     }
 
@@ -290,10 +388,32 @@ impl InputBuffer {
         self.exact.sort_by_key(|r| r.start);
     }
 
+    /// Record that one press wrote `tail` — and `head`, when it put a
+    /// bracket in front of what it acted on. Backspace then takes the
+    /// whole press back rather than a character of it: `x²` on `2^2`
+    /// writes `(`, `)`, `^` and `2`, and one backspace gives `2^2`
+    /// again. See [`AtomicRun`].
+    pub fn mark_atomic(&mut self, head: Option<(usize, usize)>, tail: (usize, usize)) {
+        if tail.0 >= tail.1 || tail.1 > self.items.len() {
+            return;
+        }
+        let run = AtomicRun { head, tail };
+        // One press per item: a new one covering items an older run
+        // covers replaces it. A press that reaches *around* an older
+        // one — `x²` on a `5^2` — overlaps neither of its ranges and
+        // leaves it be, so the two come off in the order they went on.
+        let touches =
+            |r: &AtomicRun, (start, end): (usize, usize)| r.start() < end && start < r.end();
+        self.atomic
+            .retain(|r| !touches(r, run.tail) && !head.is_some_and(|h| touches(r, h)));
+        self.atomic.push(run);
+    }
+
     /// Drop every exact-value annotation, leaving the digits to speak
     /// for themselves.
     pub fn forget_exact(&mut self) {
         self.exact.clear();
+        self.atomic.clear();
     }
 
     /// Fix up the annotations for an insertion of one item at `idx`.
@@ -316,12 +436,24 @@ impl InputBuffer {
                 r.end += 1;
             }
         }
-    }
-
-    /// Fix up the annotations for the removal of the single item at
-    /// `idx`: a run losing one of its own digits loses its value too.
-    fn note_removal(&mut self, idx: usize) {
-        self.note_range_removal(idx, idx + 1);
+        // A press is only takeable-back while it is still the press
+        // that is on screen: anything typed into what it covers — the
+        // operand it bracketed, the exponent it wrote — makes it the
+        // user's expression rather than the calculator's, and the run
+        // goes. A digit landing right after it grows the exponent it
+        // wrote, which counts as typing into it. Anything else there
+        // is past the run and leaves it alone, which is what lets one
+        // press bracket another and both stay takeable-back.
+        self.atomic.retain(|r| {
+            let inside = idx > r.start() && idx < r.end();
+            let grows_it = extends_run && idx == r.end();
+            !(inside || grows_it)
+        });
+        for r in &mut self.atomic {
+            if idx <= r.start() {
+                r.shift_up();
+            }
+        }
     }
 
     /// Same for a removed half-open range.
@@ -335,6 +467,12 @@ impl InputBuffer {
             if r.start >= end {
                 r.start -= removed;
                 r.end -= removed;
+            }
+        }
+        self.atomic.retain(|r| r.end() <= start || r.start() >= end);
+        for r in &mut self.atomic {
+            if r.start() >= end {
+                r.shift_down(removed);
             }
         }
     }
