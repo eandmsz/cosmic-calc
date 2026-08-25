@@ -18,14 +18,16 @@
 //!     piece belongs — [`pretty_parts`] for the items whose form is a
 //!     substitution, [`exponent_span`] and [`argument_separator`] for
 //!     the runs that move.
-//!   * A one-line rendering — the caption above the display, a history
-//!     row — has one font size to work with, so it borrows Unicode's
-//!     superscript and subscript blocks through [`raise`] and
-//!     [`lower`]. Those are all-or-nothing: a run raises only when
-//!     every character of it has a raised form, and otherwise is
-//!     written at full size inside raised brackets — `2⁽2!⁾` — rather
-//!     than with a mix of sizes that would read as a different
-//!     expression.
+//!   * A one-line rendering — a history row — has one font size to
+//!     work with, so it borrows Unicode's superscript and subscript
+//!     blocks through [`raise`] and [`lower`]. Those are
+//!     all-or-nothing: a run raises only when every character of it
+//!     has a raised form, and otherwise is written at full size inside
+//!     raised brackets — `2⁽2!⁾` — rather than with a mix of sizes that
+//!     would read as a different expression. It is the poorer of the
+//!     two readings, which is why only the rows in the history panel
+//!     are drawn from it: past two levels Unicode runs out and the
+//!     brackets take over, so `2^2^2` comes back as `2⁽2²⁾`.
 //!
 //! Either way the `^` the buffer stores never reaches the pretty
 //! display: it is what the raising is standing in for, and it is still
@@ -50,9 +52,12 @@ use crate::engine::item::{unary_func_name, BinOp, BinaryFunc, InputItem, UnaryFu
 /// How an expression is rendered for the user.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum Notation {
-    /// Exactly what the buffer holds: `root(2^2,6)`, `log2(8)`,
-    /// `sin-1(1)`. Reachable through the settings panel's "Show ASCII
-    /// expression" toggle, and what the tokenizer sees either way.
+    /// The text the clipboard carries and the tokenizer is handed:
+    /// `root(2^2,6)`, `log2(8)`, `sin-1(1)`, `pi*e`. All of it ASCII,
+    /// down to the spelled-out constants and the `sqrt(` the radical
+    /// stands for, so what the settings panel's "Show ASCII
+    /// expression" toggle draws is exactly what Copy would put on the
+    /// clipboard.
     Raw,
     /// Exponents raised and log bases lowered: `⁶√(2²)`, `log₂(8)`,
     /// `sin⁻¹(1)`.
@@ -276,6 +281,109 @@ pub fn argument_separator(items: &[InputItem], call_idx: usize) -> Option<usize>
     None
 }
 
+/// Index of the `)` that closes the paren-opening item at `opener` —
+/// a bare `(`, or the bracket a function name carries. `None` while
+/// the group is still open.
+pub fn closing_paren(items: &[InputItem], opener: usize) -> Option<usize> {
+    if !matches!(
+        items.get(opener),
+        Some(
+            InputItem::LeftParen
+                | InputItem::UnaryFunc(_)
+                | InputItem::BinaryFunc(_)
+                | InputItem::LogN(_)
+        )
+    ) {
+        return None;
+    }
+    let mut depth = 1usize;
+    for (j, it) in items.iter().enumerate().skip(opener + 1) {
+        match it {
+            InputItem::LeftParen
+            | InputItem::UnaryFunc(_)
+            | InputItem::BinaryFunc(_)
+            | InputItem::LogN(_) => depth += 1,
+            InputItem::RightParen => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(j);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// How many script steps from the line each item is drawn at: 0 on the
+/// line, 1 in an exponent or a base, 2 in the exponent of an exponent.
+/// One entry per item, so a caller can ask about a position rather
+/// than walk the expression itself.
+///
+/// The walk is the renderer's, and has to stay it: the three runs that
+/// step are exactly the three it moves — the items an [`exponent_span`]
+/// covers, the base of a `log_y` (up to its [`argument_separator`]) and
+/// the degree of a root (from that comma to the call's closer). An item
+/// the renderer steps over rather than draws — the `^`, the comma —
+/// answers with the depth of the run it sits in, which is where
+/// anything typed in its place would land.
+///
+/// What it is for is the limit on nesting: three levels is as deep as
+/// the display goes before the text is too small to read, so the
+/// keypad asks how deep a position already is before it writes another
+/// script there.
+pub fn script_depths(items: &[InputItem]) -> Vec<u8> {
+    let mut depths = vec![0u8; items.len()];
+    fill_depths(items, 0, items.len(), 0, &mut depths);
+    depths
+}
+
+/// One run of [`script_depths`], `items[start..end]` drawn at `depth`.
+fn fill_depths(items: &[InputItem], start: usize, end: usize, depth: u8, out: &mut [u8]) {
+    let deeper = depth.saturating_add(1);
+    let mut i = start;
+    while i < end {
+        out[i] = depth;
+        match &items[i] {
+            InputItem::BinOp(BinOp::Pow) => match exponent_span(items, i).map(|s| s.min(end)) {
+                Some(span) if span > i + 1 => {
+                    fill_depths(items, i + 1, span, deeper, out);
+                    i = span;
+                }
+                _ => i += 1,
+            },
+            InputItem::BinaryFunc(BinaryFunc::LogBase) => {
+                match argument_separator(items, i).filter(|comma| *comma < end) {
+                    Some(comma) => {
+                        fill_depths(items, i + 1, comma, deeper, out);
+                        out[comma] = depth;
+                        i = comma + 1;
+                    }
+                    None => i += 1,
+                }
+            }
+            InputItem::BinaryFunc(BinaryFunc::Root) => {
+                match (
+                    argument_separator(items, i),
+                    closing_paren(items, i).filter(|closer| *closer < end),
+                ) {
+                    (Some(comma), Some(closer)) => {
+                        // The radicand stays on the line the call is
+                        // written on; only the degree steps.
+                        fill_depths(items, i + 1, comma, depth, out);
+                        out[comma] = depth;
+                        fill_depths(items, comma + 1, closer, deeper, out);
+                        out[closer] = depth;
+                        i = closer + 1;
+                    }
+                    _ => i += 1,
+                }
+            }
+            _ => i += 1,
+        }
+    }
+}
+
 /// End (exclusive) of the exponent the `^` at `pow_idx` raises its
 /// base to. `None` when there is no exponent to raise yet — nothing
 /// after the caret, or a bracketed group the user has not closed.
@@ -309,6 +417,11 @@ pub fn exponent_span(items: &[InputItem], pow_idx: usize) -> Option<usize> {
             }
         }
         InputItem::Constant(_) => i += 1,
+        // A power whose base is not typed yet — what `yˣ` leaves
+        // behind when the operand it swapped was already an exponent.
+        // The pending power is this one's exponent, so it goes up as
+        // one: `2^^3` is `2` raised to (something raised to `3`).
+        InputItem::BinOp(BinOp::Pow) => return Some(exponent_span(items, i).unwrap_or(i + 1)),
         // Any of these carries an opening bracket; the exponent runs
         // to the closer that matches it.
         InputItem::LeftParen
@@ -346,8 +459,13 @@ pub fn exponent_span(items: &[InputItem], pow_idx: usize) -> Option<usize> {
     }
     if matches!(items.get(i), Some(InputItem::BinOp(BinOp::Pow))) {
         // Right-associative: the chained power and its own exponent
-        // are part of this one.
-        return exponent_span(items, i);
+        // are part of this one. A chain whose last caret has nothing
+        // to raise yet still ends there — the empty slot belongs to
+        // that caret, one step further up, and the part already typed
+        // stays where it is instead of the whole chain dropping back
+        // to the line: `2^2^` is `2` with a raised `2` waiting on its
+        // own exponent, not two powers side by side.
+        return Some(exponent_span(items, i).unwrap_or(i + 1));
     }
     Some(i)
 }

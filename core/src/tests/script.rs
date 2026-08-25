@@ -263,3 +263,80 @@ fn raw_notation_is_not_pretty() {
     assert!(!Notation::Raw.is_pretty());
     assert_eq!(Notation::default(), Notation::Pretty);
 }
+
+#[test]
+fn a_pending_chain_keeps_what_is_typed_where_it_is() {
+    // `2^2^` — the power key pressed twice with the second exponent
+    // still to come. The caret at the end has nothing to raise, but
+    // the one before it does: its exponent is the whole pending power,
+    // so the `2` already typed stays up where it was drawn instead of
+    // the chain dropping back to the line as two powers side by side.
+    let mut pending = power(&digits("2"));
+    pending.push(InputItem::BinOp(BinOp::Pow));
+    assert_eq!(exponent_span(&pending, 1), Some(4));
+    assert_eq!(exponent_span(&pending, 3), None);
+
+    // `yˣ` on an operand that is already an exponent leaves two carets
+    // in a row: `2^^3` is `2` raised to something raised to `3`, and
+    // the base slot the user is about to fill belongs to the inner
+    // power, not the line.
+    let swapped = vec![
+        InputItem::Digit('2'),
+        InputItem::BinOp(BinOp::Pow),
+        InputItem::BinOp(BinOp::Pow),
+        InputItem::Digit('3'),
+    ];
+    assert_eq!(exponent_span(&swapped, 1), Some(4));
+}
+
+#[test]
+fn script_depths_count_the_steps_off_the_line() {
+    // `2^2^2`: one digit on the line, one a step up, one two steps up.
+    let mut chain = power(&digits("2"));
+    chain.push(InputItem::BinOp(BinOp::Pow));
+    chain.extend(digits("2"));
+    assert_eq!(script_depths(&chain), vec![0, 0, 1, 1, 2]);
+
+    // A `log_y` base is a step down and its argument stays on the
+    // line; a root degree is a step up and its radicand stays put. The
+    // comma and the closer the renderer steps over answer with the
+    // depth of the run they sit in, which is where anything typed in
+    // their place would land.
+    let log_y = vec![
+        InputItem::BinaryFunc(BinaryFunc::LogBase),
+        InputItem::Digit('2'),
+        InputItem::Comma,
+        InputItem::Digit('8'),
+        InputItem::RightParen,
+    ];
+    assert_eq!(script_depths(&log_y), vec![0, 1, 0, 0, 0]);
+
+    let root = vec![
+        InputItem::BinaryFunc(BinaryFunc::Root),
+        InputItem::Digit('1'),
+        InputItem::Digit('6'),
+        InputItem::Comma,
+        InputItem::Digit('4'),
+        InputItem::RightParen,
+    ];
+    assert_eq!(script_depths(&root), vec![0, 0, 0, 0, 1, 0]);
+}
+
+#[test]
+fn script_depths_nest_one_slot_inside_another() {
+    // `log₍log₂(2)₎(8)`: a base written inside a base. Three levels of
+    // it is what the keypad allows, and this is what the third looks
+    // like — the innermost `2` two steps off the line.
+    let items = vec![
+        InputItem::BinaryFunc(BinaryFunc::LogBase),
+        InputItem::BinaryFunc(BinaryFunc::LogBase),
+        InputItem::Digit('2'),
+        InputItem::Comma,
+        InputItem::Digit('2'),
+        InputItem::RightParen,
+        InputItem::Comma,
+        InputItem::Digit('8'),
+        InputItem::RightParen,
+    ];
+    assert_eq!(script_depths(&items), vec![0, 1, 2, 1, 1, 1, 0, 0, 0]);
+}

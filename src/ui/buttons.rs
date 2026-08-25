@@ -17,6 +17,7 @@
 
 use crate::config::{Config, Mode};
 use crate::engine::item::{BinOp, BinaryFunc, ConstKind, InputItem, UnaryFunc};
+use crate::engine::script;
 use crate::engine::{AngleMode, Decimal, Engine};
 use crate::rng::rand_value;
 
@@ -410,7 +411,7 @@ pub fn apply_resolved_button(
             ButtonEffect::None
         }
         Button::Pow | Button::XPowY => {
-            replace_or_insert_binop(engine, BinOp::Pow);
+            press_pow(engine);
             ButtonEffect::None
         }
         Button::Mod => {
@@ -445,7 +446,7 @@ pub fn apply_resolved_button(
             // for the EE to multiply against, and an empty buffer is no
             // exception: a default `0` there would be a mantissa that
             // zeroes whatever exponent follows it.
-            if has_left_operand_at_cursor(engine) {
+            if has_left_operand_at_cursor(engine) && new_run_depth(engine) < MAX_SCRIPT_DEPTH {
                 engine.input.insert_all([
                     InputItem::BinOp(BinOp::Mul),
                     InputItem::Digit('1'),
@@ -880,9 +881,9 @@ fn backspace_with_paren_match(engine: &mut Engine) {
         // otherwise leave the `,8` of `log(,8)` stranded. A call with
         // something in both arguments keeps its comma, since removing
         // it would run the two together into one number.
-        let comma_idx = crate::engine::script::argument_separator(engine.input.items(), opener_idx)
+        let comma_idx = script::argument_separator(engine.input.items(), opener_idx)
             .filter(|comma| *comma == opener_idx + 1);
-        let close_idx = closer_for_opener(engine.input.items(), opener_idx);
+        let close_idx = script::closing_paren(engine.input.items(), opener_idx);
         // Highest index first, so the ones below it stay valid.
         for idx in [close_idx, comma_idx].iter().flatten().copied() {
             engine.input.items_mut().remove(idx);
@@ -1056,6 +1057,167 @@ fn has_left_operand_at_cursor(engine: &Engine) -> bool {
     )
 }
 
+/// How many levels of script the display draws before the text stops
+/// being readable: the line itself and two steps off it, so `2^2^2` is
+/// as deep as a power gets and `log₂` under a `log₂` under a `log` is
+/// as deep as a base gets.
+///
+/// A key that would write past it puts what is already there in
+/// brackets instead — pressing `x²` on `2^2^2` gives `(2^2^2)^2`,
+/// which is the same number one level shallower. Where brackets cannot
+/// help, the press does nothing rather than draw a script nobody can
+/// read.
+pub const MAX_SCRIPT_LEVELS: u8 = 3;
+
+/// The deepest step a script may be written at: one less than the
+/// number of levels, the first of which is the line itself.
+const MAX_SCRIPT_DEPTH: u8 = MAX_SCRIPT_LEVELS - 1;
+
+/// The script depth of the position at `at`: where the display would
+/// draw a piece inserted there.
+fn depth_at(items: &[InputItem], at: usize) -> u8 {
+    let at = at.min(items.len());
+    if at == 0 {
+        return 0;
+    }
+    let depths = script::script_depths(items);
+    match items[at - 1] {
+        // The caret is drawn as nothing at all — what follows it is
+        // the exponent, one step further off the line than the caret's
+        // own run.
+        InputItem::BinOp(BinOp::Pow) => depths[at - 1].saturating_add(1),
+        _ => depths[at - 1],
+    }
+}
+
+/// The depth a *new* value written at the cursor lands on. It is not
+/// always [`depth_at`]: a value starting after an operand takes an
+/// auto-multiplication in front of it, and an operator ends the
+/// exponent it follows, so `2^2^2` then `10ˣ` writes its `10` back on
+/// the line the chain started from rather than up in the exponent.
+fn new_run_depth(engine: &Engine) -> u8 {
+    let at = engine.input.cursor();
+    match power_chain_range(engine, at) {
+        Some((start, _)) => script::script_depths(engine.input.items())[start],
+        None => depth_at(engine.input.items(), at),
+    }
+}
+
+/// The whole power the operand ending at `at` is the tail of: all of
+/// `2^2^2` rather than its last `2`. What goes into brackets when a
+/// press has run out of levels, since it is the chain of carets that
+/// put the position up there in the first place.
+fn power_chain_range(engine: &Engine, at: usize) -> Option<(usize, usize)> {
+    let (mut start, end) = engine.input.operand_range_ending_at(at)?;
+    let items = engine.input.items();
+    while start > 0 && matches!(items[start - 1], InputItem::BinOp(BinOp::Pow)) {
+        // The caret raises the operand ending where it starts, so one
+        // step left per caret walks the whole chain back to its base.
+        match engine.input.operand_range_ending_at(start - 1) {
+            Some((base, _)) => start = base,
+            None => break,
+        }
+    }
+    Some((start, end))
+}
+
+/// Make room for a script written at `at`, which lands one step deeper
+/// than the position itself. `true` when there is room — after
+/// wrapping the power chain ending there in brackets, if that is what
+/// it took. `false` when even the brackets cannot bring it back inside
+/// [`MAX_SCRIPT_LEVELS`], and the press has to be dropped.
+fn fit_script_at(engine: &mut Engine, at: usize) -> bool {
+    if depth_at(engine.input.items(), at) < MAX_SCRIPT_DEPTH {
+        return true;
+    }
+    let Some((start, end)) = power_chain_range(engine, at) else {
+        return false;
+    };
+    // Brackets only help when the chain started shallower than it
+    // ended — they take it back to the line its base was written on.
+    // A slot that was already that deep (a base under a base) stays
+    // that deep whatever is put around it.
+    if script::script_depths(engine.input.items())[start] >= MAX_SCRIPT_DEPTH {
+        return false;
+    }
+    engine.input.insert_at(start, InputItem::LeftParen);
+    engine.input.insert_at(end + 1, InputItem::RightParen);
+    true
+}
+
+/// What a two-argument call — `logᵧ`, `ʸ√x` — closes over, and where
+/// that leaves the slot it draws outside its brackets.
+enum CallOperand {
+    /// Wrap `start..end`; the call goes in front of it.
+    Operand(usize, usize),
+    /// Nothing to wrap: open an empty call and let the user type into
+    /// it.
+    Empty,
+    /// No level left for the base or the degree. The press does
+    /// nothing rather than write a slot nobody can read.
+    TooDeep,
+}
+
+/// Decide which of those a press gets.
+///
+/// The slot is written one step off the line the call sits on, so the
+/// call has to sit somewhere with a level to spare. Where the operand
+/// is the tail of a power that has used them all up, the call takes
+/// the *whole* power instead of its tail — `2^2^2` then `logᵧ` reads
+/// `log₍₎(2^2^2)`, with the base back on the line the power started
+/// from. No brackets are added for it: a call brings its own, and they
+/// go exactly where a reader would put them.
+fn call_operand(engine: &Engine) -> CallOperand {
+    let cursor = engine.input.cursor();
+    let Some((start, end)) = engine.input.last_operand_range() else {
+        // Nothing to close over, so the call lands at the cursor.
+        return if depth_at(engine.input.items(), cursor) < MAX_SCRIPT_DEPTH {
+            CallOperand::Empty
+        } else {
+            CallOperand::TooDeep
+        };
+    };
+    let depths = script::script_depths(engine.input.items());
+    if depths[start] < MAX_SCRIPT_DEPTH {
+        return CallOperand::Operand(start, end);
+    }
+    match power_chain_range(engine, cursor) {
+        Some((chain, chain_end)) if depths[chain] < MAX_SCRIPT_DEPTH => {
+            CallOperand::Operand(chain, chain_end)
+        }
+        _ => CallOperand::TooDeep,
+    }
+}
+
+/// `xʸ` and the `^` key: raise what is already on screen to whatever
+/// is typed next.
+///
+/// Unlike `+` it will not invent the operand it is missing. An empty
+/// display shows a `0` nobody typed, and `0^y` is 0 for every exponent
+/// the user could go on to key, so a press there does nothing at all —
+/// the same as `%` and `EE`, and for the same reason `yˣ` refuses one.
+/// A trailing operator is a change of mind about which operator was
+/// wanted, so the caret replaces it, and the base is then whatever was
+/// in front of it.
+fn press_pow(engine: &mut Engine) {
+    if engine.input.is_empty() {
+        return;
+    }
+    let cursor = engine.input.cursor();
+    let replacing = cursor > 0 && matches!(engine.input.items()[cursor - 1], InputItem::BinOp(_));
+    let base_end = if replacing { cursor - 1 } else { cursor };
+    if engine.input.operand_range_ending_at(base_end).is_none() {
+        return;
+    }
+    if !fit_script_at(engine, base_end) {
+        return;
+    }
+    if replacing {
+        engine.input.delete_before();
+    }
+    engine.input.insert(InputItem::BinOp(BinOp::Pow));
+}
+
 /// Delete the operand the cursor sits after — the digits of a number,
 /// a constant, a whole bracketed group or function call, along with
 /// whatever postfix `!` / `%` hangs off it. What `C` takes back.
@@ -1111,8 +1273,10 @@ fn wrap_or_open_unary(engine: &mut Engine, f: UnaryFunc) -> ButtonEffect {
 /// empty display could not be typed at all.
 fn open_root(engine: &mut Engine) -> ButtonEffect {
     let call = InputItem::BinaryFunc(BinaryFunc::Root);
-    match engine.input.last_operand_range() {
-        Some((start, end)) => {
+    match call_operand(engine) {
+        // Out of levels for another degree: see [`call_operand`].
+        CallOperand::TooDeep => return ButtonEffect::None,
+        CallOperand::Operand(start, end) => {
             engine.input.insert_at(start, call);
             // The insert above bumped `end` by 1; the comma closes the
             // radicand, the bracket closes the call, and the cursor
@@ -1121,7 +1285,7 @@ fn open_root(engine: &mut Engine) -> ButtonEffect {
             engine.input.insert_at(end + 2, InputItem::RightParen);
             engine.input.set_cursor(end + 2);
         }
-        None => {
+        CallOperand::Empty => {
             insert_with_auto_mul(engine, call);
             engine.input.insert(InputItem::Comma);
             engine.input.insert(InputItem::RightParen);
@@ -1150,8 +1314,10 @@ fn open_root(engine: &mut Engine) -> ButtonEffect {
 /// display can show it empty) before anything is typed into it.
 fn open_log_base(engine: &mut Engine) -> ButtonEffect {
     let call = InputItem::BinaryFunc(BinaryFunc::LogBase);
-    match engine.input.last_operand_range() {
-        Some((start, end)) => {
+    match call_operand(engine) {
+        // Out of levels for another base: see [`call_operand`].
+        CallOperand::TooDeep => return ButtonEffect::None,
+        CallOperand::Operand(start, end) => {
             engine.input.insert_at(start, call);
             // The comma goes straight after the opener, leaving the
             // base slot empty in front of the operand the call has
@@ -1160,7 +1326,7 @@ fn open_log_base(engine: &mut Engine) -> ButtonEffect {
             engine.input.insert_at(end + 2, InputItem::RightParen);
             engine.input.set_cursor(start + 1);
         }
-        None => {
+        CallOperand::Empty => {
             insert_with_auto_mul(engine, call);
             engine.input.insert(InputItem::Comma);
             engine.input.insert(InputItem::RightParen);
@@ -1223,8 +1389,8 @@ fn call_with_cursor_in_outer_slot(engine: &Engine) -> Option<(usize, usize)> {
             continue;
         };
         let (Some(comma), Some(closer)) = (
-            crate::engine::script::argument_separator(items, opener),
-            closer_for_opener(items, opener),
+            script::argument_separator(items, opener),
+            script::closing_paren(items, opener),
         ) else {
             continue;
         };
@@ -1254,7 +1420,7 @@ fn empty_log_base_before_closer(engine: &Engine, cursor: usize) -> Option<usize>
     if !matches!(items[opener], InputItem::BinaryFunc(BinaryFunc::LogBase)) {
         return None;
     }
-    let comma = crate::engine::script::argument_separator(items, opener)?;
+    let comma = script::argument_separator(items, opener)?;
     (comma == opener + 1).then_some(opener + 1)
 }
 
@@ -1269,7 +1435,7 @@ fn close_root_radicand(engine: &Engine, comma: usize) -> Option<usize> {
     if !matches!(items[opener], InputItem::BinaryFunc(BinaryFunc::Root)) {
         return None;
     }
-    let closer = closer_for_opener(items, opener)?;
+    let closer = script::closing_paren(items, opener)?;
     Some(if closer == comma + 1 {
         comma + 1
     } else {
@@ -1292,29 +1458,6 @@ fn depth_between(items: &[InputItem], from: usize, to: usize) -> i32 {
             _ => 0,
         })
         .sum()
-}
-
-/// Index of the closer that matches the paren-opening item at
-/// `opener_idx` (`(`, `sin(`, `log(`, …). `None` when the group is
-/// still open.
-fn closer_for_opener(items: &[InputItem], opener_idx: usize) -> Option<usize> {
-    let mut depth = 1usize;
-    for (j, it) in items.iter().enumerate().skip(opener_idx + 1) {
-        match it {
-            InputItem::LeftParen
-            | InputItem::UnaryFunc(_)
-            | InputItem::BinaryFunc(_)
-            | InputItem::LogN(_) => depth += 1,
-            InputItem::RightParen => {
-                depth -= 1;
-                if depth == 0 {
-                    return Some(j);
-                }
-            }
-            _ => {}
-        }
-    }
-    None
 }
 
 /// The call whose argument list the comma at `comma_idx` separates.
@@ -1440,6 +1583,13 @@ fn raise_to(engine: &mut Engine, exponent: char) -> ButtonEffect {
     } else if !has_left_operand_at_cursor(engine) {
         return ButtonEffect::None;
     }
+    // Out of levels: the power already on screen goes into brackets
+    // and becomes the base of this one — `2^2^2` then `x²` reads
+    // `(2^2^2)²`, which is what it means and one level shallower.
+    let at = engine.input.cursor();
+    if !fit_script_at(engine, at) {
+        return ButtonEffect::None;
+    }
     engine.input.insert(InputItem::BinOp(BinOp::Pow));
     engine.input.insert(InputItem::Digit(exponent));
     ButtonEffect::None
@@ -1462,9 +1612,18 @@ fn raise_to(engine: &mut Engine, exponent: char) -> ButtonEffect {
 /// missing here is the exponent, and a `0` there would read `y^0`,
 /// which is 1 whatever base the user goes on to type.
 fn raise_over(engine: &mut Engine) -> ButtonEffect {
-    let Some((start, _)) = engine.input.last_operand_range() else {
+    let Some((start, end)) = engine.input.last_operand_range() else {
         return ButtonEffect::None;
     };
+    // This is the one key brackets cannot make room for: the operand
+    // does not stay where it is, it goes up a level, and anything
+    // inside it goes up with it — brackets included. So a press that
+    // would push it past the limit does nothing.
+    let depths = script::script_depths(engine.input.items());
+    let deepest = depths[start..end].iter().copied().max().unwrap_or(0);
+    if deepest >= MAX_SCRIPT_DEPTH {
+        return ButtonEffect::None;
+    }
     engine.input.insert_at(start, InputItem::BinOp(BinOp::Pow));
     engine.input.set_cursor(start);
     ButtonEffect::None
@@ -1484,6 +1643,12 @@ fn raise_over(engine: &mut Engine) -> ButtonEffect {
 /// operator there is no value to its left to multiply, so none is
 /// inserted and the operator stands.
 fn open_power(engine: &mut Engine, base: &[InputItem]) -> ButtonEffect {
+    // The base is the key's own, so there is no operand to bracket:
+    // where the exponent it opens would have nowhere left to go, the
+    // press does nothing.
+    if new_run_depth(engine) >= MAX_SCRIPT_DEPTH {
+        return ButtonEffect::None;
+    }
     ensure_auto_mul_before_new_run(engine);
     for item in base {
         engine.input.insert(item.clone());

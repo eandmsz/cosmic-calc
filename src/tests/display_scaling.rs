@@ -1,3 +1,4 @@
+use crate::ui::app::segment_padding;
 use crate::ui::display_metrics::{
     available_display_width, display_line_budgets, fit_display_text, fit_display_text_to_width,
     scale_main_text_size,
@@ -81,4 +82,32 @@ fn fit_display_text_leaves_size_when_it_already_fits() {
 #[test]
 fn expression_width_units_counts_wide_glyphs() {
     assert!(label_width_units("sin⁻¹") > label_width_units("8"));
+}
+
+// --- where a piece is placed on the line -----------------------------
+
+#[test]
+fn a_script_is_padded_on_the_side_it_moves_away_from() {
+    // The box centres its text, so a piece rises by half of whatever
+    // is padded underneath it: an exponent a tenth of the line above
+    // the middle gets a fifth of the line under it, and a base the
+    // same over it.
+    let raised = segment_padding(0.1, 0.0, 50.0);
+    assert_eq!((raised.top, raised.bottom), (0.0, 10.0));
+    let lowered = segment_padding(-0.1, 0.0, 50.0);
+    assert_eq!((lowered.top, lowered.bottom), (10.0, 0.0));
+}
+
+#[test]
+fn a_slide_costs_the_row_nothing() {
+    // What makes a root degree overlap the radical rather than push it
+    // along: the two horizontal paddings cancel, so the box is exactly
+    // as wide as its text and only the ink inside it moves.
+    let padding = segment_padding(0.1, 4.0, 50.0);
+    assert_eq!(padding.left, 4.0);
+    assert_eq!(padding.right, -4.0);
+    assert_eq!(padding.left + padding.right, 0.0);
+    // And a piece that is not sliding is not moved sideways at all.
+    let still = segment_padding(0.1, 0.0, 50.0);
+    assert_eq!((still.left, still.right), (0.0, 0.0));
 }

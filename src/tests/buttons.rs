@@ -348,7 +348,10 @@ fn a_key_carrying_its_own_base_starts_a_value_anywhere() {
     for (key, from_empty, after_plus) in [
         (Button::TenPowX, "10^", "5+10^"),
         (Button::TwoPowX, "2^", "5+2^"),
-        (Button::EPowX, "\u{1d452}^", "5+\u{1d452}^"),
+        // Euler's number goes out as an ASCII `e` — the clipboard and
+        // the tokenizer both read it as the constant with nothing but
+        // a `^` behind it.
+        (Button::EPowX, "e^", "5+e^"),
     ] {
         let (mut e, mut s, c) = fresh();
         apply_button(&mut e, &mut s, &c, key);
@@ -473,6 +476,12 @@ fn drawn(e: &Engine) -> Vec<(String, u8)> {
     .into_iter()
     .map(|seg| (seg.text, seg.script.depth))
     .collect()
+}
+
+/// The script depth of each piece the display draws, which is what
+/// the three-level limit is counted in.
+fn drawn_depths(engine: &Engine) -> Vec<u8> {
+    drawn(engine).into_iter().map(|(_, depth)| depth).collect()
 }
 
 #[test]
@@ -1427,4 +1436,235 @@ fn home_and_end_move_the_cursor_to_the_extremes() {
     assert_eq!(e.input.cursor(), 0);
     apply_button(&mut e, &mut s, &c, Button::CursorEnd);
     assert_eq!(e.input.cursor(), 3);
+}
+
+// --- the three-level limit on nested scripts -------------------------
+
+#[test]
+fn x_pow_y_needs_a_base_to_raise() {
+    // The `0` an empty display shows is not one the user typed, and
+    // `0^y` is 0 for every exponent they could go on to key. So the
+    // press does nothing at all rather than starting an expression on
+    // a base nobody chose.
+    let (mut e, mut s, c) = fresh();
+    apply_button(&mut e, &mut s, &c, Button::XPowY);
+    assert!(e.input.is_empty(), "xʸ started an expression from nothing");
+
+    // A zero that *was* typed is an operand like any other.
+    apply_button(&mut e, &mut s, &c, Button::Num(0));
+    apply_button(&mut e, &mut s, &c, Button::XPowY);
+    apply_button(&mut e, &mut s, &c, Button::Num(5));
+    assert_eq!(e.input.display_string(), "0^5");
+
+    // And with no operand under the cursor the press still does
+    // nothing, the way it does after an open bracket.
+    let (mut e, mut s, c) = fresh();
+    apply_button(&mut e, &mut s, &c, Button::LeftParen);
+    apply_button(&mut e, &mut s, &c, Button::XPowY);
+    assert_eq!(e.input.display_string(), "()");
+}
+
+#[test]
+fn a_fourth_power_brackets_the_three_below_it() {
+    // Three levels is as deep as the display goes, so the next power
+    // takes what is there as its base instead of climbing: `2^2^2`
+    // then `x²` is `(2^2^2)²`, which is 16² and reads at two levels.
+    let (mut e, mut s, c) = fresh();
+    for b in [
+        Button::Num(2),
+        Button::XPowY,
+        Button::Num(2),
+        Button::XPowY,
+        Button::Num(2),
+    ] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert_eq!(drawn_depths(&e), vec![0, 1, 2]);
+
+    apply_button(&mut e, &mut s, &c, Button::Square);
+    assert_eq!(e.input.display_string(), "(2^2^2)^2");
+    assert_eq!(drawn_depths(&e), vec![0, 0, 1, 2, 0, 1]);
+    assert_eq!(e.evaluate().expect("16 squared").display, "256");
+}
+
+#[test]
+fn the_power_key_brackets_the_same_way_the_shortcut_does() {
+    // `xʸ` and `x³` reach the limit through the same door, and a
+    // fourth level is never drawn whichever key asked for it.
+    for (key, expected) in [
+        (Button::XPowY, "(2^2^2)^"),
+        (Button::Cube, "(2^2^2)^3"),
+        (Button::Square, "(2^2^2)^2"),
+    ] {
+        let (mut e, mut s, c) = fresh();
+        for b in [
+            Button::Num(2),
+            Button::XPowY,
+            Button::Num(2),
+            Button::XPowY,
+            Button::Num(2),
+            key,
+        ] {
+            apply_button(&mut e, &mut s, &c, b);
+        }
+        assert_eq!(e.input.display_string(), expected);
+        assert!(drawn_depths(&e).iter().all(|d| *d < MAX_SCRIPT_LEVELS));
+    }
+
+    // The bracketed power is an operand like any other, so the levels
+    // start again from it: `(2^2^2)^2^2` is still three deep.
+    let (mut e, mut s, c) = fresh();
+    for b in [
+        Button::Num(2),
+        Button::XPowY,
+        Button::Num(2),
+        Button::XPowY,
+        Button::Num(2),
+        Button::XPowY,
+        Button::Num(2),
+        Button::XPowY,
+        Button::Num(2),
+    ] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert_eq!(e.input.display_string(), "(2^2^2)^2^2");
+    assert_eq!(drawn_depths(&e), vec![0, 0, 1, 2, 0, 1, 2]);
+}
+
+#[test]
+fn a_two_argument_call_at_the_limit_takes_the_whole_power() {
+    // `logᵧ` and `ʸ√x` write their slot a step off the line too, so
+    // they hit the same limit — and they bring brackets of their own,
+    // so the whole power goes inside the call rather than into a pair
+    // added in front of it.
+    let keys = [
+        Button::Num(2),
+        Button::XPowY,
+        Button::Num(2),
+        Button::XPowY,
+        Button::Num(8),
+    ];
+
+    let (mut e, mut s, c) = fresh();
+    for b in keys {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    apply_button(&mut e, &mut s, &c, Button::LogY);
+    apply_button(&mut e, &mut s, &c, Button::Num(2));
+    assert_eq!(e.input.display_string(), "log(2,2^2^8)");
+    assert_eq!(drawn_depths(&e), vec![0, 1, 0, 0, 1, 2, 0]);
+
+    let (mut e, mut s, c) = fresh();
+    for b in keys {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    apply_button(&mut e, &mut s, &c, Button::YRootX);
+    apply_button(&mut e, &mut s, &c, Button::Num(2));
+    assert_eq!(e.input.display_string(), "root(2^2^8,2)");
+    assert!(drawn_depths(&e).iter().all(|d| *d < MAX_SCRIPT_LEVELS));
+
+    // Below the limit they still take the operand the user is on, so
+    // `2^8` then `logᵧ` is the log of the exponent, not of the power.
+    let (mut e, mut s, c) = fresh();
+    for b in [Button::Num(2), Button::XPowY, Button::Num(8), Button::LogY] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert_eq!(e.input.display_string(), "2^log(,8)");
+}
+
+#[test]
+fn bases_and_degrees_stop_at_three_levels_too() {
+    // A base under a base under a log is the third level; a fourth
+    // press has nowhere to put its slot and no brackets that would
+    // help, so it does nothing and leaves the expression standing.
+    let (mut e, mut s, c) = fresh();
+    for b in [
+        Button::Num(8),
+        Button::LogY,
+        Button::Num(2),
+        Button::LogY,
+        Button::Num(2),
+    ] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert_eq!(e.input.display_string(), "log(log(2,2),8)");
+    assert_eq!(drawn_depths(&e), vec![0, 1, 2, 1, 1, 1, 0, 0, 0]);
+    let before = e.input.display_string();
+    apply_button(&mut e, &mut s, &c, Button::LogY);
+    assert_eq!(e.input.display_string(), before);
+
+    // The same for a degree inside a degree.
+    let (mut e, mut s, c) = fresh();
+    for b in [
+        Button::Num(1),
+        Button::Num(6),
+        Button::YRootX,
+        Button::Num(4),
+        Button::YRootX,
+        Button::Num(2),
+    ] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert_eq!(e.input.display_string(), "root(16,root(4,2))");
+    assert!(drawn_depths(&e).iter().all(|d| *d < MAX_SCRIPT_LEVELS));
+    let before = e.input.display_string();
+    apply_button(&mut e, &mut s, &c, Button::YRootX);
+    assert_eq!(e.input.display_string(), before);
+}
+
+#[test]
+fn y_pow_x_at_the_limit_leaves_the_expression_alone() {
+    // The one key brackets cannot make room for: the operand it
+    // swaps goes *up* a level, and anything wrapped round it goes up
+    // with it. So at the limit the press does nothing.
+    let (mut e, mut s, c) = fresh();
+    for b in [
+        Button::Num(2),
+        Button::XPowY,
+        Button::Num(2),
+        Button::XPowY,
+        Button::Num(2),
+    ] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    apply_button(&mut e, &mut s, &c, Button::YPowX);
+    assert_eq!(e.input.display_string(), "2^2^2");
+
+    // One level down it works as it always has: the exponent already
+    // typed becomes the exponent of a new base.
+    let (mut e, mut s, c) = fresh();
+    for b in [Button::Num(2), Button::XPowY, Button::Num(3), Button::YPowX] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert_eq!(e.input.display_string(), "2^^3");
+    apply_button(&mut e, &mut s, &c, Button::Num(4));
+    assert_eq!(e.input.display_string(), "2^4^3");
+    assert_eq!(drawn_depths(&e), vec![0, 1, 2]);
+}
+
+#[test]
+fn a_key_with_its_own_base_starts_again_on_the_line() {
+    // `10ˣ`, `2ˣ`, `𝑒ˣ` and `EE` begin a new operand, and the `×` in
+    // front of it ends whatever exponent the cursor was in — so they
+    // are never the press that runs out of levels, they just carry on
+    // from the line the power was written on.
+    for (key, expected) in [
+        (Button::TenPowX, "2^2^2×10^"),
+        (Button::EE, "2^2^2×10^"),
+        (Button::TwoPowX, "2^2^2×2^"),
+    ] {
+        let (mut e, mut s, c) = fresh();
+        for b in [
+            Button::Num(2),
+            Button::XPowY,
+            Button::Num(2),
+            Button::XPowY,
+            Button::Num(2),
+            key,
+        ] {
+            apply_button(&mut e, &mut s, &c, b);
+        }
+        assert_eq!(e.input.display_string(), expected);
+        assert!(drawn_depths(&e).iter().all(|d| *d < MAX_SCRIPT_LEVELS));
+    }
 }

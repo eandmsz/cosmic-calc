@@ -14,7 +14,7 @@
 //! drops its annotation, and the digits stand on their own again.
 
 use crate::engine::decimal::Decimal;
-use crate::engine::item::InputItem;
+use crate::engine::item::{ascii_text, InputItem};
 
 /// A digit run the calculator wrote, and the exact value behind it.
 /// `start..end` is a half-open item range; `value` is what the run's
@@ -102,6 +102,15 @@ impl InputBuffer {
     /// button should act on. Returns `None` when the cursor sits at
     /// the start of the buffer or the preceding item is not a valid
     /// operand head (operator, open paren, comma, …).
+    pub fn last_operand_range(&self) -> Option<(usize, usize)> {
+        self.operand_range_ending_at(self.cursor)
+    }
+
+    /// The same lookup from an arbitrary position: the operand that
+    /// ends at `at`, as the half-open range `[start, at)`. What the
+    /// caret of a power raises is the operand ending where the caret
+    /// starts, so walking a chain of them — `2^2^2` back to its first
+    /// `2` — is this called once per `^`.
     ///
     /// Operands recognised:
     /// * a contiguous run of digits and at most one decimal point,
@@ -110,11 +119,12 @@ impl InputBuffer {
     /// * a matched `(…)` group; the opener may be a bare `LeftParen`
     ///   or a function-with-paren item (`UnaryFunc`, `BinaryFunc`,
     ///   `LogN`) – all of these carry an implicit `(`.
-    pub fn last_operand_range(&self) -> Option<(usize, usize)> {
-        if self.cursor == 0 {
+    pub fn operand_range_ending_at(&self, at: usize) -> Option<(usize, usize)> {
+        let at = at.min(self.items.len());
+        if at == 0 {
             return None;
         }
-        let mut end = self.cursor;
+        let mut end = at;
 
         // Consume trailing postfix operators (`!`, `%`).
         while end > 0
@@ -140,9 +150,9 @@ impl InputBuffer {
                 {
                     start -= 1;
                 }
-                Some((start, self.cursor))
+                Some((start, at))
             }
-            InputItem::Constant(_) => Some((end - 1, self.cursor)),
+            InputItem::Constant(_) => Some((end - 1, at)),
             InputItem::RightParen => {
                 // Walk back matching implicit + explicit openers.
                 let mut depth = 1;
@@ -157,7 +167,7 @@ impl InputBuffer {
                         | InputItem::LogN(_) => {
                             depth -= 1;
                             if depth == 0 {
-                                return Some((j, self.cursor));
+                                return Some((j, at));
                             }
                         }
                         _ => {}
@@ -377,39 +387,11 @@ impl InputBuffer {
     }
 }
 
-/// The tokenizer's spelling of one item, appended to `out`.
+/// The tokenizer's spelling of one item, appended to `s`.
+///
+/// Euler's number reads what is already there before it writes: see
+/// [`ascii_text`].
 fn push_ascii(s: &mut String, it: &InputItem) {
-    use crate::engine::item::{unary_func_name, BinOp, BinaryFunc, ConstKind, UnaryFunc};
-    match it {
-        InputItem::Digit(c) => s.push(*c),
-        InputItem::DecimalPoint => s.push('.'),
-        InputItem::BinOp(BinOp::Add) => s.push('+'),
-        InputItem::BinOp(BinOp::Sub) => s.push('-'),
-        InputItem::BinOp(BinOp::Mul) | InputItem::AutoMul => s.push('*'),
-        InputItem::BinOp(BinOp::Div) => s.push('/'),
-        InputItem::BinOp(BinOp::Pow) => s.push('^'),
-        InputItem::Percent => s.push('%'),
-        InputItem::Modulo => s.push_str(" mod "),
-        InputItem::Factorial => s.push('!'),
-        InputItem::UnaryFunc(UnaryFunc::Sqrt) => s.push_str("sqrt("),
-        InputItem::UnaryFunc(UnaryFunc::Cbrt) => s.push_str("cbrt("),
-        InputItem::UnaryFunc(f) => {
-            s.push_str(unary_func_name(*f));
-            s.push('(');
-        }
-        InputItem::BinaryFunc(BinaryFunc::LogBase) => s.push_str("log("),
-        InputItem::BinaryFunc(BinaryFunc::Root) => s.push_str("root("),
-        InputItem::LogN(n) => s.push_str(&format!("log{}(", n)),
-        InputItem::Constant(ConstKind::Pi) => s.push_str("pi"),
-        // The italic `𝑒`, not a bare ASCII `e`. The tokenizer
-        // accepts both, but its number scanner absorbs
-        // `<digits>e<digits>` as an exponent — so a buffer of
-        // [3, 𝑒, 5] serialised to "3e5" and evaluated as
-        // 300000 while the display read 3·𝑒·5. `𝑒` is only ever
-        // the constant, so the round-trip cannot go wrong.
-        InputItem::Constant(ConstKind::E) => s.push('𝑒'),
-        InputItem::LeftParen => s.push('('),
-        InputItem::RightParen => s.push(')'),
-        InputItem::Comma => s.push(','),
-    }
+    let prev = s.chars().next_back();
+    s.push_str(&ascii_text(it, prev));
 }

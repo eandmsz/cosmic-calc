@@ -34,6 +34,19 @@
   </categories>
 
   <releases>
+    <release version="0.1.5" date="2026-08-24">
+      <description>
+        <ul>
+          <li>Three levels of script is as deep as an expression goes, so what is on screen stays readable: 2^2^2 is drawn in full, and a key that would write a fourth puts what is there in brackets and starts again from the line — x² on 2^2^2 gives (2^2^2)². logᵧ and ʸ√x need no added brackets, since a call carries its own: logᵧ on 2^2^8 reads log₍₎(2^2^8)</li>
+          <li>The caption above the display is drawn as the same sized pieces as the display itself, so an expression reads the same in both. A single line of one size could only raise the first level and fell back to brackets after it, turning 2^2^2 into 2⁽2²⁾</li>
+          <li>"Show ASCII expression" shows exactly what Copy would put on the clipboard, character for character: pi, e, sqrt(, * and / rather than the pretty letters, the radical and the display's own digit grouping</li>
+          <li>What Copy puts on the clipboard is now plain ASCII throughout — Euler's number goes out as e, with the multiplication spelled out where a bare e would read as scientific notation (2*e3)</li>
+          <li>The degree of a root is written into the radical rather than beside it, half a character to the right, the way ⁴√ is printed as one symbol</li>
+          <li>yˣ shows the empty base slot in front of the operand it raised, dim while the cursor is in it, so it is clear the next digit goes under what is already there</li>
+          <li>xʸ needs a base and no longer invents one: on an empty display — where the 0 on screen is the calculator's, not yours — the press does nothing, as yˣ already did</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.1.4" date="2026-08-24">
       <description>
         <ul>

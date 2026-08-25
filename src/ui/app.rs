@@ -1046,16 +1046,34 @@ impl AppModel {
     /// separators and the same raw/pretty notation as the display
     /// below it. Captions that are not expressions (the "Random
     /// number" hint) carry no items and are shown verbatim.
-    fn caption_text(&self) -> String {
+    ///
+    /// It comes back as the same segments the main display draws, and
+    /// is drawn the same way — smaller, dimmer, but with each script
+    /// where the expression puts it. A single line of text had one
+    /// size to work with, so it had to fall back to Unicode's raised
+    /// glyphs and, where those ran out, to brackets: the `2^2^2` the
+    /// display below showed as three shrinking digits came out of it
+    /// as `2⁽2²⁾`, which is the same value written as a different
+    /// expression. The caption is what you press to get the
+    /// expression back, so it has to read as the one you had.
+    fn caption_segments(&self) -> Vec<crate::ui::display::DisplaySegment> {
         if self.ui.last_expression_items.is_empty() {
-            return self.ui.last_expression.clone();
+            if self.ui.last_expression.is_empty() {
+                return Vec::new();
+            }
+            return vec![crate::ui::display::DisplaySegment::on_line(
+                self.ui.last_expression.clone(),
+            )];
         }
-        crate::ui::display::render_expression_string(
-            &self.ui.last_expression_items,
+        let items = &self.ui.last_expression_items;
+        crate::ui::display::render_expression(
+            items,
+            items.len(),
             self.config.decimal_separator,
             self.config
                 .thousands_separator
                 .resolve(self.config.decimal_separator),
+            None,
             self.config.notation(),
         )
     }
@@ -1071,28 +1089,21 @@ impl AppModel {
             self.ui.random_range,
             self.config.notation(),
         );
-        let caption = self.caption_text();
-        let has_caption = !caption.is_empty();
-        let main_chars = if let Some(err) = self.ui.error_message.as_deref() {
-            err.chars().count()
+        let caption_segments = self.caption_segments();
+        let has_caption = !caption_segments.is_empty();
+        let (main_chars, main_width_units) = if let Some(err) = self.ui.error_message.as_deref() {
+            (
+                err.chars().count(),
+                crate::ui::keypad::label_width_units(err),
+            )
         } else if segments.is_empty() {
-            1
+            (1, 1.0)
         } else {
-            segments.iter().map(|s| s.text.chars().count()).sum()
+            measure_segments(&segments)
         };
         let content_width = self.content_width();
         let available_width =
             display_metrics::available_display_width(content_width, layout.edge_spacing);
-        let main_width_units = if let Some(err) = self.ui.error_message.as_deref() {
-            crate::ui::keypad::label_width_units(err)
-        } else if segments.is_empty() {
-            1.0
-        } else {
-            segments
-                .iter()
-                .map(|s| crate::ui::keypad::label_width_units(&s.text) * s.script.scale())
-                .sum()
-        };
         let (caption_slot_h, main_slot_h) =
             display_metrics::display_line_budgets(layout.display_budget, layout.row_spacing);
         let (mut main_size, mut main_line_h) =
@@ -1105,9 +1116,9 @@ impl AppModel {
             main_line_h,
         );
         let (caption_size, caption_line_h) = if has_caption {
-            let caption_units = crate::ui::keypad::label_width_units(&caption);
+            let (caption_chars, caption_units) = measure_segments(&caption_segments);
             let (size, line_h) = display_metrics::scale_caption_text_size(
-                caption.chars().count(),
+                caption_chars,
                 content_width,
                 caption_slot_h,
             );
@@ -1122,7 +1133,7 @@ impl AppModel {
             (0.0, 0.0)
         };
         DisplayMetrics {
-            caption,
+            caption_segments,
             has_caption,
             main_size,
             main_line_h,
@@ -1169,8 +1180,9 @@ impl AppModel {
             let mut row = widget::row::with_capacity(metrics.segments.len());
             for seg in &metrics.segments {
                 let scale = seg.script.scale();
+                let size = main_size * scale;
                 let t = widget::text::title1(seg.text.clone())
-                    .size(main_size * scale)
+                    .size(size)
                     .font(display_font)
                     .line_height(cosmic::iced::widget::text::LineHeight::Absolute(
                         (main_line_h * scale).into(),
@@ -1180,7 +1192,7 @@ impl AppModel {
                 } else {
                     t.class(cosmic::theme::Text::Color(inactive_color))
                 };
-                row = row.push(place_segment(t, seg.script.raise, main_line_h));
+                row = row.push(place_segment(t, seg, size, main_line_h));
             }
             row.into()
         };
@@ -1196,17 +1208,25 @@ impl AppModel {
             .spacing(layout.row_spacing)
             .width(Length::Fill);
         if has_caption {
-            let caption_inner: Element<'_, Message> = widget::container(
-                widget::text::caption(metrics.caption.clone())
-                    .size(caption_size)
+            // The same row of independently placed pieces the main
+            // display is drawn as, one size down and all of it dim.
+            let mut caption_row = widget::row::with_capacity(metrics.caption_segments.len());
+            for seg in &metrics.caption_segments {
+                let scale = seg.script.scale();
+                let size = caption_size * scale;
+                let t = widget::text::caption(seg.text.clone())
+                    .size(size)
+                    .font(display_font)
                     .line_height(cosmic::iced::widget::text::LineHeight::Absolute(
-                        caption_line_h.into(),
+                        (caption_line_h * scale).into(),
                     ))
-                    .class(cosmic::theme::Text::Color(inactive_color)),
-            )
-            .width(Length::Fill)
-            .align_x(Alignment::End)
-            .into();
+                    .class(cosmic::theme::Text::Color(inactive_color));
+                caption_row = caption_row.push(place_segment(t, seg, size, caption_line_h));
+            }
+            let caption_inner: Element<'_, Message> = widget::container(caption_row)
+                .width(Length::Fill)
+                .align_x(Alignment::End)
+                .into();
             let caption_widget: Element<'_, Message> = widget::mouse_area(caption_inner)
                 .on_press(Message::RecallLastExpression)
                 .into();
@@ -1377,10 +1397,10 @@ struct MainColumnLayout {
 
 /// Measured display fonts for the expression area.
 struct DisplayMetrics {
-    /// Caption text as rendered, so `view` does not have to derive it
-    /// a second time and risk measuring one string while drawing
-    /// another.
-    caption: String,
+    /// Caption pieces as rendered, so `view` does not have to derive
+    /// them a second time and risk measuring one expression while
+    /// drawing another.
+    caption_segments: Vec<crate::ui::display::DisplaySegment>,
     has_caption: bool,
     main_size: f32,
     main_line_h: f32,
@@ -1390,30 +1410,69 @@ struct DisplayMetrics {
 }
 
 /// Place one display segment on the expression line. A piece written
-/// on the line goes in as it is; a piece drawn off it — an exponent, a
-/// log base — is put in a box the full height of the line, padded on
-/// the side it moves away from. The box centres what it holds, so half
-/// that padding is the distance moved, and the piece keeps the same
-/// place on the line whatever else the row is holding.
+/// on the line and squarely in its own space goes in as it is; a piece
+/// drawn off the line — an exponent, a log base — is put in a box the
+/// full height of the line, padded on the side it moves away from. The
+/// box centres what it holds, so half that padding is the distance
+/// moved, and the piece keeps the same place on the line whatever else
+/// the row is holding.
+///
+/// A root degree moves sideways as well, into the radical rather than
+/// beside it. The two horizontal paddings are equal and opposite, so
+/// the box stays exactly as wide as its text and the row lays out as
+/// though nothing had moved: what shifts is the ink inside, which is
+/// what puts the tail of the degree over the sign. `size` is the font
+/// size this piece is drawn at, since the shift is measured in its own
+/// characters and a script's are smaller than the line's.
 fn place_segment<'a>(
     text: widget::Text<'a, cosmic::Theme>,
-    raise: f32,
+    seg: &crate::ui::display::DisplaySegment,
+    size: f32,
     line_h: f32,
 ) -> Element<'a, Message> {
-    if raise == 0.0 {
+    let raise = seg.script.raise;
+    let slide = seg.nudge * size * crate::ui::keypad::LABEL_CHAR_WIDTH_RATIO;
+    if raise == 0.0 && slide == 0.0 {
         return text.into();
     }
-    let shift = 2.0 * raise.abs() * line_h;
-    let padding = if raise > 0.0 {
-        Padding::from([0.0, 0.0, shift, 0.0])
-    } else {
-        Padding::from([shift, 0.0, 0.0, 0.0])
-    };
     widget::container(text)
         .height(Length::Fixed(line_h.max(1.0)))
         .align_y(Alignment::Center)
-        .padding(padding)
+        .padding(segment_padding(raise, slide, line_h))
         .into()
+}
+
+/// The box padding that places one piece: the vertical half moves it
+/// off the line, the horizontal half slides it sideways.
+///
+/// The box centres what it holds, so a piece moves half of whatever
+/// padding is put under (or over) it — hence the doubling. The two
+/// horizontal sides are equal and opposite, which is what makes a
+/// slide an overlap rather than a gap: the box keeps the width of its
+/// text, the row lays out as though nothing had moved, and the ink
+/// inside hangs over the piece that follows.
+pub(crate) fn segment_padding(raise: f32, slide: f32, line_h: f32) -> Padding {
+    let lift = 2.0 * raise.abs() * line_h;
+    let (top, bottom) = if raise > 0.0 {
+        (0.0, lift)
+    } else {
+        (lift, 0.0)
+    };
+    Padding::from([top, -slide, bottom, slide])
+}
+
+/// What a row of segments costs the layout: how many characters it
+/// holds, and how many character widths it needs once each piece is
+/// counted at the size its script is drawn in. The two numbers pick
+/// the font size, and both the caption and the main line are measured
+/// the same way so they cannot disagree about what is on screen.
+fn measure_segments(segs: &[crate::ui::display::DisplaySegment]) -> (usize, f32) {
+    let chars = segs.iter().map(|s| s.text.chars().count()).sum();
+    let units = segs
+        .iter()
+        .map(|s| crate::ui::keypad::label_width_units(&s.text) * s.script.scale())
+        .sum();
+    (chars, units)
 }
 
 /// How long after start the font warm-up waits before it begins. Long

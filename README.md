@@ -67,16 +67,32 @@ make check                         # fmt + clippy + the whole workspace
 	  `sin(30)` and stays legible as a power. A script inside a script
 	  steps again, so `2^3^2` shows its `2` smaller and higher still
 	- A slot you have opened but not filled shows as small brackets —
-	  `2⁽⁾` for a power key pressed before its exponent, `log₍₎(8)` for
-	  a base — and they are drawn dim while the cursor is in them, which
-	  is what says the next digit lands there rather than after the call
-	- The caption above the display and the history rows are single
-	  lines of one size, so there they fall back to Unicode's raised and
-	  lowered glyphs, and to brackets where those run out: `2⁽2!⁾`
+	  `2⁽⁾` for a power key pressed before its exponent, `()²` for the
+	  base `yˣ` is waiting for, `log₍₎(8)` for a base — and they are
+	  drawn dim while the cursor is in them, which is what says the
+	  next digit lands there rather than after the call
+	- Three levels is as deep as it goes: `2^2^2` is drawn in full, and
+	  a key that would write a fourth puts what is already there in
+	  brackets and starts again from the line — `x²` on `2^2^2` gives
+	  `(2^2^2)²`, the same number one level shallower. `logᵧ` and `ʸ√x`
+	  do it without adding brackets, since a call carries its own:
+	  `logᵧ` on `2^2^8` reads `log₍₎(2^2^8)`. Where nothing can make
+	  room — a base already two steps under the line, or `yˣ`, which
+	  takes its operand *up* a level — the press does nothing rather
+	  than draw a script too small to read
+	- The caption above the display is the same row of sized pieces the
+	  display below it is, so an expression reads the same in both.
+	  History rows are single lines of one size, and fall back there to
+	  Unicode's raised and lowered glyphs, and to brackets where those
+	  run out: `2⁽2!⁾`, `2⁽2²⁾`
 	- The "Show ASCII expression" toggle in the settings panel switches
-	  the display back to the raw form the buffer stores (`2^5`,
-	  `log2(8)`, `sin-1(1)`, `root(16,4)`), which is what the tokenizer
-	  is handed either way — the notation changes, the value never does
+	  the display to the text Copy would put on the clipboard, which is
+	  what the tokenizer is handed either way: `2^5`, `log2(8)`,
+	  `sin-1(1)`, `root(16,4)`, `pi*e`, `sqrt(9)/cbrt(8)`, `1234.5`.
+	  All of it ASCII, down to the spelled-out constants, the `sqrt(`
+	  the radical stands for, and a number written without the
+	  thousands separators the display groups it with — the notation
+	  changes, the value never does
 - `logᵧ` writes its base where a base belongs — under the log — and
   shows the empty slot until you type one: press it and the display
   reads `log₍₎(8)`, key the base and it reads `log₂(8)`. With an
@@ -84,11 +100,13 @@ make check                         # fmt + clippy + the whole workspace
   `logᵧ`, `2` = 3); from an empty display the argument comes first and
   `)` moves down to the base (`logᵧ`, `8`, `)`, `2` = 3), with a second
   `)` leaving the call
-- `ʸ√x` writes its degree where a degree belongs — in front of the sign
-  — and reads the same way round: `16`, `ʸ√x`, `4` gives `⁴√(16)`. From
-  an empty display the radicand comes first and `)` moves out to the
-  degree (`ʸ√x`, `8`, `)`, `3` = 2), with a second `)` leaving the
-  call, exactly as `logᵧ` does with its base
+- `ʸ√x` writes its degree where a degree belongs — in front of the
+  sign and half a character into it, the way `⁴√` is printed as one
+  symbol rather than a small 4 standing beside a stroke — and reads the
+  same way round: `16`, `ʸ√x`, `4` gives `⁴√(16)`. From an empty
+  display the radicand comes first and `)` moves out to the degree
+  (`ʸ√x`, `8`, `)`, `3` = 2), with a second `)` leaving the call,
+  exactly as `logᵧ` does with its base
 - Customizable Rand function, drawing from the OS entropy source
   (`getrandom`/`/dev/urandom` on Linux) so each press is independent of
   the last
@@ -97,6 +115,13 @@ make check                         # fmt + clippy + the whole workspace
   typed to what you type next (`2`, `xʸ`, `3` = 8), and `yˣ` reads the
   same two operands the other way round, making the one you have typed
   the exponent (`2`, `yˣ`, `3` = 9)
+	- Both need the operand they raise, and neither invents one: on an
+	  empty display — where the `0` on screen is the calculator's, not
+	  yours — and after an operator or an open bracket, the press does
+	  nothing. `0`, `xʸ`, `5` is `0⁵`, because that `0` you typed
+	- `yˣ` puts the base slot in front of what you typed and parks the
+	  cursor in it, so `2`, `yˣ` reads `()²` with the brackets dim:
+	  the next digit goes under the 2, not after it
 - Fully compatible with COSMIC desktop themes and also inheriting accent color from KDE, GNOME, XFCE
 - Decimal separator is automatically based on the system locale
 - Fully compatible with iOS/macOS ASCII expressions e.g:
