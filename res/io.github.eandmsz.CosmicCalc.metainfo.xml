@@ -34,6 +34,20 @@
   </categories>
 
   <releases>
+    <release version="0.1.6" date="2026-08-25">
+      <description>
+        <ul>
+          <li>Every root wears the same radical, the cube root included: ³√(8) rather than the single ∛ glyph that a good many fonts do not carry and draw as a box. The key face matches, and the expression is still cbrt(8) wherever it is written down</li>
+          <li>Backspace and C never leave the calculator's own work on screen. A × it inserted for you goes when the operand it multiplied goes, so backspacing the (2) out of 5×(2) leaves 5 rather than 5×</li>
+          <li>What one press wrote, one press takes back: x² on 2^2 writes (2^2)², and one backspace gives back the 2^2 rather than an empty exponent slot. An exponent you have since typed into is yours, and comes apart a character at a time again</li>
+          <li>Backspace retraces a cursor the keypad moved. yˣ parks it in front of what you typed and logᵧ / ʸ√x park it in a slot; in each case backspace takes that press back and returns the cursor to where the press found it. yˣ used to stick there with nothing to its left to delete, and ʸ√x left a root missing an argument</li>
+          <li>x² and x³ square and cube what is on screen instead of adding a level to it: 2^3 then x² is (2^3)² = 64, where a second caret would have said 2^3^2 = 512. xʸ is still the key for building a tower</li>
+          <li>yˣ counts the whole power it would raise rather than the operand under the cursor, so it stops at three levels like every other key: pressed on the 4 of 4^3^2 it is refused instead of making a fourth</li>
+          <li>) with nothing open to close brackets the operand you just typed — 5+2 then ) reads 5+(2) — instead of doing nothing</li>
+          <li>The degree of a root sits in the opening of the radical rather than beside it</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.1.5" date="2026-08-24">
       <description>
         <ul>

@@ -371,9 +371,16 @@ pub fn apply_resolved_button(
             ButtonEffect::None
         }
         Button::RightParen => {
-            if let Some(target) = right_paren_target(engine) {
-                engine.input.set_cursor(target);
-                state.clear_mode = ClearMode::Single;
+            match right_paren_target(engine) {
+                Some(target) => {
+                    engine.input.set_cursor(target);
+                    state.clear_mode = ClearMode::Single;
+                }
+                None => {
+                    if close_around_last_operand(engine) {
+                        state.clear_mode = ClearMode::Single;
+                    }
+                }
             }
             ButtonEffect::None
         }
@@ -857,7 +864,46 @@ fn insert_digit(engine: &mut Engine, d: u8) {
 /// bracket pair. The display layer's cursor-inside-paren rule then
 /// dims the closer automatically, giving the user a visible cue that
 /// they're now editing inside the group.
+///
+/// Before any of that it undoes a jump: where a press moved the cursor
+/// into a slot — the base `yˣ` opens, the base or degree of a
+/// two-argument call — backspace takes that press back and puts the
+/// cursor where the press found it. Deleting whatever happened to be
+/// on the left there took the expression apart in an order it was
+/// never built in, and in the `yˣ` case there was nothing on the left
+/// at all, so the line could not be taken apart.
 fn backspace_with_paren_match(engine: &mut Engine) {
+    // A caret whose base slot the cursor is parked in — what `yˣ`
+    // leaves behind — comes off first. There is nothing to the left of
+    // the cursor to delete there, and the press that moved it in front
+    // of the operand is the thing to take back, so backspace retraces
+    // that move: the caret goes and the cursor lands back at the end
+    // of the operand, exactly where it was before the press.
+    if let Some((caret, resume)) = pending_base_caret(engine) {
+        engine.input.delete_range(caret, caret + 1);
+        engine.input.set_cursor(resume);
+        return;
+    }
+    // The same for the slot a two-argument call parks the cursor in.
+    // While that slot is empty the call is what the press wrote, so
+    // backspace takes the call back and leaves whatever argument was
+    // typed standing: `16`, `ʸ√x`, backspace is `16` again, where
+    // deleting the comma under the cursor would have left a `root(16)`
+    // that no longer means anything.
+    if let Some((opener, comma, closer)) = empty_call_at_cursor(engine) {
+        let resume = if comma == opener + 1 {
+            // The empty slot is the first argument; the second one
+            // survives, two items further down the line than it was.
+            closer - 2
+        } else {
+            comma - 1
+        };
+        for idx in [closer, comma, opener] {
+            engine.input.delete_range(idx, idx + 1);
+        }
+        engine.input.set_cursor(resume);
+        return;
+    }
     let cur = engine.input.cursor();
     if cur == 0 {
         return;
@@ -890,6 +936,84 @@ fn backspace_with_paren_match(engine: &mut Engine) {
         }
     }
     engine.input.delete_before();
+}
+
+/// The caret of a power whose base is still to be typed, when the
+/// cursor is sitting in that empty base slot: its index, and where the
+/// cursor belongs once it is gone — the end of the operand the caret
+/// raised, which is where the `yˣ` press found it.
+///
+/// Without this, backspace had nothing to its left to work on and the
+/// expression could not be taken apart at all: `2`, `yˣ`, `3` then
+/// backspace deleted the `3` and then stuck, with `^2` on screen and
+/// the cursor in front of it.
+fn pending_base_caret(engine: &Engine) -> Option<(usize, usize)> {
+    let items = engine.input.items();
+    let cursor = engine.input.cursor();
+    if !matches!(items.get(cursor), Some(InputItem::BinOp(BinOp::Pow))) {
+        return None;
+    }
+    if cursor > 0 && items[cursor - 1].ends_operand() {
+        // The caret has a base, so the cursor is between two operands
+        // rather than in a slot: an ordinary backspace.
+        return None;
+    }
+    let span = script::exponent_span(items, cursor).unwrap_or(items.len());
+    // One item comes out in front of it, so the exponent ends a step
+    // earlier than it does now.
+    Some((cursor, span - 1))
+}
+
+/// The two-argument call whose empty slot the cursor is sitting in,
+/// as `(opener, comma, closer)`. `None` when the cursor is somewhere
+/// else, or when the slot it is in has something in it — then there
+/// is a character to delete and backspace deletes it.
+fn empty_call_at_cursor(engine: &Engine) -> Option<(usize, usize, usize)> {
+    let items = engine.input.items();
+    let cursor = engine.input.cursor();
+    // Innermost first: a call nested in another answers for itself.
+    for opener in (0..cursor).rev() {
+        if !matches!(items[opener], InputItem::BinaryFunc(_)) {
+            continue;
+        }
+        let (Some(comma), Some(closer)) = (
+            script::argument_separator(items, opener),
+            script::closing_paren(items, opener),
+        ) else {
+            continue;
+        };
+        if cursor > closer {
+            continue;
+        }
+        let in_first = cursor <= comma;
+        let empty = if in_first {
+            comma == opener + 1
+        } else {
+            closer == comma + 1
+        };
+        return empty.then_some((opener, comma, closer));
+    }
+    None
+}
+
+/// `)` with nothing open to close: the brackets go round the operand
+/// just entered, which is what the key is being reached for — `5+2`
+/// then `)` reads `5+(2)`. An unmatched opener earlier in the
+/// expression is closed instead, and with no operand to wrap (an
+/// empty display, a trailing operator) the press still does nothing.
+/// Returns whether anything was written.
+fn close_around_last_operand(engine: &mut Engine) -> bool {
+    let cursor = engine.input.cursor();
+    if depth_between(engine.input.items(), 0, cursor) > 0 {
+        engine.input.insert(InputItem::RightParen);
+        return true;
+    }
+    let Some((start, end)) = engine.input.last_operand_range() else {
+        return false;
+    };
+    engine.input.insert_at(start, InputItem::LeftParen);
+    engine.input.insert_at(end + 1, InputItem::RightParen);
+    true
 }
 
 /// True when the cursor sits immediately after a single `0` digit that
@@ -1043,18 +1167,7 @@ fn press_percent(engine: &mut Engine) {
 /// works on `InputItem` directly.
 fn has_left_operand_at_cursor(engine: &Engine) -> bool {
     let cur = engine.input.cursor();
-    if cur == 0 {
-        return false;
-    }
-    matches!(
-        engine.input.items()[cur - 1],
-        InputItem::Digit(_)
-            | InputItem::DecimalPoint
-            | InputItem::Constant(_)
-            | InputItem::RightParen
-            | InputItem::Factorial
-            | InputItem::Percent
-    )
+    cur > 0 && engine.input.items()[cur - 1].ends_operand()
 }
 
 /// How many levels of script the display draws before the text stops
@@ -1226,6 +1339,14 @@ fn press_pow(engine: &mut Engine) {
 /// an open bracket, an empty buffer — has nothing to take back, and
 /// the press leaves the expression alone.
 fn clear_last_operand(engine: &mut Engine) {
+    // A press the calculator wrote as one — the `(2^2)^2` an `x²`
+    // leaves — comes back off as one, the same way backspace takes it.
+    // Taking back its exponent alone would leave the caret behind
+    // with an empty slot where a number the user never typed used to
+    // be.
+    if engine.input.take_back_press() {
+        return;
+    }
     if let Some((start, end)) = engine.input.last_operand_range() {
         engine.input.delete_range(start, end);
     }
@@ -1583,15 +1704,43 @@ fn raise_to(engine: &mut Engine, exponent: char) -> ButtonEffect {
     } else if !has_left_operand_at_cursor(engine) {
         return ButtonEffect::None;
     }
-    // Out of levels: the power already on screen goes into brackets
-    // and becomes the base of this one — `2^2^2` then `x²` reads
-    // `(2^2^2)²`, which is what it means and one level shallower.
     let at = engine.input.cursor();
-    if !fit_script_at(engine, at) {
+    // A power under the key goes into brackets rather than gaining
+    // another level: `2^2` then `x²` is `(2^2)²`, and again is
+    // `((2^2)^2)²`. Squaring is one operation on what is on screen —
+    // `xʸ` is the key for building a tower — and the brackets say so
+    // where a second caret would have said `2^(2^2)`, a different
+    // number. What is bracketed is the whole power, since that is
+    // what is being squared.
+    let operand = engine.input.operand_range_ending_at(at);
+    let chain = power_chain_range(engine, at);
+    let wrap = matches!((operand, chain), (Some((o, _)), Some((c, _))) if c < o);
+    let base = chain.map_or(at, |(start, _)| start);
+    let depths = script::script_depths(engine.input.items());
+    let base_depth = if wrap {
+        depths[base]
+    } else {
+        depth_at(engine.input.items(), at)
+    };
+    if base_depth >= MAX_SCRIPT_DEPTH {
         return ButtonEffect::None;
     }
+    let head = if wrap {
+        let (start, end) = chain.expect("a chain is what made the wrap");
+        engine.input.insert_at(start, InputItem::LeftParen);
+        engine.input.insert_at(end + 1, InputItem::RightParen);
+        Some((start, start + 1))
+    } else {
+        None
+    };
+    // The closing bracket belongs to the press as much as the caret
+    // does, so it is part of what one backspace takes back.
+    let tail = engine.input.cursor() - usize::from(wrap);
     engine.input.insert(InputItem::BinOp(BinOp::Pow));
     engine.input.insert(InputItem::Digit(exponent));
+    engine
+        .input
+        .mark_atomic(head, (tail, engine.input.cursor()));
     ButtonEffect::None
 }
 
@@ -1612,16 +1761,24 @@ fn raise_to(engine: &mut Engine, exponent: char) -> ButtonEffect {
 /// missing here is the exponent, and a `0` there would read `y^0`,
 /// which is 1 whatever base the user goes on to type.
 fn raise_over(engine: &mut Engine) -> ButtonEffect {
-    let Some((start, end)) = engine.input.last_operand_range() else {
+    let Some((start, _)) = engine.input.last_operand_range() else {
         return ButtonEffect::None;
     };
     // This is the one key brackets cannot make room for: the operand
     // does not stay where it is, it goes up a level, and anything
     // inside it goes up with it — brackets included. So a press that
     // would push it past the limit does nothing.
-    let depths = script::script_depths(engine.input.items());
-    let deepest = depths[start..end].iter().copied().max().unwrap_or(0);
-    if deepest >= MAX_SCRIPT_DEPTH {
+    //
+    // What goes up is not just the operand. The caret raises what the
+    // parser gives it, which is the operand *and* any power chained
+    // onto it — press `yˣ` on the `4` of `4^3^2` and all three levels
+    // move up together. So the count is taken on the expression the
+    // press would produce rather than on the operand alone.
+    let mut probe = engine.input.items().to_vec();
+    probe.insert(start, InputItem::BinOp(BinOp::Pow));
+    let raised = script::exponent_span(&probe, start).unwrap_or(probe.len());
+    let depths = script::script_depths(&probe);
+    if depths[start..raised].iter().any(|d| *d > MAX_SCRIPT_DEPTH) {
         return ButtonEffect::None;
     }
     engine.input.insert_at(start, InputItem::BinOp(BinOp::Pow));

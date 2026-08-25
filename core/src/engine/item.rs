@@ -109,6 +109,21 @@ impl InputItem {
         }
     }
 
+    /// True for an item that closes a value: what a binary operator
+    /// can attach to, what a power can raise, what `C` takes back.
+    /// Mirrors the tokenizer's `produces_value`, at the item level.
+    pub fn ends_operand(&self) -> bool {
+        matches!(
+            self,
+            InputItem::Digit(_)
+                | InputItem::DecimalPoint
+                | InputItem::Constant(_)
+                | InputItem::RightParen
+                | InputItem::Factorial
+                | InputItem::Percent
+        )
+    }
+
     /// Return the ASCII/Unicode display glyph for this item.
     pub fn display(&self) -> String {
         match self {

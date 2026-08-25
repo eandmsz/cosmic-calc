@@ -998,12 +998,12 @@ fn a_power_with_an_operand_under_it_shows_no_slot() {
 #[test]
 fn a_root_degree_is_written_into_the_radical() {
     // `⁴√` is one symbol rather than a small 4 standing next to a
-    // sign, so the degree slides half a character right, over the
-    // radical's opening stroke. Only the degree moves.
+    // sign, so the degree slides a whole character right, into the
+    // opening of the radical. Only the degree moves.
     let items = root("16", &digits("4"));
     let segs = render_at(&items, items.len());
     assert_eq!(texts(&segs), vec!["4", "√(", "16", ")"]);
-    assert_eq!(segs[0].nudge, 0.5);
+    assert_eq!(segs[0].nudge, 1.0);
     for seg in &segs[1..] {
         assert_eq!(seg.nudge, 0.0, "{:?} moved sideways", seg.text);
     }
@@ -1020,7 +1020,7 @@ fn a_root_degree_is_written_into_the_radical() {
     let segs = render_at(&nested, nested.len());
     assert_eq!(texts(&segs), vec!["2", "+", "2", "√(", "16", ")"]);
     for seg in &segs[..3] {
-        assert_eq!(seg.nudge, 0.5, "{:?} stayed behind", seg.text);
+        assert_eq!(seg.nudge, 1.0, "{:?} stayed behind", seg.text);
     }
 
     // The slot an empty degree shows moves with it, so the press lands
@@ -1031,7 +1031,35 @@ fn a_root_degree_is_written_into_the_radical() {
         InputItem::Comma,
         InputItem::RightParen,
     ];
-    assert_eq!(render_at(&empty, 3)[0].nudge, 0.5);
+    assert_eq!(render_at(&empty, 3)[0].nudge, 1.0);
+}
+
+#[test]
+fn a_cube_root_is_drawn_as_a_radical_with_a_degree() {
+    // Not `∛`, which plenty of fonts do not carry: the same radical
+    // the other roots wear, with a `3` written into it. It reads as a
+    // root either way, and every font has both pieces.
+    let items = vec![
+        InputItem::UnaryFunc(UnaryFunc::Cbrt),
+        InputItem::Digit('8'),
+        InputItem::RightParen,
+    ];
+    let segs = render_at(&items, items.len());
+    assert_eq!(texts(&segs), vec!["3", "√(", "8", ")"]);
+    // The `3` is a degree: up a step, and slid into the sign like the
+    // degree of a `ʸ√x`.
+    assert!(segs[0].script.raise > 0.0);
+    assert_eq!(segs[0].nudge, 1.0);
+    assert!(segs[1].script.is_on_line());
+    assert_eq!(segs[1].nudge, 0.0);
+    // One line of text has the raised glyph for it.
+    assert_eq!(render_str(&items, DecimalSeparator::Dot, None), "³√(8)");
+    // The buffer and the clipboard are unmoved: `cbrt(` is what the
+    // tokenizer reads either way.
+    assert_eq!(
+        render_expression_string(&items, DecimalSeparator::Dot, None, Notation::Raw),
+        "cbrt(8)"
+    );
 }
 
 // --- the raw notation is the clipboard's text ------------------------
