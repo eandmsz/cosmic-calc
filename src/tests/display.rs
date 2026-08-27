@@ -1035,6 +1035,44 @@ fn a_root_degree_is_written_into_the_radical() {
 }
 
 #[test]
+fn a_degree_inside_a_degree_reaches_both_radicals() {
+    // `root(16,root(4,2))` is a root whose degree is itself a root.
+    // Every piece of the outer degree slides into the outer radical,
+    // and the inner degree slides into its own on top of that. The two
+    // are drawn at different sizes, so a nudge measured in each
+    // piece's own characters has to be converted between them — a
+    // single shared number left the inner degree a whole character
+    // short of its sign.
+    let items = root("16", &root("4", &digits("2")));
+    let segs = render_at(&items, items.len());
+    assert_eq!(texts(&segs), vec!["2", "√(", "4", ")", "√(", "16", ")"]);
+
+    // In pixels every piece of the outer degree moves the same
+    // distance, and the inner degree moves that plus its own.
+    let slide = |seg: &DisplaySegment| seg.nudge * seg.script.scale();
+    let outer_step = slide(&segs[1]);
+    assert!(outer_step > 0.0);
+    for seg in &segs[1..4] {
+        assert!(
+            (slide(seg) - outer_step).abs() < 1e-6,
+            "{:?} broke ranks with the rest of the degree",
+            seg.text
+        );
+    }
+    let inner_step = segs[0].script.scale() * ROOT_DEGREE_NUDGE;
+    assert!(
+        (slide(&segs[0]) - (outer_step + inner_step)).abs() < 1e-6,
+        "the inner degree missed a radical: {}",
+        slide(&segs[0])
+    );
+
+    // The radical the whole thing sits on has not moved.
+    for seg in &segs[4..] {
+        assert_eq!(seg.nudge, 0.0, "{:?} moved sideways", seg.text);
+    }
+}
+
+#[test]
 fn a_cube_root_is_drawn_as_a_radical_with_a_degree() {
     // Not `∛`, which plenty of fonts do not carry: the same radical
     // the other roots wear, with a `3` written into it. It reads as a

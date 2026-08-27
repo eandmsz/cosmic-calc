@@ -102,8 +102,10 @@ impl Script {
     }
 
     /// This placement with `shift` applied — the form
-    /// [`script::pretty_parts`] hands back.
-    fn shifted(self, shift: Shift) -> Self {
+    /// [`script::pretty_parts`] hands back, and the form a key's face
+    /// is spelled in too, so a script on the keypad is placed by the
+    /// same rule as one on the display.
+    pub(crate) fn shifted(self, shift: Shift) -> Self {
         match shift {
             Shift::OnLine => self,
             // A degree is a step up like any other; what makes it a
@@ -139,7 +141,7 @@ impl Script {
 /// to a sign. The pieces are separate widgets, so the overlap is a
 /// placement the app layer applies, not something the font is asked
 /// for.
-const ROOT_DEGREE_NUDGE: f32 = 1.0;
+pub(crate) const ROOT_DEGREE_NUDGE: f32 = 1.0;
 
 /// One piece of the rendered display. Multiple segments line up
 /// horizontally; `active` tells the app layer whether to use the full
@@ -154,6 +156,13 @@ pub struct DisplaySegment {
     /// Horizontal shift, in character widths of this piece's own size:
     /// positive moves it right, over whatever comes after it. Zero for
     /// everything but a root degree — see [`ROOT_DEGREE_NUDGE`].
+    ///
+    /// Measured in the piece's own characters, because that is what
+    /// the app layer can turn into pixels from the size it is drawing.
+    /// A degree that is itself a root therefore carries two slides at
+    /// once — its own, into its own radical, and its parent's, into
+    /// the radical outside it — each converted to the size the piece
+    /// ends up at. See [`Renderer::slide_degree`].
     pub nudge: f32,
 }
 
@@ -401,9 +410,7 @@ impl Renderer<'_> {
                             // beside it: every piece of the degree
                             // slides a character right, so it sits in
                             // the opening of the sign that follows.
-                            for seg in &mut out[degree_start..] {
-                                seg.nudge = ROOT_DEGREE_NUDGE;
-                            }
+                            self.slide_degree(&mut out[degree_start..], script.raised());
                             out.push(DisplaySegment::placed("√(", true, script));
                             self.render_run(i + 1, comma, thousands, script, out);
                             let active = !(self.cursor > i && self.cursor <= comma);
@@ -421,11 +428,15 @@ impl Renderer<'_> {
                 other => {
                     if self.notation.is_pretty() {
                         for (text, shift) in script::pretty_parts(other) {
-                            let mut seg = DisplaySegment::placed(text, true, script.shifted(shift));
+                            let placed = script.shifted(shift);
+                            let start = out.len();
+                            out.push(DisplaySegment::placed(text, true, placed));
+                            // The degree of a cube root is written into
+                            // its radical like any other, so it slides
+                            // the same way. See [`slide_degree`].
                             if shift == Shift::Degree {
-                                seg.nudge = ROOT_DEGREE_NUDGE;
+                                self.slide_degree(&mut out[start..], placed);
                             }
-                            out.push(seg);
                         }
                     } else {
                         let text = ascii_text(other, last_char(out));
@@ -459,6 +470,27 @@ impl Renderer<'_> {
         let comma = script::argument_separator(self.items, idx)?;
         let closer = self.closer_of[idx]?;
         (closer < end).then_some((comma, closer))
+    }
+
+    /// Slide the pieces of a degree into the opening of the radical it
+    /// belongs to. `degree` is the placement the degree run as a whole
+    /// is drawn at, and the slide is one character of that size — see
+    /// [`ROOT_DEGREE_NUDGE`].
+    ///
+    /// Every piece of the run moves by that same distance, but each
+    /// carries it in characters of its *own* size, which is what the
+    /// app layer has to work from. A piece drawn smaller than the run
+    /// it is in — a degree inside this degree, which has stepped again
+    /// — therefore needs proportionally more of them, and keeps the
+    /// slide into its own radical on top: the two are added, not
+    /// replaced. Without the conversion a nested degree moved only by
+    /// its own smaller character and was left sitting a whole
+    /// character short of its sign, which on screen reads as one
+    /// character too far to the left.
+    fn slide_degree(&self, segs: &mut [DisplaySegment], degree: Script) {
+        for seg in segs {
+            seg.nudge += ROOT_DEGREE_NUDGE * degree.scale() / seg.script.scale();
+        }
     }
 
     /// How an auto-multiplication the buffer holds is spelled: the `×`

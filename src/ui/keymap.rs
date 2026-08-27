@@ -18,6 +18,7 @@ use std::sync::Mutex;
 use std::sync::OnceLock;
 
 use crate::config::{Config, Mode};
+use crate::engine::script::Shift;
 use crate::layout::{canonical, LayoutKind};
 use crate::ui::buttons::Button;
 
@@ -204,8 +205,107 @@ pub fn name_for_button(button: Button) -> Option<&'static str> {
         .map(|(n, _)| *n)
 }
 
-/// Glyph the key wears. Static for almost every key; the three that
-/// track live state read it from `ctx`.
+/// One piece of a key's face: the text, and where it sits relative to
+/// the line the label is written on. The same vocabulary the display
+/// uses for an expression — see [`crate::engine::script::Shift`] — so a
+/// key and the thing it writes are drawn the same way.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LabelPart {
+    pub text: &'static str,
+    pub shift: Shift,
+}
+
+impl LabelPart {
+    /// Full size, on the line.
+    pub const fn on_line(text: &'static str) -> Self {
+        Self {
+            text,
+            shift: Shift::OnLine,
+        }
+    }
+
+    /// An exponent: the `2` of `x²`, the `-1` of `sin⁻¹`.
+    const fn raised(text: &'static str) -> Self {
+        Self {
+            text,
+            shift: Shift::Up,
+        }
+    }
+
+    /// A base: the `2` of `log₂`.
+    const fn lowered(text: &'static str) -> Self {
+        Self {
+            text,
+            shift: Shift::Down,
+        }
+    }
+
+    /// A root degree, which is raised *and* written into the opening
+    /// of the radical that follows it.
+    const fn degree(text: &'static str) -> Self {
+        Self {
+            text,
+            shift: Shift::Degree,
+        }
+    }
+}
+
+/// The pieces the key's face is drawn from.
+///
+/// The keypad draws a script the way the display does — the same
+/// characters, smaller and moved off the line — rather than asking the
+/// font for a raised or lowered glyph. Only a handful of characters
+/// have one at all: `x²` and `log₂` come out of Unicode's superscript
+/// and subscript blocks, but `xʸ`, `yˣ` and `ʸ√x` have to borrow
+/// modifier letters and `logᵧ` a Greek subscript gamma, and those are
+/// drawn by whichever face on the system happens to carry them. The
+/// result was a keypad whose exponents sat at four different heights
+/// and whose `logᵧ` wore a letter from another alphabet. Drawn from
+/// pieces, every script on the keypad is the key's own font at 60% and
+/// one step off the line, and they line up because they are placed
+/// rather than found.
+///
+/// [`label_for`] stays the one-line spelling of the same face, for
+/// measuring and for saying what a key reads as in one string.
+pub fn label_parts(button: Button, ctx: LabelContext) -> Vec<LabelPart> {
+    match button {
+        // The inverse trigonometry, whose `-1` is an exponent.
+        Button::Asin => vec![LabelPart::on_line("sin"), LabelPart::raised("-1")],
+        Button::Acos => vec![LabelPart::on_line("cos"), LabelPart::raised("-1")],
+        Button::Atan => vec![LabelPart::on_line("tan"), LabelPart::raised("-1")],
+        Button::Asinh => vec![LabelPart::on_line("sinh"), LabelPart::raised("-1")],
+        Button::Acosh => vec![LabelPart::on_line("cosh"), LabelPart::raised("-1")],
+        Button::Atanh => vec![LabelPart::on_line("tanh"), LabelPart::raised("-1")],
+
+        // Logarithms wear their base under them.
+        Button::Log2 => vec![LabelPart::on_line("log"), LabelPart::lowered("2")],
+        Button::LogY => vec![LabelPart::on_line("log"), LabelPart::lowered("y")],
+
+        // Radicals wear their degree in the opening of the sign.
+        Button::Cbrt => vec![LabelPart::degree("3"), LabelPart::on_line("√")],
+        Button::YRootX => vec![LabelPart::degree("y"), LabelPart::on_line("√x")],
+
+        // Powers wear their exponent above them.
+        Button::Square => vec![LabelPart::on_line("x"), LabelPart::raised("2")],
+        Button::Cube => vec![LabelPart::on_line("x"), LabelPart::raised("3")],
+        Button::XPowY => vec![LabelPart::on_line("x"), LabelPart::raised("y")],
+        Button::YPowX => vec![LabelPart::on_line("y"), LabelPart::raised("x")],
+        Button::TenPowX => vec![LabelPart::on_line("10"), LabelPart::raised("x")],
+        Button::TwoPowX => vec![LabelPart::on_line("2"), LabelPart::raised("x")],
+        Button::EPowX => vec![LabelPart::on_line("𝑒"), LabelPart::raised("x")],
+
+        // Everything else is one piece, written on the line.
+        other => vec![LabelPart::on_line(label_for(other, ctx))],
+    }
+}
+
+/// Glyph the key wears, as one line of text: what the key reads as,
+/// and what its size on the button is measured from. The face the
+/// keypad actually draws is [`label_parts`], which says where each
+/// piece of it goes.
+///
+/// Static for almost every key; the three that track live state read
+/// it from `ctx`.
 pub fn label_for(button: Button, ctx: LabelContext) -> &'static str {
     match button {
         Button::Num(d) => match d {

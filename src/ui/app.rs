@@ -158,6 +158,9 @@ pub struct AppModel {
     /// Which side panels are actually on screen. Lags `ui`'s two
     /// toggles by one resize round trip — see [`PanelsShown`].
     panels_shown: PanelsShown,
+    /// The panel resize this app has asked the window for and has not
+    /// seen land yet. See [`PanelResize`].
+    panel_resize: Option<PanelResize>,
     /// Set while the window has a size that has not reached
     /// `config.window_startup_*` yet. A drag of the window edge
     /// reports a size per frame; writing each one would mean a
@@ -442,9 +445,18 @@ impl AppModel {
     /// figure derived from the window width has to work off this
     /// instead — otherwise the keypad sizes itself against space the
     /// panels have already taken.
+    ///
+    /// While a panel resize this app asked for is in flight it is the
+    /// width the column is being held at instead: the window is
+    /// changing size underneath the layout, and a keypad sized against
+    /// a width it does not have yet is exactly the flicker the hold is
+    /// there to prevent. See [`PanelResize`].
     fn content_width(&self) -> f32 {
         const MIN_CONTENT_WIDTH: f32 = 120.0;
-        (self.window_width - self.panels_width()).max(MIN_CONTENT_WIDTH)
+        match &self.panel_resize {
+            Some(resize) => resize.content_width.max(MIN_CONTENT_WIDTH),
+            None => (self.window_width - self.panels_width()).max(MIN_CONTENT_WIDTH),
+        }
     }
 
     /// Record a window width — one the window reported, or one this
@@ -502,14 +514,17 @@ impl AppModel {
         };
         let (min_width, min_height) = self.min_window_size(wanted, monitor_width);
         let new_width = (self.window_width + change).max(min_width);
-        // Put the panel on screen (or take it off) in the same update
-        // that changes the width it is sized against. Drawing it any
-        // earlier would lay the calculator out inside the width the
-        // window is about to grow past, and the keypad would visibly
-        // shrink and spring back — one frame of buttons in the wrong
-        // places on every press of the Settings key.
-        self.panels_shown = wanted;
+        // The width the calculator has as things stand, which is the
+        // width it keeps while the window changes size around it.
+        let content_width = self.content_width();
+        let show_now = |model: &mut Self| {
+            model.panels_shown = wanted;
+            model.panel_resize = None;
+        };
         let Some(id) = self.core.main_window_id() else {
+            // Nothing to resize against, so there is nothing to wait
+            // for either: the panel goes on screen as it is.
+            show_now(self);
             return Task::none();
         };
         // The floor moves with the panels: while one is docked the
@@ -517,12 +532,27 @@ impl AppModel {
         // minimum plus the panel's width.
         let limits = cosmic::iced::window::set_min_size(id, Some(Size::new(min_width, min_height)));
         if (new_width - self.window_width).abs() < 0.5 {
+            // The window is already the width the panel needs — a
+            // maximised window, a second panel there is no room for —
+            // so it goes straight on screen.
+            show_now(self);
             return limits;
         }
-        // Lay out against the width we asked for right away; the
-        // resync below replaces it with the width the window really
-        // ended up at, whether that is this one or not.
-        self.adopt_window_width(new_width);
+        // A panel that is arriving waits for the width it is going to
+        // stand in: drawn a frame early it would be laid out beside a
+        // calculator that has not been given its own width back yet,
+        // and the keypad would visibly squeeze and spring open again
+        // on every press of the Settings key. A panel that is leaving
+        // goes now, since the width it frees is the calculator's own
+        // and the column is held at that width until the window
+        // catches up.
+        if wanted.width() <= self.panels_shown.width() {
+            self.panels_shown = wanted;
+        }
+        self.panel_resize = Some(PanelResize {
+            panels: wanted,
+            content_width,
+        });
         Task::batch([
             limits,
             cosmic::iced::window::resize(id, Size::new(new_width, self.window_height)),
@@ -621,6 +651,7 @@ impl Application for AppModel {
             panel_width_added: 0.0,
             bare_width: window_width,
             panels_shown: PanelsShown::default(),
+            panel_resize: None,
             window_size_pending: false,
             last_resize_at: None,
             fonts_preloaded: false,
@@ -777,6 +808,12 @@ impl Application for AppModel {
                 self.ui.context_menu_open = false;
             }
             Message::WindowResized(w, h) => {
+                // The width a panel was waiting on has landed (or the
+                // user dragged the edge, which answers the same
+                // question): draw it, and let the column fill again.
+                if let Some(resize) = self.panel_resize.take() {
+                    self.panels_shown = resize.panels;
+                }
                 self.adopt_window_width(w);
                 self.window_height = h;
                 self.note_window_size();
@@ -806,6 +843,13 @@ impl Application for AppModel {
     }
 
     fn view(&self) -> Element<'_, Self::Message> {
+        // Every `cosmic::widget::text` below reads the interface font
+        // as it is built, and libcosmic's own toolkit-config watcher
+        // overwrites that slot behind us — see [`apply_interface_font`].
+        // Re-asserting it here is what keeps the user's family on the
+        // keypad from the first frame rather than from the first time
+        // they pick one.
+        crate::ui::font::apply_interface_font(&self.config.font);
         let layout = self.main_column_layout();
         let top_bar = self.render_top_bar();
         let display_metrics = self.compute_display_metrics(&layout);
@@ -868,6 +912,19 @@ impl Application for AppModel {
         }
         main_column = main_column.push(controls);
 
+        // While a resize this app asked for is in flight the window is
+        // changing width underneath the layout, so the calculator is
+        // pinned to the width it has rather than filling: see
+        // [`PanelResize`].
+        let calculator: Element<'_, Message> = if self.panel_resize.is_some() {
+            widget::container(main_column)
+                .width(Length::Fixed(self.content_width()))
+                .height(Length::Fill)
+                .into()
+        } else {
+            main_column.into()
+        };
+
         // Panels are side panels: history docks left, settings docks
         // right. Pushing them into a Row beside the main column means
         // toggling either one widens the window's logical content
@@ -879,7 +936,7 @@ impl Application for AppModel {
         let history_open = self.panels_shown.history;
         let settings_open = self.panels_shown.settings;
         if !history_open && !settings_open {
-            return main_column.into();
+            return calculator;
         }
 
         let mut row = widget::row::with_capacity(3);
@@ -891,7 +948,7 @@ impl Application for AppModel {
                 &self.config,
             ));
         }
-        row = row.push(main_column);
+        row = row.push(calculator);
         if settings_open {
             row = row.push(crate::ui::panels::settings_panel(
                 &active_theme,
@@ -969,8 +1026,14 @@ impl Application for AppModel {
 
 impl AppModel {
     /// Top row: history panel toggle on the left, mode toggle in the
-    /// middle, settings panel toggle on the right. Rendered as plain
-    /// buttons emitting the matching `Button::Toggle*` variants.
+    /// middle, settings panel toggle on the right. Rendered as buttons
+    /// emitting the matching `Button::Toggle*` variants.
+    ///
+    /// They wear the keypad's own shape and palette rather than
+    /// libcosmic's stock button, so the corners the user picked in the
+    /// settings panel are the corners on every button in the window —
+    /// these three used to keep the system's rounding whatever the
+    /// keypad below them was set to.
     fn render_top_bar(&self) -> Element<'_, Message> {
         // The label reflects the CURRENT layout (so the user sees what
         // they're in), not the layout the press would switch to.
@@ -978,20 +1041,19 @@ impl AppModel {
             Mode::Basic => "Basic mode",
             Mode::Scientific => "Scientific mode",
         };
+        let theme = self.active_theme();
+        let radius = self.config.effective_button_corner_radius();
+        let key = |label: &'static str, button: Button| {
+            widget::button::standard(label)
+                .class(crate::ui::button_style::class_for(&theme, button, radius))
+                .on_press(Message::Button(button))
+        };
         widget::row::with_capacity(3)
-            .push(
-                widget::button::standard("History")
-                    .on_press(Message::Button(Button::ToggleHistoryPanel)),
-            )
+            .push(key("History", Button::ToggleHistoryPanel))
             .push(widget::Space::new().width(Length::Fill))
-            .push(
-                widget::button::standard(mode_label).on_press(Message::Button(Button::ToggleMode)),
-            )
+            .push(key(mode_label, Button::ToggleMode))
             .push(widget::Space::new().width(Length::Fill))
-            .push(
-                widget::button::standard("Settings")
-                    .on_press(Message::Button(Button::ToggleSettingsPanel)),
-            )
+            .push(key("Settings", Button::ToggleSettingsPanel))
             .spacing(4)
             .width(Length::Fill)
             .into()
@@ -1424,7 +1486,7 @@ struct DisplayMetrics {
 /// what puts the tail of the degree over the sign. `size` is the font
 /// size this piece is drawn at, since the shift is measured in its own
 /// characters and a script's are smaller than the line's.
-fn place_segment<'a>(
+pub(crate) fn place_segment<'a>(
     text: widget::Text<'a, cosmic::Theme>,
     seg: &crate::ui::display::DisplaySegment,
     size: f32,
@@ -1545,6 +1607,27 @@ impl PanelsShown {
     }
 }
 
+/// A resize this app has asked the window for and is waiting on.
+///
+/// A panel docks beside the calculator, so opening one asks the window
+/// to grow by the panel's width. That request is not answered in the
+/// same breath: the compositor applies it, and the size comes back
+/// through `ResyncWindowSize`. Both numbers here are about the frames
+/// in between.
+#[derive(Debug, Clone, Copy)]
+struct PanelResize {
+    /// The panels to draw once the window is the width for them.
+    panels: PanelsShown,
+    /// The width to hold the calculator column at until then — the
+    /// width it has right now. The window changes size underneath the
+    /// layout during those frames, and a column filling it would
+    /// stretch or squeeze along with it: buttons in the wrong places,
+    /// labels sized for a width the keypad no longer has. Held at its
+    /// own width it simply stands still while the window grows around
+    /// it.
+    content_width: f32,
+}
+
 /// Split a window width into the part the calculator column has on its
 /// own and the part the open side panels hold, returning
 /// `(bare_width, panels_hold)`.
@@ -1616,7 +1699,7 @@ fn mem_btn(
     widget::container(crate::ui::keypad::control_button(
         theme,
         font,
-        label,
+        &[crate::ui::keymap::LabelPart::on_line(label)],
         button,
         crate::ui::keypad::CellGeometry {
             corner_radius,
