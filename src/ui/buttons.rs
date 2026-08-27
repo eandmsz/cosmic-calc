@@ -285,6 +285,13 @@ pub fn apply_resolved_button(
     // Handle Equals's "continue with Ans" pre-step uniformly.
     handle_post_eval(engine, state, button);
 
+    // An operator pressed while the cursor is parked in the base slot
+    // `yˣ` opened belongs after the whole power. See
+    // [`leave_pending_power_base`].
+    if operates_on_a_whole_value(button) {
+        leave_pending_power_base(engine);
+    }
+
     match button {
         Button::Num(d) if d <= 9 => {
             insert_digit(engine, d);
@@ -884,24 +891,33 @@ fn backspace_with_paren_match(engine: &mut Engine) {
         engine.input.set_cursor(resume);
         return;
     }
-    // The same for the slot a two-argument call parks the cursor in.
-    // While that slot is empty the call is what the press wrote, so
-    // backspace takes the call back and leaves whatever argument was
-    // typed standing: `16`, `ʸ√x`, backspace is `16` again, where
-    // deleting the comma under the cursor would have left a `root(16)`
-    // that no longer means anything.
-    if let Some((opener, comma, closer)) = empty_call_at_cursor(engine) {
-        let resume = if comma == opener + 1 {
-            // The empty slot is the first argument; the second one
-            // survives, two items further down the line than it was.
-            closer - 2
-        } else {
-            comma - 1
-        };
-        for idx in [closer, comma, opener] {
-            engine.input.delete_range(idx, idx + 1);
+    // The same for a two-argument call the cursor has reached the
+    // start of a slot in: there is nothing of that slot to the left to
+    // delete, and what the press takes back is the one that put the
+    // cursor there.
+    if let Some(step) = call_slot_backspace(engine) {
+        match step {
+            CallStep::Nothing => {}
+            CallStep::Into(at) => engine.input.set_cursor(at),
+            CallStep::TakeBackCall {
+                opener,
+                comma,
+                closer,
+            } => {
+                let resume = if comma == opener + 1 {
+                    // The empty slot is the first argument; the second
+                    // one survives, two items further down the line
+                    // than it was.
+                    closer - 2
+                } else {
+                    comma - 1
+                };
+                for idx in [closer, comma, opener] {
+                    engine.input.delete_range(idx, idx + 1);
+                }
+                engine.input.set_cursor(resume);
+            }
         }
-        engine.input.set_cursor(resume);
         return;
     }
     let cur = engine.input.cursor();
@@ -964,11 +980,48 @@ fn pending_base_caret(engine: &Engine) -> Option<(usize, usize)> {
     Some((cursor, span - 1))
 }
 
-/// The two-argument call whose empty slot the cursor is sitting in,
-/// as `(opener, comma, closer)`. `None` when the cursor is somewhere
-/// else, or when the slot it is in has something in it — then there
-/// is a character to delete and backspace deletes it.
-fn empty_call_at_cursor(engine: &Engine) -> Option<(usize, usize, usize)> {
+/// What backspace does when the cursor has reached the start of one of
+/// a two-argument call's slots.
+enum CallStep {
+    /// Take the whole call back — its opener, its comma and its
+    /// closer — leaving whatever the other slot holds standing.
+    TakeBackCall {
+        opener: usize,
+        comma: usize,
+        closer: usize,
+    },
+    /// Step back into the other slot, at the end of what it holds.
+    Into(usize),
+    /// Nothing to take back here, and nothing safe to delete: the
+    /// press is dropped.
+    Nothing,
+}
+
+/// How backspace unwinds a `logᵧ` / `ʸ√x` call, when the cursor is at
+/// the start of one of its two slots and so has nothing of that slot
+/// to its left to delete. `None` when the cursor is somewhere else,
+/// and then backspace deletes a character as it does anywhere.
+///
+/// The walk is the fill in reverse, in either order the call can be
+/// built in:
+///
+///   * In the slot the call's own press parks the cursor in — the
+///     base under a `log`, the degree in front of a radical — an
+///     empty slot means that press is the thing to take back, and the
+///     argument it closed over is left standing: `16`, `ʸ√x`,
+///     backspace is `16` again. Deleting the comma under the cursor
+///     instead would have turned `⁴√(16)` into `√(164)` and `log₂(8)`
+///     into `log(28)` — a different function, silently.
+///   * At the start of the bracketed argument the press steps back
+///     into the other slot, which is the one that was filled before
+///     it: `logy 2 ) 8` unwinds through the `8`, back under the log,
+///     and through the `2` before the call itself comes off. A call
+///     with nothing in either slot has no such step and comes off
+///     whole.
+///
+/// A slot with something typed in it is never taken back from its own
+/// start: the two arguments would run together into one number.
+fn call_slot_backspace(engine: &Engine) -> Option<CallStep> {
     let items = engine.input.items();
     let cursor = engine.input.cursor();
     // Innermost first: a call nested in another answers for itself.
@@ -985,13 +1038,42 @@ fn empty_call_at_cursor(engine: &Engine) -> Option<(usize, usize, usize)> {
         if cursor > closer {
             continue;
         }
-        let in_first = cursor <= comma;
-        let empty = if in_first {
-            comma == opener + 1
-        } else {
-            closer == comma + 1
+        let take_back = CallStep::TakeBackCall {
+            opener,
+            comma,
+            closer,
         };
-        return empty.then_some((opener, comma, closer));
+        let in_first = cursor <= comma;
+        let first_empty = comma == opener + 1;
+        let second_empty = closer == comma + 1;
+        // Which of the two the call draws outside its brackets: the
+        // `log_y` base is the first argument, the root degree the
+        // second.
+        let outer_is_first = matches!(items[opener], InputItem::BinaryFunc(BinaryFunc::LogBase));
+        let (in_outer, this_empty) = if in_first {
+            (outer_is_first, first_empty)
+        } else {
+            (!outer_is_first, second_empty)
+        };
+        // Anywhere but the start of the slot there is a character of
+        // it to delete, and backspace deletes it.
+        let starts_here = cursor == if in_first { opener + 1 } else { comma + 1 };
+        if !starts_here {
+            return None;
+        }
+        return Some(if in_outer {
+            if this_empty {
+                take_back
+            } else {
+                CallStep::Nothing
+            }
+        } else if first_empty && second_empty {
+            take_back
+        } else {
+            // The end of the other slot: the comma for a first
+            // argument, the closer for a second.
+            CallStep::Into(if outer_is_first { comma } else { closer })
+        });
     }
     None
 }
@@ -1002,13 +1084,20 @@ fn empty_call_at_cursor(engine: &Engine) -> Option<(usize, usize, usize)> {
 /// expression is closed instead, and with no operand to wrap (an
 /// empty display, a trailing operator) the press still does nothing.
 /// Returns whether anything was written.
+///
+/// What the brackets go round is the whole power, not the exponent
+/// that ends it: `2^3` then `)` is `(2^3)`, the number on screen, and
+/// not the `2⁽³⁾` that bracketing the last operand alone would draw —
+/// same value, but brackets round a part of it nobody asked to
+/// separate. That is the same span `x²` puts in brackets when it runs
+/// out of levels, and the same one `xʸ` and `yˣ` build.
 fn close_around_last_operand(engine: &mut Engine) -> bool {
     let cursor = engine.input.cursor();
     if depth_between(engine.input.items(), 0, cursor) > 0 {
         engine.input.insert(InputItem::RightParen);
         return true;
     }
-    let Some((start, end)) = engine.input.last_operand_range() else {
+    let Some((start, end)) = power_chain_range(engine, cursor) else {
         return false;
     };
     engine.input.insert_at(start, InputItem::LeftParen);
@@ -1159,6 +1248,54 @@ fn press_percent(engine: &mut Engine) {
     if has_left_operand_at_cursor(engine) {
         engine.input.insert(InputItem::Percent);
     }
+}
+
+/// Keys that attach to a value that is already finished — the binary
+/// operators, modulo, `%`, `!` and `EE`. They are the presses that
+/// have to step out of a power's base slot first: see
+/// [`leave_pending_power_base`].
+///
+/// The digits are not among them, and neither are the functions and
+/// the brackets: those are how the slot gets filled in the first
+/// place.
+fn operates_on_a_whole_value(button: Button) -> bool {
+    matches!(
+        button,
+        Button::Add
+            | Button::Sub
+            | Button::Mul
+            | Button::Div
+            | Button::Mod
+            | Button::Percent
+            | Button::Factorial
+            | Button::EE
+    )
+}
+
+/// Move the cursor out of the base slot a `yˣ` press opened, to the
+/// end of the power it is the base of.
+///
+/// `2`, `yˣ`, `3` reads `3²` with the cursor still between the `3` and
+/// the caret, because that is where the base was typed. An operator
+/// keyed there landed *inside* the power, between the base and its
+/// exponent: `+` gave `3+^2`, which reads as a power with no base at
+/// all and takes the `3` the user had just typed out of the sum. The
+/// operator is about the whole `3²`, so the cursor goes past it first.
+///
+/// Only a caret that has a base already: with the slot still empty
+/// there is no value for an operator to attach to, and the press is
+/// dropped as it always was.
+fn leave_pending_power_base(engine: &mut Engine) {
+    let items = engine.input.items();
+    let cursor = engine.input.cursor();
+    if !matches!(items.get(cursor), Some(InputItem::BinOp(BinOp::Pow))) {
+        return;
+    }
+    if cursor == 0 || !items[cursor - 1].ends_operand() {
+        return;
+    }
+    let end = script::exponent_span(items, cursor).unwrap_or(items.len());
+    engine.input.set_cursor(end);
 }
 
 /// True when the item directly to the left of the cursor closes a
@@ -1385,13 +1522,15 @@ fn wrap_or_open_unary(engine: &mut Engine, f: UnaryFunc) -> ButtonEffect {
 /// `root(164)` — and with no comma key on the keypad the second
 /// argument could not be reached at all.
 ///
-/// From an empty operand the radicand comes first, the way it is
-/// written, and `)` moves out to the degree: `ʸ√x`, `16`, `)`, `4`.
-/// That is the same gesture [`open_log_base`] uses for its base, and
-/// it is why the comma goes in up front either way — the slot has to
-/// exist before the display can show it empty, and before `)` has
-/// anywhere to move to. Without it the degree of a root opened from an
-/// empty display could not be typed at all.
+/// From an empty operand the degree comes first, which is the order
+/// the key is reached in when there is nothing to root yet: the
+/// degree is the part the press is *for*, and the radicand is what
+/// the user goes on to type. So `ʸ√x` parks the cursor in the degree
+/// and `)` moves in to the radicand: `ʸ√x`, `3`, `)`, `8` reads
+/// `³√(8)`. That is the same gesture [`open_log_base`] uses for its
+/// base, and it is why the comma goes in up front either way — the
+/// slot has to exist before the display can show it empty, and before
+/// `)` has anywhere to move to.
 fn open_root(engine: &mut Engine) -> ButtonEffect {
     let call = InputItem::BinaryFunc(BinaryFunc::Root);
     match call_operand(engine) {
@@ -1410,8 +1549,8 @@ fn open_root(engine: &mut Engine) -> ButtonEffect {
             insert_with_auto_mul(engine, call);
             engine.input.insert(InputItem::Comma);
             engine.input.insert(InputItem::RightParen);
-            // Back over the closer and the comma, into the radicand.
-            engine.input.move_cursor(crate::engine::CursorMove::Left);
+            // Back over the closer only: between the comma and it is
+            // the degree, which is what the press asks for first.
             engine.input.move_cursor(crate::engine::CursorMove::Left);
         }
     }
@@ -1429,10 +1568,14 @@ fn open_root(engine: &mut Engine) -> ButtonEffect {
 /// is the opposite of the order [`wrap_or_open_binary`] uses for
 /// `y√x`, where the operand already typed is the radicand.
 ///
-/// From an empty operand the argument comes first, the way it is
-/// written and the way it is said: `logy`, `8`, `)`, `2`. The comma is
-/// inserted up front either way, so the base slot exists (and the
-/// display can show it empty) before anything is typed into it.
+/// From an empty operand the base comes first, which is the order the
+/// key is reached in when there is nothing to take the log of yet:
+/// the base is the part the press is *for*, and the argument is what
+/// the user goes on to type. So `logy` parks the cursor under the log
+/// and `)` moves in to the argument: `logy`, `2`, `)`, `8` reads
+/// `log₂(8)`. The comma is inserted up front either way, so the slot
+/// exists (and the display can show it empty) before anything is
+/// typed into it.
 fn open_log_base(engine: &mut Engine) -> ButtonEffect {
     let call = InputItem::BinaryFunc(BinaryFunc::LogBase);
     match call_operand(engine) {
@@ -1451,7 +1594,9 @@ fn open_log_base(engine: &mut Engine) -> ButtonEffect {
             insert_with_auto_mul(engine, call);
             engine.input.insert(InputItem::Comma);
             engine.input.insert(InputItem::RightParen);
-            // Between the comma and the closer: the argument slot.
+            // Back over the closer and the comma, into the base slot
+            // the press is asking to be filled first.
+            engine.input.move_cursor(crate::engine::CursorMove::Left);
             engine.input.move_cursor(crate::engine::CursorMove::Left);
         }
     }
@@ -1468,17 +1613,20 @@ fn open_log_base(engine: &mut Engine) -> ButtonEffect {
 ///
 /// The two-argument calls are the exception at both ends, because each
 /// of them draws one argument outside its brackets: the `log_y` base
-/// under the `log`, the root degree in front of the radical. Closing
-/// the bracketed argument moves into that slot while it is still
-/// empty, and a press from inside the slot leaves the call for good.
-/// That is the whole gesture the two keys exist for — `logy 8 ) 2`
-/// reads log₂(8), `yrootx 16 ) 4` reads ⁴√(16) — and it is why the
-/// display draws the empty slot at all.
+/// under the `log`, the root degree in front of the radical. The press
+/// steps from one slot of such a call to the other while the one it is
+/// stepping to is still empty, and leaves the call once there is
+/// nothing left to fill. That is the whole gesture the two keys exist
+/// for — `logy 2 ) 8` reads log₂(8), `yrootx 3 ) 8` reads ³√(8) — and
+/// it is why the display draws the empty slot at all.
 fn right_paren_target(engine: &Engine) -> Option<usize> {
     // In the slot a call draws outside its brackets, the bracket is
-    // already closed on screen, so the press leaves the call.
-    if let Some((_, closer)) = call_with_cursor_in_outer_slot(engine) {
-        return Some(closer + 1);
+    // already closed on screen. While the bracketed argument is still
+    // empty the press moves in to it — that is the order a call opened
+    // from an empty display is filled in, the base or the degree first
+    // — and once it holds something the press leaves the call.
+    if let Some((opener, closer)) = call_with_cursor_in_outer_slot(engine) {
+        return Some(empty_bracketed_argument(engine, opener).unwrap_or(closer + 1));
     }
     let items = engine.input.items();
     let cursor = engine.input.cursor();
@@ -1528,6 +1676,28 @@ fn call_with_cursor_in_outer_slot(engine: &Engine) -> Option<(usize, usize)> {
         }
     }
     found
+}
+
+/// Where the still-empty bracketed argument of the call at `opener`
+/// starts — the `log_y` value, the root radicand — or `None` when it
+/// already holds something. The mirror of
+/// [`empty_log_base_before_closer`]: that one finds an empty slot from
+/// inside the brackets, this one finds an empty bracket from inside
+/// the slot.
+fn empty_bracketed_argument(engine: &Engine, opener: usize) -> Option<usize> {
+    let items = engine.input.items();
+    let InputItem::BinaryFunc(kind) = items[opener] else {
+        return None;
+    };
+    let comma = script::argument_separator(items, opener)?;
+    let closer = script::closing_paren(items, opener)?;
+    match kind {
+        // The value is the second argument, between the comma and the
+        // closer.
+        BinaryFunc::LogBase => (closer == comma + 1).then_some(comma + 1),
+        // The radicand is the first, between the opener and the comma.
+        BinaryFunc::Root => (comma == opener + 1).then_some(opener + 1),
+    }
 }
 
 /// Index the cursor moves to when `)` is pressed in front of the

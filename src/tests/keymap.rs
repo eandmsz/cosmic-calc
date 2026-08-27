@@ -1,9 +1,10 @@
 use crate::config::{Config, Mode};
+use crate::engine::script::{self, Shift};
 use crate::layout::{KeypadLayouts, LayoutKind, KEYPAD_ROWS};
 use crate::ui::buttons::Button;
 use crate::ui::keymap::{
-    button_for_name, label_for, layout_kind, name_for_button, resolve_grid, second_of,
-    LabelContext, KEY_NAMES,
+    button_for_name, label_for, label_parts, layout_kind, name_for_button, resolve_grid, second_of,
+    LabelContext, LabelPart, KEY_NAMES,
 };
 
 #[test]
@@ -216,4 +217,86 @@ fn live_labels_come_from_the_context() {
     assert_eq!(label_for(Button::Asin, ctx), "sin⁻¹");
     assert_eq!(label_for(Button::YRootX, ctx), "ʸ√x");
     assert_eq!(label_for(Button::Num(4), ctx), "4");
+}
+
+// --- the face a key is drawn from ----------------------------------
+
+/// The one-line spelling of a face drawn from pieces: each script
+/// swapped for the Unicode glyph the flat label uses. Unicode has a
+/// superscript for the digits and the `-1`, and a subscript for the
+/// digits; the letters have to borrow modifier letters, and `y` under
+/// a `log` a Greek gamma — which is the whole reason the keypad draws
+/// its own scripts instead.
+fn one_line(parts: &[LabelPart]) -> String {
+    parts
+        .iter()
+        .map(|part| match part.shift {
+            Shift::OnLine => part.text.to_string(),
+            Shift::Up | Shift::Degree => script::to_superscript(part.text)
+                .unwrap_or_else(|| borrowed_letter(part.text, true)),
+            Shift::Down => {
+                script::to_subscript(part.text).unwrap_or_else(|| borrowed_letter(part.text, false))
+            }
+        })
+        .collect()
+}
+
+/// The glyphs the flat spelling reaches for where Unicode's own blocks
+/// run out.
+fn borrowed_letter(text: &str, up: bool) -> String {
+    match (text, up) {
+        ("x", true) => "ˣ".to_string(),
+        ("y", true) => "ʸ".to_string(),
+        ("y", false) => "ᵧ".to_string(),
+        _ => panic!(
+            "no glyph for a {} {text:?}",
+            if up { "raised" } else { "lowered" }
+        ),
+    }
+}
+
+#[test]
+fn every_face_spells_the_label_it_reads_as() {
+    // The pieces are what the keypad draws and the flat label is what
+    // the key reads as in one string; they are two spellings of one
+    // face, and this is what keeps them from drifting apart.
+    let ctx = LabelContext::default();
+    for (_, button) in KEY_NAMES {
+        let parts = label_parts(*button, ctx);
+        assert_eq!(
+            one_line(&parts),
+            label_for(*button, ctx),
+            "{button:?} draws something other than what it reads as"
+        );
+    }
+}
+
+#[test]
+fn the_keys_with_scripts_are_the_ones_that_have_them() {
+    let ctx = LabelContext::default();
+    // A key with nothing off the line is one piece, whole.
+    for button in [Button::Sin, Button::Num(7), Button::Sqrt, Button::Ln] {
+        assert_eq!(
+            label_parts(button, ctx),
+            vec![LabelPart::on_line(label_for(button, ctx))],
+            "{button:?} was broken up for no reason"
+        );
+    }
+    // And the ones that do carry them place each piece.
+    let shifts = |button| -> Vec<Shift> {
+        label_parts(button, ctx)
+            .iter()
+            .map(|part| part.shift)
+            .collect()
+    };
+    assert_eq!(shifts(Button::Square), vec![Shift::OnLine, Shift::Up]);
+    assert_eq!(shifts(Button::YPowX), vec![Shift::OnLine, Shift::Up]);
+    assert_eq!(shifts(Button::TwoPowX), vec![Shift::OnLine, Shift::Up]);
+    assert_eq!(shifts(Button::Asin), vec![Shift::OnLine, Shift::Up]);
+    assert_eq!(shifts(Button::LogY), vec![Shift::OnLine, Shift::Down]);
+    assert_eq!(shifts(Button::Log2), vec![Shift::OnLine, Shift::Down]);
+    // A degree is written into the radical that follows it, so it
+    // comes first and carries its own shift.
+    assert_eq!(shifts(Button::Cbrt), vec![Shift::Degree, Shift::OnLine]);
+    assert_eq!(shifts(Button::YRootX), vec![Shift::Degree, Shift::OnLine]);
 }

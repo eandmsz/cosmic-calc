@@ -1,5 +1,9 @@
 use crate::config::{ButtonShape, Config};
-use crate::ui::keypad::{button_cell_width, keypad_metrics, label_font_size, min_window_size};
+use crate::ui::keymap::{label_parts, LabelContext, LabelPart};
+use crate::ui::keypad::{
+    button_cell_width, keypad_metrics, label_font_size, label_width_units, min_window_size,
+    parts_width_units,
+};
 
 #[test]
 fn min_window_size_keeps_font_legible() {
@@ -75,4 +79,27 @@ fn metrics_grow_with_window() {
     let small = keypad_metrics(800.0, &config);
     let large = keypad_metrics(1600.0, &config);
     assert!(large.button_height > small.button_height);
+}
+
+#[test]
+fn a_script_on_a_key_face_costs_less_width_than_a_full_character() {
+    // The keypad draws its scripts at 60%, so a face has to be
+    // measured piece by piece: sized as though the raised `2` of `x²`
+    // were a second full-size character, the label would be shrunk to
+    // fit a width it never needed.
+    let ctx = LabelContext::default();
+    let square = parts_width_units(&label_parts(crate::ui::buttons::Button::Square, ctx));
+    assert!(
+        square < label_width_units("x2"),
+        "x² measured as wide as x2: {square}"
+    );
+    assert!(
+        square > label_width_units("x"),
+        "x² measured no wider than x"
+    );
+
+    // A face with nothing off the line measures exactly as the string
+    // it is.
+    let plain = [LabelPart::on_line("sin")];
+    assert!((parts_width_units(&plain) - label_width_units("sin")).abs() < 1e-6);
 }

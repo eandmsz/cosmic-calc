@@ -34,6 +34,22 @@
   </categories>
 
   <releases>
+    <release version="0.1.7" date="2026-08-27">
+      <description>
+        <ul>
+          <li>logᵧ and ʸ√x opened from an empty display ask for the base and the degree first — the part the key was reached for — and ) moves in to the argument: logᵧ, 2, ), 8 reads log₂(8), and ʸ√x, 3, ), 8 reads ³√(8). With an operand already typed nothing changes</li>
+          <li>Backspace unwinds one of those calls the way it was filled: through the argument, back into the slot beside it, and only then the call itself. Neither argument can be deleted out from under the call any more, so log₇₁(98) cannot quietly become log(7198) and ³√(8) cannot become √(83) — and a call with anything typed in it is never taken off in a single press</li>
+          <li>The font you picked is in force from the first frame. The desktop's own toolkit settings arrive a moment after launch and used to overwrite it, leaving the keypad and the panels in the system font until a family was picked by hand</li>
+          <li>The keys draw their own superscripts and subscripts rather than asking the font for a raised or lowered glyph it may not carry. The y under logᵧ, the x of 2ˣ and the degrees of ³√ and ʸ√x were each drawn by whichever face happened to have them, at whatever height that face put them; now every script on the keypad is the key's own typeface at one height</li>
+          <li>) with nothing open to close brackets the whole power rather than the exponent that ends it: 2^3 then ) is (2^3), ready to be squared or divided into, instead of 2⁽³⁾ — the same value with brackets round a part of it nobody asked to separate</li>
+          <li>An operator keyed while the cursor is still in the base slot yˣ opens goes after the whole power: 2, yˣ, 3, + reads 3²+. It used to land between the base and the caret, leaving a power with no base and the operand out of the sum</li>
+          <li>A root degree that is itself a root sits in its own radical. Second- and third-level degrees were drawn a character to the left of the sign they belong to</li>
+          <li>Opening a side panel no longer flashes a rescaled window: the panel waits for the width it is going to stand in, and the calculator column holds its own width while the window grows around it</li>
+          <li>History, mode and settings wear the button shape you configured, like every other button in the window</li>
+          <li>The "Show ASCII expression" toggle loses the example line under it</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.1.6" date="2026-08-25">
       <description>
         <ul>

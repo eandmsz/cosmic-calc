@@ -60,7 +60,27 @@ pub fn available_fonts() -> &'static Vec<String> {
 /// sliders, etc.) picks up the new family on the next render. Without
 /// this, only widgets we wrap with an explicit `.font(...)` would
 /// honour the user's selection.
+///
+/// It has to be re-asserted rather than set once. The slot it writes
+/// is libcosmic's own toolkit config, and libcosmic replaces that
+/// whole struct — the font with it — every time the desktop's
+/// `com.system76.CosmicTk` config is delivered, which the watcher
+/// does once on its own at startup as well as on every later change.
+/// A font applied only in `init` was therefore overwritten a frame or
+/// two after launch, and the keypad drew in the system font until the
+/// user picked a family in the settings panel and set it again. So
+/// the view re-applies it as it draws: `cosmic::widget::text` reads
+/// the family while the widget is being built, so a write before the
+/// tree is built is a write in time for that frame.
+///
+/// The read comes first so the common case — the family already in
+/// force — costs a shared lock rather than an exclusive one.
 pub fn apply_interface_font(family: &str) {
+    if let Ok(tk) = cosmic::config::COSMIC_TK.read() {
+        if tk.interface_font.family == family {
+            return;
+        }
+    }
     if let Ok(mut tk) = cosmic::config::COSMIC_TK.write() {
         tk.interface_font.family = family.to_string();
     }

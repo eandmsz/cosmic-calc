@@ -15,13 +15,15 @@ use cosmic::widget;
 use cosmic::Element;
 
 use crate::config::{ButtonShape, Config};
+use crate::engine::script::Shift;
 use crate::layout::SCIENTIFIC_COLUMNS;
 use crate::theme::Theme;
 use crate::ui::app::Message;
 use crate::ui::button_style;
 use crate::ui::buttons::Button;
+use crate::ui::display::{DisplaySegment, Script, ROOT_DEGREE_NUDGE};
 use crate::ui::font_metrics::Centring;
-use crate::ui::keymap::{self, LabelContext};
+use crate::ui::keymap::{self, LabelContext, LabelPart};
 
 /// Number of rows in either keypad layout. Both Basic (4×5) and
 /// Scientific (8×5) share the same vertical row count, so this drives
@@ -151,10 +153,27 @@ pub(crate) fn label_width_units(label: &str) -> f32 {
         .max(1.0)
 }
 
+/// The same estimate for a face drawn from pieces: each piece counted
+/// at the size its script is drawn in, so a raised `2` costs its share
+/// of a character rather than a whole one.
+pub(crate) fn parts_width_units(parts: &[LabelPart]) -> f32 {
+    parts
+        .iter()
+        .map(|part| label_width_units(part.text) * Script::ON_LINE.shifted(part.shift).scale())
+        .sum::<f32>()
+        .max(1.0)
+}
+
 /// Font size that fits both the cell height and the label width.
 pub fn label_font_size(button_height: f32, button_width: f32, label: &str) -> f32 {
+    label_font_size_for(button_height, button_width, label_width_units(label))
+}
+
+/// [`label_font_size`] for a face whose width has already been
+/// measured — the pieces case, where what has to fit is not the width
+/// of one string.
+fn label_font_size_for(button_height: f32, button_width: f32, units: f32) -> f32 {
     let from_height = button_height * LABEL_FONT_RATIO;
-    let units = label_width_units(label);
     let from_width = button_width / (units * LABEL_CHAR_WIDTH_RATIO);
     let capped = from_height.min(from_width);
     capped
@@ -181,7 +200,7 @@ pub struct CellGeometry {
 pub fn control_button(
     theme: &Theme,
     font_family: &str,
-    label: &'static str,
+    label: &[LabelPart],
     button: Button,
     cell: CellGeometry,
     toggled: bool,
@@ -192,20 +211,11 @@ pub fn control_button(
         height: button_height,
         width: cell_width,
     } = cell;
-    let font_size = label_font_size(button_height, cell_width, label);
-    // A key label never wraps. `label_font_size` sizes it to fit the
-    // cell, but the estimate it works from is per-character and can run
-    // a hair under what a face actually draws; without this a label
-    // that only just overflows — `+/−` in a nine-column keypad — breaks
-    // across two lines rather than sitting on one.
-    let label_el: Element<'static, Message> = widget::text(label)
-        .size(font_size)
-        .wrapping(cosmic::iced::advanced::text::Wrapping::None)
-        .into();
-    let centred = widget::container(label_el)
+    let font_size = label_font_size_for(button_height, cell_width, parts_width_units(label));
+    let centred = widget::container(label_row(label, font_size))
         .padding(centring_padding(
             font_family,
-            label,
+            &on_line_text(label),
             font_size,
             button_height,
             centring_for(button),
@@ -228,6 +238,71 @@ pub fn control_button(
         .height(Length::Fill)
         .padding(0)
         .into()
+}
+
+/// Draw a key's face: one piece per [`LabelPart`], each at the size
+/// and offset its script asks for, laid out in a row.
+///
+/// The pieces are placed exactly as the display places the pieces of
+/// an expression — [`crate::ui::app::place_segment`] does both — so
+/// the `x²` on a key and the `2²` it writes wear their exponent at the
+/// same height and the same relative size. Nothing here asks the font
+/// for a raised or lowered glyph, which is what used to leave the
+/// keypad's scripts sitting at whatever height the face that happened
+/// to carry `ˣ`, `ʸ` or `ᵧ` drew them at — when it carried them at all.
+///
+/// A key label never wraps. [`label_font_size_for`] sizes it to fit the
+/// cell, but the estimate it works from is per-character and can run a
+/// hair under what a face actually draws; without this a label that
+/// only just overflows — `+/−` in a nine-column keypad — breaks across
+/// two lines rather than sitting on one.
+fn label_row(parts: &[LabelPart], font_size: f32) -> Element<'static, Message> {
+    let line_h = font_size * TEXT_BOX_LINE_HEIGHT;
+    let mut row = widget::row::with_capacity(parts.len());
+    for part in parts {
+        let script = Script::ON_LINE.shifted(part.shift);
+        let scale = script.scale();
+        let size = font_size * scale;
+        let piece = widget::text(part.text)
+            .size(size)
+            .wrapping(cosmic::iced::advanced::text::Wrapping::None)
+            .line_height(cosmic::iced::widget::text::LineHeight::Absolute(
+                (line_h * scale).into(),
+            ));
+        let seg = DisplaySegment {
+            text: part.text.to_string(),
+            active: true,
+            script,
+            // A degree sits in the opening of the radical that follows
+            // it, exactly as the display draws one.
+            nudge: if part.shift == Shift::Degree {
+                ROOT_DEGREE_NUDGE
+            } else {
+                0.0
+            },
+        };
+        row = row.push(crate::ui::app::place_segment(piece, &seg, size, line_h));
+    }
+    row.into()
+}
+
+/// The part of a face that sits on the line, as one string: what the
+/// optical centring is measured from. A key is read against its
+/// neighbours by the letters and digits on the line, so a script
+/// riding above or below them should not pull the whole label off
+/// centre. A face that is nothing but a script — there is none today —
+/// falls back to all of it rather than to no text at all.
+fn on_line_text(parts: &[LabelPart]) -> String {
+    let on_line: String = parts
+        .iter()
+        .filter(|part| part.shift == Shift::OnLine)
+        .map(|part| part.text)
+        .collect();
+    if on_line.is_empty() {
+        parts.iter().map(|part| part.text).collect()
+    } else {
+        on_line
+    }
 }
 
 /// Where a key's label is aimed vertically. Two keys are read against
@@ -397,7 +472,7 @@ fn grid(
                 Some(button) => control_button(
                     layout.theme,
                     &layout.config.font,
-                    keymap::label_for(*button, labels),
+                    &keymap::label_parts(*button, labels),
                     *button,
                     CellGeometry {
                         corner_radius: radius,

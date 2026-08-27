@@ -68,6 +68,13 @@ make check                         # fmt + clippy + the whole workspace
 	  in each case backspace takes the press back and returns the
 	  cursor to where that press found it — where it used to stick
 	  with nothing to its left to delete
+	- A two-argument call comes apart in the order it went
+	  together. `logᵧ 71 ) 98` reads `log₇₁(98)`, and backspace
+	  unwinds it the way it was filled: through the argument, back
+	  under the log for the base, and only then the call itself.
+	  Neither argument can be deleted out from under the call, so a
+	  `log₇₁(98)` cannot become `log(7198)` — log base ten of a
+	  number you never typed — and a `³√(8)` cannot become a `√(83)`
 - Easily readable expressions with superscript exponents, subscript log
   bases and the radical sign: `2⁵`, `3×10⁴`, `2¹·⁵`, `log₂(8)`,
   `sin⁻¹(1)`, `³√(8)`, `⁴√(16)`. The `^` never reaches the display —
@@ -77,6 +84,14 @@ make check                         # fmt + clippy + the whole workspace
 	  rather than the single `∛` glyph a good many fonts do not carry
 	  and draw as a box. The buffer and the clipboard still say
 	  `cbrt(8)`
+	- The keys are drawn the same way as what they write. A script on
+	  a button face is the key's own font at 60%, placed one step off
+	  the line, rather than a raised or lowered glyph asked of the
+	  font: Unicode has one for the `2` of `x²` but only borrowed
+	  letters for the `ˣ` of `2ˣ` and a Greek gamma for the `ᵧ` of
+	  `logᵧ`, and those came out at whatever height and weight the
+	  face that happened to carry them drew. Placed instead of found,
+	  every exponent on the keypad sits at the same height
 	- What goes up is the text itself, drawn smaller and moved off the
 	  line, rather than a superscript glyph swapped in for it. So
 	  anything can go up: a decimal separator (`2¹·⁵` in either
@@ -118,20 +133,25 @@ make check                         # fmt + clippy + the whole workspace
   shows the empty slot until you type one: press it and the display
   reads `log₍₎(8)`, key the base and it reads `log₂(8)`. With an
   operand already typed the press goes straight to the base (`8`,
-  `logᵧ`, `2` = 3); from an empty display the argument comes first and
-  `)` moves down to the base (`logᵧ`, `8`, `)`, `2` = 3), with a second
-  `)` leaving the call
+  `logᵧ`, `2` = 3); from an empty display the base comes first, since
+  that is the part the key was reached for, and `)` moves in to the
+  argument (`logᵧ`, `2`, `)`, `8` = 3), with a second `)` leaving the
+  call
 - `ʸ√x` writes its degree where a degree belongs — in the opening of
   the sign rather than beside it, the way `⁴√` is printed as one symbol
   rather than a small 4 standing next to a stroke — and reads the
   same way round: `16`, `ʸ√x`, `4` gives `⁴√(16)`. From an empty
-  display the radicand comes first and `)` moves out to the degree
-  (`ʸ√x`, `8`, `)`, `3` = 2), with a second `)` leaving the call,
+  display the degree comes first and `)` moves in to the radicand
+  (`ʸ√x`, `3`, `)`, `8` = 2), with a second `)` leaving the call,
   exactly as `logᵧ` does with its base
 - `)` with nothing open to close brackets the operand you just typed
   instead of doing nothing: `5+2` then `)` reads `5+(2)`. Where a
   bracket *is* open the key closes it as before, stepping over the
   closer the `(` key already wrote
+	- What it brackets is the whole value on screen, so on a power it
+	  is the power: `2^3` then `)` is `(2^3)`, ready to be squared or
+	  divided into, rather than a `2⁽³⁾` with brackets round a part
+	  of it you did not ask to separate
 - Customizable Rand function, drawing from the OS entropy source
   (`getrandom`/`/dev/urandom` on Linux) so each press is independent of
   the last
@@ -147,6 +167,10 @@ make check                         # fmt + clippy + the whole workspace
 	- `yˣ` puts the base slot in front of what you typed and parks the
 	  cursor in it, so `2`, `yˣ` reads `()²` with the brackets dim:
 	  the next digit goes under the 2, not after it
+	- An operator keyed while the cursor is still in that slot is
+	  about the whole power, and goes after it: `2`, `yˣ`, `3`, `+`
+	  reads `3²+`. To put an expression rather than a number in the
+	  slot, open a bracket there and write inside it
 	- `x²` and `x³` square and cube what is on screen rather than
 	  adding a level to it: `2^3` then `x²` is `(2^3)²` = 64, where a
 	  second caret would have said `2^3^2` = 512. Press it again and

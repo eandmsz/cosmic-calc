@@ -309,7 +309,6 @@ pub fn settings_panel<'a>(
         .label("Show ASCII expression".to_string())
         .on_toggle(Message::SetDebugRawFormula)
         .spacing(8.0);
-    let debug_caption = widget::text::caption("On: root(2^2,6) · log2(8) · sin-1(1)");
 
     // Font selector — enumerates every family fontdb finds installed on
     // the host. Each row renders the family's name in its own typeface
@@ -409,7 +408,6 @@ pub fn settings_panel<'a>(
         .push(rand_decimals_slider)
         .push(prop_toggle)
         .push(debug_toggle)
-        .push(debug_caption)
         .spacing(8)
         .padding(12)
         .width(Length::Fill);
