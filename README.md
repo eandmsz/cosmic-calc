@@ -63,6 +63,10 @@ make check                         # fmt + clippy + the whole workspace
 	  writes `(2^2)²`, and one backspace gives the `2^2` back rather
 	  than a `(2^2)` you did not ask for or an empty exponent slot
 	  waiting for a digit
+	- The two keys part company over a fixed exponent, because they
+	  are asking different questions. Backspace takes back the press,
+	  so `5²` gives the `5` back; `C` takes back the value, and `5²`
+	  is one value, so it goes whole — `5+2³` then `C` is `5+`
 	- A two-argument call unwinds in the one order it is filled in.
 	  `logᵧ 98 ) 71` reads log₇₁(98), and backspace takes it apart
 	  the way it went together, last piece first: into the base, out

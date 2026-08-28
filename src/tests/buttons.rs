@@ -1901,34 +1901,63 @@ fn squaring_a_power_brackets_it_rather_than_stacking() {
 
 #[test]
 fn a_square_comes_off_in_one_press() {
-    // `x²` writes a caret and an exponent, so one backspace takes both
-    // back. Deleting the `2` on its own left `5⁽⁾` on screen — an
-    // empty slot the user then had to press backspace again to clear,
-    // and one they cannot usefully type into either, since the key
-    // that wrote it always writes a 2.
-    for key in [Button::Backspace, Button::Clear] {
-        let (mut e, mut s, c) = fresh();
-        for b in [Button::Num(5), Button::Square, key] {
-            apply_button(&mut e, &mut s, &c, b);
-        }
-        assert_eq!(e.input.display_string(), "5");
+    // Backspace takes the exponent back on its own and leaves the base
+    // standing, the way it takes back any one press.
+    let (mut e, mut s, c) = fresh();
+    for b in [Button::Num(5), Button::Square, Button::Backspace] {
+        apply_button(&mut e, &mut s, &c, b);
     }
+    assert_eq!(e.input.display_string(), "5");
 
-    // The brackets a press adds are part of the press: taking it back
-    // gives the expression it was pressed on, not a bracketed one.
-    for key in [Button::Backspace, Button::Clear] {
-        let (mut e, mut s, c) = fresh();
-        for b in [
-            Button::Num(2),
-            Button::XPowY,
-            Button::Num(2),
-            Button::Square,
-            key,
-        ] {
-            apply_button(&mut e, &mut s, &c, b);
-        }
-        assert_eq!(e.input.display_string(), "2^2");
+    // `C` takes back the value, and `5²` is one value: base and
+    // exponent go together.
+    let (mut e, mut s, c) = fresh();
+    for b in [Button::Num(5), Button::Square, Button::Clear] {
+        apply_button(&mut e, &mut s, &c, b);
     }
+    assert!(e.input.is_empty());
+
+    // The brackets a press adds are part of the press: backspace gives
+    // the expression it was pressed on, not a bracketed one.
+    let (mut e, mut s, c) = fresh();
+    for b in [
+        Button::Num(2),
+        Button::XPowY,
+        Button::Num(2),
+        Button::Square,
+        Button::Backspace,
+    ] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert_eq!(e.input.display_string(), "2^2");
+
+    // And `C` on the same expression takes the whole `(2²)²`, brackets
+    // and all, since that is the one value on screen.
+    let (mut e, mut s, c) = fresh();
+    for b in [
+        Button::Num(2),
+        Button::XPowY,
+        Button::Num(2),
+        Button::Square,
+        Button::Clear,
+    ] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert!(e.input.is_empty());
+
+    // Mid-expression `C` takes the squared operand and leaves the rest
+    // of the line where it is.
+    let (mut e, mut s, c) = fresh();
+    for b in [
+        Button::Num(5),
+        Button::Add,
+        Button::Num(2),
+        Button::Square,
+        Button::Clear,
+    ] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert_eq!(e.input.display_string(), "5+");
 
     // And nothing lands in the exponent afterwards: the key writes a
     // finished operation, so the next digit is a new factor with an

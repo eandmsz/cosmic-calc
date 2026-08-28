@@ -1590,14 +1590,16 @@ fn press_pow(engine: &mut Engine) {
 /// an open bracket, an empty buffer — has nothing to take back, and
 /// the press leaves the expression alone.
 fn clear_last_operand(engine: &mut Engine) {
-    // A press the calculator wrote as one — the `(2^2)^2` an `x²`
-    // leaves — comes back off as one, the same way backspace takes it.
-    // Taking back its exponent alone would leave the caret behind
-    // with an empty slot where a number the user never typed used to
-    // be.
-    if engine.input.take_back_press() {
-        return;
-    }
+    // A fixed exponent is part of the operand it hangs off, so `C`
+    // takes the two together: `5²` goes back to nothing, where
+    // backspace gives the `5` back on its own. The key is for taking
+    // back the value, and `5²` is one value.
+    //
+    // It used to take back the press instead — the `x²` — which was
+    // the same thing backspace does and left the base standing. That
+    // was there because the press wrote a caret and a digit, and
+    // deleting the digit alone left `5^` with an empty slot; the
+    // exponent is one item now, so there is nothing to protect.
     if let Some((start, end)) = engine.input.last_operand_range() {
         engine.input.delete_range(start, end);
     }

@@ -141,9 +141,10 @@ impl InputBuffer {
     /// bracket it put in front of the operand. `true` when a press was
     /// taken back and the caller has nothing more to delete.
     ///
-    /// Backspace does this before deleting anything of its own, and
-    /// `C` before taking back an operand: both keys are undoing what
-    /// was entered, and what `x²` entered was a press.
+    /// Backspace does this before deleting anything of its own: it is
+    /// undoing what was entered, and what `x²` entered was a press.
+    /// `C` does not — that key takes back the whole value, and a
+    /// fixed exponent is part of the value it hangs off.
     pub fn take_back_press(&mut self) -> bool {
         let Some(run) = self.atomic.iter().copied().find(|r| r.end() == self.cursor) else {
             return false;
