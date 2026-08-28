@@ -200,6 +200,12 @@ const BASE_CLOSE: char = '₎';
 /// `log₍₎(8)` and `⁽⁾√(16)` say which slot the next digit lands in.
 /// The display draws no cursor of its own, so without them the base
 /// step would be invisible.
+///
+/// The brackets stay up once the slot holds something, drawn round
+/// what is in it rather than in place of it, for as long as the
+/// cursor is still there — a slot holding a `1` is still the slot the
+/// next digit joins. That pair is the display's, not the buffer's;
+/// see the renderer's `slot_brackets`.
 pub const EMPTY_SLOT: &str = "()";
 
 /// The pieces an item is drawn as in pretty notation, each with where
@@ -228,6 +234,11 @@ pub fn pretty_parts(it: &InputItem) -> Vec<(String, Shift)> {
             ("3".to_string(), Shift::Degree),
             ("√(".to_string(), Shift::OnLine),
         ],
+        // The exponent `x²` and `x³` write is the whole item: one
+        // raised digit, with no caret drawn in front of it — the same
+        // as any other exponent, and finished where the others are
+        // still a slot waiting to be typed into.
+        InputItem::FixedPow(n) => vec![(n.to_string(), Shift::Up)],
         InputItem::UnaryFunc(UnaryFunc::Log2) => log_parts("2"),
         InputItem::UnaryFunc(UnaryFunc::Log10) => log_parts("10"),
         InputItem::LogN(n) => log_parts(&n.to_string()),
@@ -368,6 +379,14 @@ fn fill_depths(items: &[InputItem], start: usize, end: usize, depth: u8, out: &m
                 }
                 _ => i += 1,
             },
+            // The fixed exponent is drawn where any other exponent
+            // is — one step off the run its operand sits on — and it
+            // is the whole of that exponent, so nothing follows it up
+            // there.
+            InputItem::FixedPow(_) => {
+                out[i] = deeper;
+                i += 1;
+            }
             InputItem::BinaryFunc(BinaryFunc::LogBase) => {
                 match argument_separator(items, i).filter(|comma| *comma < end) {
                     Some(comma) => {
@@ -469,7 +488,7 @@ pub fn exponent_span(items: &[InputItem], pow_idx: usize) -> Option<usize> {
     }
     while matches!(
         items.get(i),
-        Some(InputItem::Factorial | InputItem::Percent)
+        Some(InputItem::Factorial | InputItem::Percent | InputItem::FixedPow(_))
     ) {
         i += 1;
     }

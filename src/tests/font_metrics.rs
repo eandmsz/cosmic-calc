@@ -53,7 +53,7 @@ fn degenerate_input_is_never_a_nudge() {
 fn a_measured_nudge_stays_inside_the_button() {
     // Whatever the host has installed, the correction is a fraction of
     // the font size — it can never throw the label out of its cell.
-    for label in ["7", "⌫", "sin⁻¹", "+/−", "Rand"] {
+    for label in ["7", "⌫", "sin⁻¹", "+⁄−", "Rand"] {
         let nudge = label_nudge("Adwaita Sans", label, 20.0);
         assert!(nudge.abs() <= 20.0 * 0.25 + 1e-6, "{label}: {nudge}");
     }

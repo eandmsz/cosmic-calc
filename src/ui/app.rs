@@ -898,9 +898,9 @@ impl Application for AppModel {
         let mut main_column = widget::column::with_capacity(4)
             .push(top_bar)
             .push(display_slot)
-            .spacing(layout.row_spacing)
+            .spacing(layout.section_spacing)
             .padding(Padding {
-                top: layout.row_spacing,
+                top: layout.section_spacing,
                 bottom: layout.edge_spacing,
                 left: layout.edge_spacing,
                 right: layout.edge_spacing,
@@ -1080,15 +1080,12 @@ impl AppModel {
             0.0
         };
         let column_gaps = if status_visible { 3.0 } else { 2.0 };
+        let section = row_spacing * SECTION_GAP_RATIO;
         let memory_h = crate::ui::keypad::memory_row_height(&spacing_metrics);
         // Bottom padding (`edge`) sits below the keypad and must not
         // steal height from the display region.
-        let chrome_without_keypad = row_spacing
-            + TOP_BAR_HEIGHT
-            + status_h
-            + memory_h
-            + row_spacing
-            + row_spacing * column_gaps;
+        let chrome_without_keypad =
+            section + TOP_BAR_HEIGHT + status_h + memory_h + row_spacing + section * column_gaps;
         let keypad_area_height = (window_height * crate::ui::keypad::KEYPAD_HEIGHT_FRACTION)
             .min((window_height - chrome_without_keypad - MIN_DISPLAY_HEIGHT).max(1.0));
         let display_budget =
@@ -1100,6 +1097,7 @@ impl AppModel {
             keypad_metrics,
             edge_spacing: edge,
             row_spacing,
+            section_spacing: section,
         }
     }
 
@@ -1130,7 +1128,7 @@ impl AppModel {
         let items = &self.ui.last_expression_items;
         crate::ui::display::render_expression(
             items,
-            items.len(),
+            crate::ui::display::NO_CURSOR,
             self.config.decimal_separator,
             self.config
                 .thousands_separator
@@ -1167,7 +1165,7 @@ impl AppModel {
         let available_width =
             display_metrics::available_display_width(content_width, layout.edge_spacing);
         let (caption_slot_h, main_slot_h) =
-            display_metrics::display_line_budgets(layout.display_budget, layout.row_spacing);
+            display_metrics::display_line_budgets(layout.display_budget, layout.section_spacing);
         let (mut main_size, mut main_line_h) =
             display_metrics::scale_main_text_size(main_chars, content_width, main_slot_h);
         (main_size, main_line_h) = display_metrics::fit_display_text(
@@ -1267,7 +1265,7 @@ impl AppModel {
             .into();
 
         let mut text_stack = widget::column::with_capacity(2)
-            .spacing(layout.row_spacing)
+            .spacing(layout.section_spacing)
             .width(Length::Fill);
         if has_caption {
             // The same row of independently placed pieces the main
@@ -1453,9 +1451,25 @@ struct MainColumnLayout {
     keypad_area_height: f32,
     keypad_metrics: crate::ui::keypad::KeypadMetrics,
     edge_spacing: f32,
-    /// Vertical gap between sections — matches keypad inter-row spacing.
+    /// Keypad inter-row spacing, which the memory row and the keypad
+    /// cells are measured against.
     row_spacing: f32,
+    /// Vertical gap above and below each section of the main column,
+    /// and between the caption and the readout inside the display.
+    /// See [`SECTION_GAP_RATIO`].
+    section_spacing: f32,
 }
+
+/// How much of the keypad's inter-row spacing the gaps around the
+/// display are worth.
+///
+/// They used to be that spacing exactly, which is a number about how
+/// far apart two buttons should sit — and stacked either side of the
+/// readout it left a band of nothing around the one thing on screen
+/// with something to say. Halving it is the same gap top and bottom,
+/// and every pixel it gives back goes to the display slot, which the
+/// readout then scales itself up to fill.
+const SECTION_GAP_RATIO: f32 = 0.5;
 
 /// Measured display fonts for the expression area.
 struct DisplayMetrics {

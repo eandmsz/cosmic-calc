@@ -254,7 +254,7 @@ pub fn control_button(
 /// A key label never wraps. [`label_font_size_for`] sizes it to fit the
 /// cell, but the estimate it works from is per-character and can run a
 /// hair under what a face actually draws; without this a label that
-/// only just overflows — `+/−` in a nine-column keypad — breaks across
+/// only just overflows — `+⁄−` in a nine-column keypad — breaks across
 /// two lines rather than sitting on one.
 fn label_row(parts: &[LabelPart], font_size: f32) -> Element<'static, Message> {
     let line_h = font_size * TEXT_BOX_LINE_HEIGHT;
@@ -312,7 +312,7 @@ fn on_line_text(parts: &[LabelPart]) -> String {
 ///   * the decimal separator, whose `.` or `,` belongs down on the
 ///     baseline the digits beside it sit on — centring the dot's ink
 ///     floats it halfway up the key, which reads as a bullet;
-///   * `+/−`, which sits next to `1/x` and has to match it.
+///   * `+⁄−`, which sits next to `1⁄x` and has to match it.
 fn centring_for(button: Button) -> Centring {
     match button {
         Button::Decimal | Button::Negate => Centring::CapBand,

@@ -208,32 +208,33 @@ fn y_root_x_closes_its_bracket() {
     // hanging for the user to close by hand — plus the comma, which is
     // what gives the degree a slot to be typed into.
     assert_eq!(e.input.display_string(), "root(,)");
-    // With nothing to root yet the degree is what the press asks for,
-    // so that is where the cursor starts.
-    apply_button(&mut e, &mut s, &c, Button::Num(3));
-    assert_eq!(e.input.display_string(), "root(,3)");
+    // The radicand comes first whether or not there was one to close
+    // over, so that is where the cursor starts.
+    apply_button(&mut e, &mut s, &c, Button::Num(8));
+    assert_eq!(e.input.display_string(), "root(8,)");
 }
 
 #[test]
-fn y_root_x_opens_its_degree_first_and_its_radicand_after() {
-    // From nothing the degree is typed first — it is what the key was
-    // reached for — and `)` moves in to the radicand, the way `logᵧ`
-    // moves in from its base. The comma goes in up front either way:
-    // without it the press left `root()` behind, `)` stepped clean out
-    // of the call, and the degree could not be typed at all.
+fn y_root_x_opens_its_radicand_first_and_its_degree_after() {
+    // The order is the one the key has when there is already an
+    // operand to close over: the radicand, then the degree. `)` moves
+    // out to the degree, the way `logᵧ` moves out to its base. The
+    // comma goes in up front either way: without it the press left
+    // `root()` behind, `)` stepped clean out of the call, and the
+    // degree could not be typed at all.
     let (mut e, mut s, c) = fresh();
     apply_button(&mut e, &mut s, &c, Button::YRootX);
-    // Between the comma and the closer: the degree slot, which the
-    // display draws as the empty brackets in front of the sign.
-    assert_eq!(e.input.cursor(), 2);
-    apply_button(&mut e, &mut s, &c, Button::Num(3));
-    apply_button(&mut e, &mut s, &c, Button::RightParen);
-    // And in to the radicand, which is still empty.
+    // Between the opener and the comma: the radicand, inside the
+    // brackets the display draws after the sign.
     assert_eq!(e.input.cursor(), 1);
     apply_button(&mut e, &mut s, &c, Button::Num(8));
+    apply_button(&mut e, &mut s, &c, Button::RightParen);
+    // And out to the degree, which is still empty.
+    assert_eq!(e.input.cursor(), 3);
+    apply_button(&mut e, &mut s, &c, Button::Num(3));
     assert_eq!(e.input.display_string(), "root(8,3)");
     assert_eq!(e.evaluate().expect("cube root of 8").display, "2");
-    // And `)` from the radicand leaves the call for good, so what
+    // And `)` from the degree leaves the call for good, so what
     // follows is not swallowed by it.
     apply_button(&mut e, &mut s, &c, Button::RightParen);
     apply_button(&mut e, &mut s, &c, Button::Add);
@@ -389,22 +390,24 @@ fn a_key_carrying_its_own_base_starts_a_value_anywhere() {
 }
 
 #[test]
-fn log_y_opens_its_base_first_and_its_argument_after() {
-    // From nothing the base is typed first — it is what the key was
-    // reached for — and `)` moves in to the argument between the
-    // brackets.
+fn log_y_opens_its_argument_first_and_its_base_after() {
+    // The order is the one the key has when there is already an
+    // operand to close over: the argument, then the base. `)` moves
+    // out to the base under the log.
     let (mut e, mut s, c) = fresh();
     apply_button(&mut e, &mut s, &c, Button::LogY);
     assert_eq!(e.input.display_string(), "log(,)");
-    // Under the log, in front of the call's own comma.
+    // Between the comma and the closer: the argument, inside the
+    // brackets.
+    assert_eq!(e.input.cursor(), 2);
+    apply_button(&mut e, &mut s, &c, Button::Num(8));
+    assert_eq!(e.input.display_string(), "log(,8)");
+    apply_button(&mut e, &mut s, &c, Button::RightParen);
     assert_eq!(e.input.cursor(), 1);
     apply_button(&mut e, &mut s, &c, Button::Num(2));
-    assert_eq!(e.input.display_string(), "log(2,)");
-    apply_button(&mut e, &mut s, &c, Button::RightParen);
-    apply_button(&mut e, &mut s, &c, Button::Num(8));
     assert_eq!(e.input.display_string(), "log(2,8)");
-    // And `)` from the argument leaves the call for good, so what
-    // follows is not swallowed by it.
+    // And `)` from the base leaves the call for good, so what follows
+    // is not swallowed by it.
     apply_button(&mut e, &mut s, &c, Button::RightParen);
     apply_button(&mut e, &mut s, &c, Button::Add);
     assert_eq!(e.input.display_string(), "log(2,8)+");
@@ -425,21 +428,29 @@ fn log_y_takes_the_operand_already_typed_as_its_argument() {
 }
 
 #[test]
-fn backspacing_out_of_the_base_slot_undoes_the_whole_call() {
+fn backspacing_out_of_the_base_slot_steps_into_the_argument() {
     // The base slot puts the cursor in front of the call's own comma,
-    // so deleting the `log(` there has to take the comma with it —
-    // otherwise a change of mind leaves `,8` behind, which is not an
-    // expression at all.
+    // so there is nothing of the base to its left to delete. The press
+    // steps back into the argument, at its end, and only a call with
+    // both slots empty comes off whole — otherwise a change of mind
+    // would leave `,8` behind, which is not an expression at all.
     let (mut e, mut s, c) = fresh();
     apply_button(&mut e, &mut s, &c, Button::Num(8));
     apply_button(&mut e, &mut s, &c, Button::LogY);
     apply_button(&mut e, &mut s, &c, Button::Backspace);
-    assert_eq!(e.input.display_string(), "8");
+    assert_eq!(e.input.display_string(), "log(,8)");
+    // The end of the argument, inside the brackets.
+    assert_eq!(e.input.cursor(), 3);
+    apply_button(&mut e, &mut s, &c, Button::Backspace);
+    assert_eq!(e.input.display_string(), "log(,)");
+    apply_button(&mut e, &mut s, &c, Button::Backspace);
+    assert_eq!(e.input.display_string(), "");
 
     // A call with both arguments filled keeps its comma however the
     // cursor reaches the start of one of them: removing it would run
     // `root(16,4)` together into `√(164)`, a different function
-    // altogether. The press steps back into the other slot instead.
+    // altogether. Only a cursor move gets there — the unwind never
+    // does — and the press is dropped rather than guessing.
     let (mut e, mut s, c) = fresh();
     for b in [
         Button::Num(1),
@@ -453,26 +464,24 @@ fn backspacing_out_of_the_base_slot_undoes_the_whole_call() {
     apply_button(&mut e, &mut s, &c, Button::CursorRight);
     apply_button(&mut e, &mut s, &c, Button::Backspace);
     assert_eq!(e.input.display_string(), "root(16,4)");
-    // The end of the degree, which is drawn in front of the radical:
-    // one step left of where the cursor was, as backspace always is.
-    assert_eq!(e.input.cursor(), 5);
+    assert_eq!(e.input.cursor(), 1);
 }
 
 #[test]
 fn backspace_unwinds_a_call_the_way_it_was_filled() {
-    // `logy 71 ) 98` reads log₇₁(98). Taking it apart runs the fill
-    // backwards: the argument first, then back under the log for the
-    // base, and only then the call itself. It never comes off in one
-    // press, and the comma never goes on its own — `log(7198)` would
-    // be log base ten of a number the user never typed.
+    // `logy 98 ) 71` reads log₇₁(98). Taking it apart runs the fill
+    // backwards: the base first, then back inside the brackets for the
+    // argument, and only then the call itself. It never comes off in
+    // one press, and the comma never goes on its own — `log(7198)`
+    // would be log base ten of a number the user never typed.
     let (mut e, mut s, c) = fresh();
     for b in [
         Button::LogY,
-        Button::Num(7),
-        Button::Num(1),
-        Button::RightParen,
         Button::Num(9),
         Button::Num(8),
+        Button::RightParen,
+        Button::Num(7),
+        Button::Num(1),
         Button::RightParen,
     ] {
         apply_button(&mut e, &mut s, &c, b);
@@ -480,20 +489,21 @@ fn backspace_unwinds_a_call_the_way_it_was_filled() {
     assert_eq!(e.input.display_string(), "log(71,98)");
     assert_eq!(e.input.cursor(), e.input.items().len());
 
-    // Back inside the brackets the `)` stepped out of, then through
-    // the argument a digit at a time.
+    // Back into the base, which is the slot that was filled last, and
+    // then through it a digit at a time.
     let unwind = |e: &mut crate::engine::Engine, s: &mut crate::ui::UiState| {
         apply_button(e, s, &c, Button::Backspace);
         e.input.display_string()
     };
     assert_eq!(unwind(&mut e, &mut s), "log(71,98)");
-    assert_eq!(unwind(&mut e, &mut s), "log(71,9)");
-    assert_eq!(unwind(&mut e, &mut s), "log(71,)");
-    // The argument is empty, so the next press is the `)` that moved
-    // out of the base: back under the log, with the base intact.
-    assert_eq!(unwind(&mut e, &mut s), "log(71,)");
     assert_eq!(e.input.cursor(), 3);
-    assert_eq!(unwind(&mut e, &mut s), "log(7,)");
+    assert_eq!(unwind(&mut e, &mut s), "log(7,98)");
+    assert_eq!(unwind(&mut e, &mut s), "log(,98)");
+    // The base is empty, so the next press steps back into the
+    // argument, at its end, with the argument intact.
+    assert_eq!(unwind(&mut e, &mut s), "log(,98)");
+    assert_eq!(e.input.cursor(), 4);
+    assert_eq!(unwind(&mut e, &mut s), "log(,9)");
     assert_eq!(unwind(&mut e, &mut s), "log(,)");
     // Nothing left in either slot: the call itself comes off.
     assert_eq!(unwind(&mut e, &mut s), "");
@@ -502,9 +512,8 @@ fn backspace_unwinds_a_call_the_way_it_was_filled() {
 #[test]
 fn backspace_never_turns_a_root_into_a_square_root() {
     // The degree of `³√(8)` is a whole argument of the call, so it
-    // cannot be deleted out from under it: emptying it takes the call
-    // back to the radicand it closed over rather than leaving a
-    // `√(83)` behind.
+    // cannot be deleted out from under it: emptying it steps back into
+    // the radicand rather than leaving a `√(83)` behind.
     let (mut e, mut s, c) = fresh();
     for b in [Button::Num(8), Button::YRootX, Button::Num(3)] {
         apply_button(&mut e, &mut s, &c, b);
@@ -513,7 +522,13 @@ fn backspace_never_turns_a_root_into_a_square_root() {
     apply_button(&mut e, &mut s, &c, Button::Backspace);
     assert_eq!(e.input.display_string(), "root(8,)");
     apply_button(&mut e, &mut s, &c, Button::Backspace);
-    assert_eq!(e.input.display_string(), "8");
+    // Into the radicand, at its end, with the `8` still standing.
+    assert_eq!(e.input.display_string(), "root(8,)");
+    assert_eq!(e.input.cursor(), 2);
+    apply_button(&mut e, &mut s, &c, Button::Backspace);
+    assert_eq!(e.input.display_string(), "root(,)");
+    apply_button(&mut e, &mut s, &c, Button::Backspace);
+    assert_eq!(e.input.display_string(), "");
 }
 
 #[test]
@@ -547,9 +562,21 @@ fn drawn(e: &Engine) -> Vec<(String, u8)> {
 }
 
 /// The script depth of each piece the display draws, which is what
-/// the three-level limit is counted in.
+/// the three-level limit is counted in. Rendered without a cursor, so
+/// the brackets a slot wears while it is being typed into do not
+/// count as pieces of the expression.
 fn drawn_depths(engine: &Engine) -> Vec<u8> {
-    drawn(engine).into_iter().map(|(_, depth)| depth).collect()
+    crate::ui::display::render_expression(
+        engine.input.items(),
+        crate::ui::display::NO_CURSOR,
+        crate::locale::DecimalSeparator::Dot,
+        None,
+        None,
+        crate::engine::script::Notation::Pretty,
+    )
+    .into_iter()
+    .map(|seg| seg.script.depth)
+    .collect()
 }
 
 #[test]
@@ -591,9 +618,17 @@ fn a_whole_call_can_be_typed_into_an_exponent() {
     ] {
         apply_button(&mut e, &mut s, &c, b);
     }
+    // The cursor is still in the exponent, so it wears the brackets
+    // that say the next digit lands up there rather than after the
+    // power. See the slot-bracket tests in `tests::display`.
     assert_eq!(
         drawn(&e),
-        vec![("2".to_string(), 0), ("1.5".to_string(), 1)]
+        vec![
+            ("2".to_string(), 0),
+            ("(".to_string(), 1),
+            ("1.5".to_string(), 1),
+            (")".to_string(), 1),
+        ]
     );
 }
 
@@ -622,7 +657,9 @@ fn the_root_key_leaves_its_degree_slot_where_the_cursor_is() {
     assert_eq!(
         drawn(&e),
         vec![
+            ("(".to_string(), 1),
             ("4".to_string(), 1),
+            (")".to_string(), 1),
             ("√(".to_string(), 0),
             ("16".to_string(), 0),
             (")".to_string(), 0),
@@ -1893,15 +1930,20 @@ fn a_square_comes_off_in_one_press() {
         assert_eq!(e.input.display_string(), "2^2");
     }
 
-    // An exponent the user has typed into is theirs, and comes apart a
-    // character at a time again.
+    // And nothing lands in the exponent afterwards: the key writes a
+    // finished operation, so the next digit is a new factor with an
+    // auto-multiplication in front of it. It used to run onto the end
+    // of the exponent, turning `5²` into `5` to the twenty-fourth.
     let (mut e, mut s, c) = fresh();
     for b in [Button::Num(5), Button::Square, Button::Num(4)] {
         apply_button(&mut e, &mut s, &c, b);
     }
-    assert_eq!(e.input.display_string(), "5^24");
+    assert_eq!(e.input.display_string(), "5^2×4");
+    assert_eq!(e.evaluate().expect("twenty-five fours").display, "100");
     apply_button(&mut e, &mut s, &c, Button::Backspace);
     assert_eq!(e.input.display_string(), "5^2");
+    apply_button(&mut e, &mut s, &c, Button::Backspace);
+    assert_eq!(e.input.display_string(), "5");
 }
 
 #[test]
@@ -1975,12 +2017,13 @@ fn backspace_retraces_the_cursor_the_press_moved() {
 }
 
 #[test]
-fn backspace_takes_back_a_call_whose_slot_is_still_empty() {
-    // The same rule for the slot `logᵧ` and `ʸ√x` park the cursor in:
-    // while it is empty the call is what the press wrote, so backspace
-    // takes the call back and leaves the argument that was typed.
-    // Deleting the comma under the cursor instead left `root(16)`,
-    // which is a call missing an argument.
+fn backspace_steps_out_of_a_slot_that_is_still_empty() {
+    // The slot `logᵧ` and `ʸ√x` park the cursor in has nothing of its
+    // own to the left of the cursor, so the press steps back into the
+    // argument the call closed over rather than deleting the comma —
+    // which would have left `root(16)`, a call missing an argument.
+    // The call itself only comes off once both slots are empty, which
+    // is the one order the two keys ever unwind in.
     let (mut e, mut s, c) = fresh();
     for b in [
         Button::Num(1),
@@ -1990,14 +2033,20 @@ fn backspace_takes_back_a_call_whose_slot_is_still_empty() {
     ] {
         apply_button(&mut e, &mut s, &c, b);
     }
-    assert_eq!(e.input.display_string(), "16");
-    assert_eq!(e.input.cursor(), 2);
+    assert_eq!(e.input.display_string(), "root(16,)");
+    // The end of the radicand, which is where the comma is.
+    assert_eq!(e.input.cursor(), 3);
+    for _ in 0..3 {
+        apply_button(&mut e, &mut s, &c, Button::Backspace);
+    }
+    assert!(e.input.is_empty());
 
     let (mut e, mut s, c) = fresh();
     for b in [Button::Num(8), Button::LogY, Button::Backspace] {
         apply_button(&mut e, &mut s, &c, b);
     }
-    assert_eq!(e.input.display_string(), "8");
+    assert_eq!(e.input.display_string(), "log(,8)");
+    assert_eq!(e.input.cursor(), 3);
 
     // From an empty display both keys open both slots, and both come
     // back off together once the argument is gone.
@@ -2116,4 +2165,181 @@ fn one_backspace_per_press_all_the_way_down() {
     assert_eq!(e.input.display_string(), "5");
     apply_button(&mut e, &mut s, &c, Button::Backspace);
     assert!(e.input.is_empty());
+}
+
+// --- the fixed powers are finished operations -----------------------
+
+#[test]
+fn a_fixed_exponent_is_not_a_slot_anything_else_can_reach() {
+    // `x²` writes one item, not a caret with a digit parked after it,
+    // so nothing keyed next lands up in the exponent. A digit starts a
+    // new factor, a decimal point starts a new number, and a constant
+    // attaches as a factor of its own.
+    let cases: [(&[Button], &str, &str); 3] = [
+        (
+            &[Button::Num(5), Button::Square, Button::Num(3)],
+            "5^2×3",
+            "75",
+        ),
+        (
+            &[
+                Button::Num(5),
+                Button::Cube,
+                Button::Decimal,
+                Button::Num(5),
+            ],
+            "5^3×0.5",
+            "62.5",
+        ),
+        (&[Button::Num(2), Button::Square, Button::Pi], "2^2×π", ""),
+    ];
+    for (presses, expected, value) in cases {
+        let (mut e, mut s, c) = fresh();
+        for b in presses {
+            apply_button(&mut e, &mut s, &c, *b);
+        }
+        assert_eq!(e.input.display_string(), expected);
+        if !value.is_empty() {
+            assert_eq!(e.evaluate().expect("evaluates").display, value);
+        }
+    }
+}
+
+#[test]
+fn a_fixed_exponent_goes_in_brackets_before_anything_postfix() {
+    // The buffer spells `5²` as `5^2`, where a postfix binds tighter
+    // than the caret — so `5^2!` is `5` raised to `2!` and `5^2^3` is
+    // `5` raised to `2^3`. Since the square is finished, the brackets
+    // go in and say so.
+    for (key, expected, value) in [
+        (Button::Factorial, "(5^2)!", "1.5511210043331e25"),
+        (Button::Percent, "(5^2)%", "0.25"),
+    ] {
+        let (mut e, mut s, c) = fresh();
+        for b in [Button::Num(5), Button::Square, key] {
+            apply_button(&mut e, &mut s, &c, b);
+        }
+        assert_eq!(e.input.display_string(), expected);
+        assert_eq!(e.evaluate().expect("evaluates").display, value);
+    }
+
+    // And the caret keys, which would otherwise have raised the `2`
+    // rather than the square.
+    let (mut e, mut s, c) = fresh();
+    for b in [
+        Button::Num(5),
+        Button::Square,
+        Button::XPowY,
+        Button::Num(3),
+    ] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert_eq!(e.input.display_string(), "(5^2)^3");
+    assert_eq!(e.evaluate().expect("evaluates").display, "15625");
+
+    // Squaring a square is the same case read from the other end.
+    let (mut e, mut s, c) = fresh();
+    for b in [Button::Num(5), Button::Square, Button::Square] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert_eq!(e.input.display_string(), "(5^2)^2");
+    assert_eq!(e.evaluate().expect("evaluates").display, "625");
+}
+
+#[test]
+fn a_factorial_still_belongs_in_a_caret_exponent() {
+    // What the fixed powers are sealed *against* is not the factorial
+    // itself: `xʸ` and `yˣ` leave the exponent open, and a `!` keyed
+    // there is part of it.
+    let (mut e, mut s, c) = fresh();
+    for b in [
+        Button::Num(2),
+        Button::XPowY,
+        Button::Num(3),
+        Button::Factorial,
+    ] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert_eq!(e.input.display_string(), "2^3!");
+    assert_eq!(e.evaluate().expect("two to the six").display, "64");
+}
+
+#[test]
+fn squaring_a_swapped_power_squares_the_whole_power() {
+    // `6`, `yˣ`, `3` reads `3⁶`, with the cursor still in the base
+    // slot where the `3` was typed. `x²` is about the number on
+    // screen, so it steps out of the slot first: `(3⁶)²`. Keyed in the
+    // slot it wrote `3^2^6`, which raises the 3 to the sixty-fourth.
+    let (mut e, mut s, c) = fresh();
+    for b in [
+        Button::Num(6),
+        Button::YPowX,
+        Button::Num(3),
+        Button::Square,
+    ] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert_eq!(e.input.display_string(), "(3^6)^2");
+    assert_eq!(e.evaluate().expect("729 squared").display, "531441");
+}
+
+#[test]
+fn percent_never_lands_in_an_exponent() {
+    // `%` is a basic-keypad operation on the value in hand, and the
+    // text cannot say it is anything else — `2^5%` reads as `2` raised
+    // to `5%`. So the press leaves the exponent and brackets the power
+    // it applies to.
+    let (mut e, mut s, c) = fresh();
+    for b in [
+        Button::Num(2),
+        Button::XPowY,
+        Button::Num(5),
+        Button::Percent,
+    ] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert_eq!(e.input.display_string(), "(2^5)%");
+    assert_eq!(e.evaluate().expect("a third of a hundred").display, "0.32");
+
+    // A whole chain of them comes out together, not just the last step.
+    let (mut e, mut s, c) = fresh();
+    for b in [
+        Button::Num(2),
+        Button::XPowY,
+        Button::Num(3),
+        Button::XPowY,
+        Button::Num(2),
+        Button::Percent,
+    ] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert_eq!(e.input.display_string(), "(2^3^2)%");
+
+    // A sign in front of the exponent is part of the power, not a
+    // break in it: the brackets still start at the base. Pasted
+    // rather than keyed, since the `-` key replaces a trailing caret
+    // instead of signing what comes after it.
+    let (mut e, mut s, c) = fresh();
+    e.input.replace(vec![
+        InputItem::Digit('2'),
+        InputItem::BinOp(crate::engine::item::BinOp::Pow),
+        InputItem::BinOp(crate::engine::item::BinOp::Sub),
+        InputItem::Digit('3'),
+    ]);
+    apply_button(&mut e, &mut s, &c, Button::Percent);
+    assert_eq!(e.input.display_string(), "(2^-3)%");
+
+    // Unless the user opened a bracket at the head of the exponent,
+    // which is the gesture for putting a whole expression up there.
+    let (mut e, mut s, c) = fresh();
+    for b in [
+        Button::Num(2),
+        Button::XPowY,
+        Button::LeftParen,
+        Button::Num(5),
+        Button::Percent,
+    ] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert_eq!(e.input.display_string(), "2^(5%)");
 }

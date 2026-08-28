@@ -195,7 +195,7 @@ impl InputBuffer {
     ///
     /// Operands recognised:
     /// * a contiguous run of digits and at most one decimal point,
-    ///   optionally followed by postfix `!` / `%`
+    ///   optionally followed by postfix `!` / `%` / a fixed exponent
     /// * a single constant (π or 𝑒), optionally followed by a postfix
     /// * a matched `(…)` group; the opener may be a bare `LeftParen`
     ///   or a function-with-paren item (`UnaryFunc`, `BinaryFunc`,
@@ -207,11 +207,13 @@ impl InputBuffer {
         }
         let mut end = at;
 
-        // Consume trailing postfix operators (`!`, `%`).
+        // Consume trailing postfix operators (`!`, `%`, and the
+        // fixed exponent `x²` and `x³` write, which hangs off the
+        // operand exactly as they do).
         while end > 0
             && matches!(
                 self.items[end - 1],
-                InputItem::Factorial | InputItem::Percent
+                InputItem::Factorial | InputItem::Percent | InputItem::FixedPow(_)
             )
         {
             end -= 1;

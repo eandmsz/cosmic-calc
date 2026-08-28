@@ -124,16 +124,16 @@ fn the_shipped_keypad_reads_as_designed() {
 
     assert_eq!(
         drawn(LayoutKind::Basic),
-        ["AC ⌫ % ÷", "7 8 9 ×", "4 5 6 −", "1 2 3 +", "+/− 0 . =",]
+        ["AC ⌫ % ÷", "7 8 9 ×", "4 5 6 −", "1 2 3 +", "+⁄− 0 . =",]
     );
     assert_eq!(
         drawn(LayoutKind::Scientific),
         [
             "2nd ( ) 𝑒 EE AC ⌫ % ÷",
             "x² x³ xʸ 𝑒ˣ 10ˣ 7 8 9 ×",
-            "√ ³√ ʸ√x ln log 4 5 6 −",
+            "²√x ³√x ʸ√x ln log 4 5 6 −",
             "x! sin cos tan π 1 2 3 +",
-            "Rand sinh cosh tanh 1/x +/− 0 . =",
+            "Rand sinh cosh tanh 1⁄x +⁄− 0 . =",
         ]
     );
     assert_eq!(
@@ -141,9 +141,9 @@ fn the_shipped_keypad_reads_as_designed() {
         [
             "2nd ( ) 𝑒 EE AC ⌫ % ÷",
             "x² x³ xʸ yˣ 2ˣ 7 8 9 ×",
-            "√ ³√ ʸ√x logᵧ log₂ 4 5 6 −",
+            "²√x ³√x ʸ√x logᵧ log₂ 4 5 6 −",
             "x! sin⁻¹ cos⁻¹ tan⁻¹ π 1 2 3 +",
-            "Rand sinh⁻¹ cosh⁻¹ tanh⁻¹ 1/x +/− 0 . =",
+            "Rand sinh⁻¹ cosh⁻¹ tanh⁻¹ 1⁄x +⁄− 0 . =",
         ]
     );
 }
@@ -275,7 +275,7 @@ fn every_face_spells_the_label_it_reads_as() {
 fn the_keys_with_scripts_are_the_ones_that_have_them() {
     let ctx = LabelContext::default();
     // A key with nothing off the line is one piece, whole.
-    for button in [Button::Sin, Button::Num(7), Button::Sqrt, Button::Ln] {
+    for button in [Button::Sin, Button::Num(7), Button::Mod, Button::Ln] {
         assert_eq!(
             label_parts(button, ctx),
             vec![LabelPart::on_line(label_for(button, ctx))],
@@ -297,6 +297,7 @@ fn the_keys_with_scripts_are_the_ones_that_have_them() {
     assert_eq!(shifts(Button::Log2), vec![Shift::OnLine, Shift::Down]);
     // A degree is written into the radical that follows it, so it
     // comes first and carries its own shift.
+    assert_eq!(shifts(Button::Sqrt), vec![Shift::Degree, Shift::OnLine]);
     assert_eq!(shifts(Button::Cbrt), vec![Shift::Degree, Shift::OnLine]);
     assert_eq!(shifts(Button::YRootX), vec![Shift::Degree, Shift::OnLine]);
 }

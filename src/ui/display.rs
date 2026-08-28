@@ -135,13 +135,14 @@ impl Script {
 
 /// How far the degree of a root is drawn to the right of where the
 /// line would put it, in character widths of the size the degree
-/// itself is drawn at. A whole character sits the degree in the
+/// itself is drawn at. Half a character sits the degree in the
 /// radical's own opening rather than beside it, which is where the
 /// notation has it — `⁴√` is one symbol, not a small 4 standing next
-/// to a sign. The pieces are separate widgets, so the overlap is a
-/// placement the app layer applies, not something the font is asked
-/// for.
-pub(crate) const ROOT_DEGREE_NUDGE: f32 = 1.0;
+/// to a sign. A whole character pushed it too far in, past the
+/// opening and onto the stroke. The pieces are separate widgets, so
+/// the overlap is a placement the app layer applies, not something
+/// the font is asked for.
+pub(crate) const ROOT_DEGREE_NUDGE: f32 = 0.5;
 
 /// One piece of the rendered display. Multiple segments line up
 /// horizontally; `active` tells the app layer whether to use the full
@@ -191,12 +192,23 @@ impl DisplaySegment {
     }
 }
 
+/// Where a caller with no cursor to report puts one: past every
+/// index, so nothing is drawn as being edited — no dimmed closer, no
+/// brackets round a script slot. What a finished expression is
+/// rendered with, which is a history row, the caption above the
+/// display, and any test that is asking what an expression looks like
+/// rather than what it looks like while it is being typed.
+///
+/// `items.len()` used to stand in for this and cannot any more: it is
+/// a real position, and for `2^5` it is a real position *inside the
+/// exponent*, which is exactly where the slot brackets belong.
+pub const NO_CURSOR: usize = usize::MAX;
+
 /// Render the input buffer as a list of [`DisplaySegment`]s. Numeric
 /// runs are coalesced into a single segment with thousands separators
 /// applied, auto-multiplication is inserted between adjacent operands,
 /// and closing parens that the cursor currently sits inside are flagged
-/// inactive. Pass `cursor = items.len()` when the cursor is unknown
-/// (e.g. in tests that don't care about the inactive-paren rule).
+/// inactive. Pass [`NO_CURSOR`] when there is no cursor to report.
 ///
 /// `inactive_range` flags an item-index half-open range whose segments
 /// should additionally render in the inactive colour — the Rand handler
@@ -345,7 +357,7 @@ impl Renderer<'_> {
                     }
                     match script::exponent_span(items, i).map(|span| span.min(end)) {
                         Some(span) if span > i + 1 => {
-                            self.render_run(i + 1, span, None, script.raised(), out);
+                            self.render_slot(i + 1, span, script.raised(), out);
                             i = span;
                             // The exponent closes the value the base
                             // opened, so a following operand gets its
@@ -374,7 +386,7 @@ impl Renderer<'_> {
                             if comma == i + 1 {
                                 out.push(self.empty_slot(comma, script.lowered()));
                             } else {
-                                self.render_run(i + 1, comma, None, script.lowered(), out);
+                                self.render_slot(i + 1, comma, script.lowered(), out);
                             }
                             out.push(DisplaySegment::placed("(", true, script));
                             i = comma + 1;
@@ -404,7 +416,7 @@ impl Renderer<'_> {
                             if closer == comma + 1 {
                                 out.push(self.empty_slot(comma + 1, script.raised()));
                             } else {
-                                self.render_run(comma + 1, closer, None, script.raised(), out);
+                                self.render_slot(comma + 1, closer, script.raised(), out);
                             }
                             // Written into the radical rather than
                             // beside it: every piece of the degree
@@ -512,6 +524,56 @@ impl Renderer<'_> {
         DisplaySegment::placed(script::EMPTY_SLOT, self.cursor != at, script)
     }
 
+    /// Draw the script slot `items[from..to]` — an exponent, a `log_y`
+    /// base, a root degree — inside the placeholder brackets when they
+    /// belong there. See [`Renderer::slot_brackets`].
+    fn render_slot(&self, from: usize, to: usize, script: Script, out: &mut Vec<DisplaySegment>) {
+        let brackets = self.slot_brackets(from, to);
+        if brackets {
+            // Lit, because the slot has been reached and something is
+            // in it; the closer dim, the way every closer the cursor
+            // sits inside is drawn.
+            out.push(DisplaySegment::placed("(", true, script));
+        }
+        self.render_run(from, to, None, script, out);
+        if brackets {
+            out.push(DisplaySegment::placed(")", false, script));
+        }
+    }
+
+    /// Whether a slot holding something is still drawn in brackets.
+    ///
+    /// They stay up for as long as the cursor is in the slot rather
+    /// than only while it is empty: a slot holding a `1` is still the
+    /// slot the next digit joins, and with the display drawing no
+    /// cursor the brackets are the only thing on screen that says so.
+    /// Stepping out of the slot with `)` takes them away, which is
+    /// what makes the finished `2⁵` read as one.
+    ///
+    /// A slot the user opened a bracket of their own at the head of
+    /// says it already: that pair is real, it is the one `)` closes,
+    /// and it stays on screen after — a placeholder round it would be
+    /// a second pair saying the same thing.
+    fn slot_brackets(&self, from: usize, to: usize) -> bool {
+        (from..=to).contains(&self.cursor) && !self.own_group(from, to)
+    }
+
+    /// True when the slot `from..to` is exactly one bracket group of
+    /// its own: a `(` the user opened there, or a call, which carries
+    /// its brackets with it. Either way the slot already reads as one
+    /// thing and needs no pair round it.
+    fn own_group(&self, from: usize, to: usize) -> bool {
+        matches!(
+            self.items.get(from),
+            Some(
+                InputItem::LeftParen
+                    | InputItem::UnaryFunc(_)
+                    | InputItem::BinaryFunc(_)
+                    | InputItem::LogN(_)
+            )
+        ) && self.closer_of[from] == Some(to - 1)
+    }
+
     /// Whether the `)` closing the group opened at `opener` draws in
     /// the active colour. It dims while the cursor is inside the
     /// brackets *as they are drawn*, which for a `log_y` call starts
@@ -551,7 +613,7 @@ pub fn render_expression_string(
     thousands_glyph: Option<char>,
     notation: Notation,
 ) -> String {
-    let segs = render_expression(items, items.len(), decimal, thousands_glyph, None, notation);
+    let segs = render_expression(items, NO_CURSOR, decimal, thousands_glyph, None, notation);
     let mut out = String::new();
     flatten(&segs, 0, &mut out);
     out
@@ -670,7 +732,10 @@ fn match_brackets(items: &[InputItem]) -> (Vec<Option<usize>>, Vec<Option<usize>
 fn item_produces_value(it: &InputItem) -> bool {
     matches!(
         it,
-        InputItem::Constant(_) | InputItem::RightParen | InputItem::Factorial
+        InputItem::Constant(_)
+            | InputItem::RightParen
+            | InputItem::Factorial
+            | InputItem::FixedPow(_)
     )
 }
 

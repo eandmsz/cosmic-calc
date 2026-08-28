@@ -281,8 +281,13 @@ pub fn label_parts(button: Button, ctx: LabelContext) -> Vec<LabelPart> {
         Button::Log2 => vec![LabelPart::on_line("log"), LabelPart::lowered("2")],
         Button::LogY => vec![LabelPart::on_line("log"), LabelPart::lowered("y")],
 
-        // Radicals wear their degree in the opening of the sign.
-        Button::Cbrt => vec![LabelPart::degree("3"), LabelPart::on_line("√")],
+        // Radicals wear their degree in the opening of the sign, and
+        // the `x` they take under it — a bare radical says which
+        // operation the key is but not what it does to what is on
+        // screen, and the square and cube roots are the same key as
+        // `ʸ√x` with the degree filled in.
+        Button::Sqrt => vec![LabelPart::degree("2"), LabelPart::on_line("√x")],
+        Button::Cbrt => vec![LabelPart::degree("3"), LabelPart::on_line("√x")],
         Button::YRootX => vec![LabelPart::degree("y"), LabelPart::on_line("√x")],
 
         // Powers wear their exponent above them.
@@ -323,11 +328,14 @@ pub fn label_for(button: Button, ctx: LabelContext) -> &'static str {
             _ => "?",
         },
         Button::Decimal => ctx.decimal,
-        // Spelt out rather than `±` so it reads the same way `1/x`
+        // Spelt out rather than `±` so it reads the same way `1⁄x`
         // does — the minus is U+2212, which shares the `+` sign's
         // height and weight where a hyphen would sit higher and
-        // lighter.
-        Button::Negate => "+/−",
+        // lighter, and the slash is the fraction slash U+2044 the
+        // percent sign is built from, which leans further over than
+        // the ASCII one and so reads as a division rather than as a
+        // separator.
+        Button::Negate => "+⁄−",
         Button::Backspace => "⌫",
 
         Button::Clear => ctx.clear,
@@ -350,11 +358,12 @@ pub fn label_for(button: Button, ctx: LabelContext) -> &'static str {
         Button::Factorial => "x!",
         Button::EE => "EE",
 
-        Button::Sqrt => "√",
         // The radical with its degree in front of it, rather than the
-        // single `∛` glyph a good many fonts do not carry — and what
-        // the display draws for the same key.
-        Button::Cbrt => "³√",
+        // single `√` and `∛` glyphs — the second of which a good many
+        // fonts do not carry — and what the display draws for the
+        // same keys.
+        Button::Sqrt => "²√x",
+        Button::Cbrt => "³√x",
         Button::Sin => "sin",
         Button::Cos => "cos",
         Button::Tan => "tan",
@@ -385,7 +394,8 @@ pub fn label_for(button: Button, ctx: LabelContext) -> &'static str {
         Button::Pi => "π",
         Button::Euler => "𝑒",
 
-        Button::Reciprocal => "1/x",
+        // Fraction slash, as on `+⁄−`: see [`Button::Negate`].
+        Button::Reciprocal => "1⁄x",
         Button::Rand => "Rand",
 
         Button::MemClear => "MC",
