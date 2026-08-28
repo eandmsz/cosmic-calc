@@ -63,16 +63,23 @@ make check                         # fmt + clippy + the whole workspace
 	  writes `(2^2)²`, and one backspace gives the `2^2` back rather
 	  than a `(2^2)` you did not ask for or an empty exponent slot
 	  waiting for a digit
+	- The two keys part company over a fixed exponent, because they
+	  are asking different questions. Backspace takes back the press,
+	  so `5²` gives the `5` back; `C` takes back the value, and `5²`
+	  is one value, so it goes whole — `5+2³` then `C` is `5+`
+	- A two-argument call unwinds in the one order it is filled in.
+	  `logᵧ 98 ) 71` reads log₇₁(98), and backspace takes it apart
+	  the way it went together, last piece first: into the base, out
+	  through its digits, back inside the brackets to the argument,
+	  out through its digits, and only with both slots empty does
+	  the call itself come off. `³√(8)` is the same walk through the
+	  degree and the radicand
 	- Backspace retraces a cursor the keypad moved. `yˣ` parks it in
 	  front of what you typed and `logᵧ`/`ʸ√x` park it in a slot, and
 	  in each case backspace takes the press back and returns the
 	  cursor to where that press found it — where it used to stick
 	  with nothing to its left to delete
-	- A two-argument call comes apart in the order it went
-	  together. `logᵧ 71 ) 98` reads `log₇₁(98)`, and backspace
-	  unwinds it the way it was filled: through the argument, back
-	  under the log for the base, and only then the call itself.
-	  Neither argument can be deleted out from under the call, so a
+	- Neither argument can be deleted out from under a call, so a
 	  `log₇₁(98)` cannot become `log(7198)` — log base ten of a
 	  number you never typed — and a `³√(8)` cannot become a `√(83)`
 - Easily readable expressions with superscript exponents, subscript log
@@ -84,6 +91,10 @@ make check                         # fmt + clippy + the whole workspace
 	  rather than the single `∛` glyph a good many fonts do not carry
 	  and draw as a box. The buffer and the clipboard still say
 	  `cbrt(8)`
+	- Both the square and cube root keys wear the whole operation —
+	  `²√x` and `³√x`, the way `ʸ√x` does with its degree left
+	  open — rather than a bare sign that says which radical it is
+	  but not what it does to what is on screen
 	- The keys are drawn the same way as what they write. A script on
 	  a button face is the key's own font at 60%, placed one step off
 	  the line, rather than a raised or lowered glyph asked of the
@@ -104,6 +115,19 @@ make check                         # fmt + clippy + the whole workspace
 	  base `yˣ` is waiting for, `log₍₎(8)` for a base — and they are
 	  drawn dim while the cursor is in them, which is what says the
 	  next digit lands there rather than after the call
+	- They stay up once you have typed into the slot, round what is
+	  there rather than in place of it, for as long as the cursor is
+	  still in it: `2⁽¹⁵⁾` while the exponent is being keyed, with
+	  the opener lit now that the slot has been reached and the
+	  closer dim like every closer you are inside. One digit does not
+	  mean you are finished with a number, and the display draws no
+	  cursor of its own, so nothing else on screen would say the next
+	  digit lands up there too. They go when you leave the slot — `)`
+	  from a `logᵧ` base or a root degree steps out of the call, and
+	  `)` on a power brackets it, so either way the finished `2⁵`
+	  reads as one. A slot you opened a bracket of your own at the
+	  head of, or filled with a call, wears no second pair: that one
+	  is real, and it stays
 	- Three levels is as deep as it goes: `2^2^2` is drawn in full, and
 	  a key that would write a fourth puts what is already there in
 	  brackets and starts again from the line — `x²` on `2^2^2` gives
@@ -133,17 +157,18 @@ make check                         # fmt + clippy + the whole workspace
   shows the empty slot until you type one: press it and the display
   reads `log₍₎(8)`, key the base and it reads `log₂(8)`. With an
   operand already typed the press goes straight to the base (`8`,
-  `logᵧ`, `2` = 3); from an empty display the base comes first, since
-  that is the part the key was reached for, and `)` moves in to the
-  argument (`logᵧ`, `2`, `)`, `8` = 3), with a second `)` leaving the
-  call
+  `logᵧ`, `2` = 3), and from an empty display the order is the same
+  one rather than the mirror of it: the argument first, then `)` out
+  to the base (`logᵧ`, `8`, `)`, `2` = 3), with a second `)` leaving
+  the call. One order whatever is on screen when you reach the key,
+  which is also the order backspace unwinds it in
 - `ʸ√x` writes its degree where a degree belongs — in the opening of
   the sign rather than beside it, the way `⁴√` is printed as one symbol
   rather than a small 4 standing next to a stroke — and reads the
   same way round: `16`, `ʸ√x`, `4` gives `⁴√(16)`. From an empty
-  display the degree comes first and `)` moves in to the radicand
-  (`ʸ√x`, `3`, `)`, `8` = 2), with a second `)` leaving the call,
-  exactly as `logᵧ` does with its base
+  display it is the same order again — the radicand first, then `)`
+  out to the degree (`ʸ√x`, `8`, `)`, `3` = 2), with a second `)`
+  leaving the call, exactly as `logᵧ` does with its base
 - `)` with nothing open to close brackets the operand you just typed
   instead of doing nothing: `5+2` then `)` reads `5+(2)`. Where a
   bracket *is* open the key closes it as before, stepping over the
@@ -176,6 +201,18 @@ make check                         # fmt + clippy + the whole workspace
 	  second caret would have said `2^3^2` = 512. Press it again and
 	  the brackets nest — `((2^3)^2)²` — which is what squaring twice
 	  is. `xʸ` is the key for building a tower
+	- They finish the operation, so their exponent is not a slot
+	  anything else can reach. `5`, `x²`, `3` is `5²×3` = 75, with
+	  the `×` filled in for you, where the digit used to run onto the
+	  end of the exponent and give `5` to the twenty-third. Nothing
+	  postfix reaches in either: `5²` then `!` is `(5²)!` and then
+	  `xʸ` is `(5²)^y`, since the buffer spells the square `5^2` and
+	  a bare `5^2!` would read as `5` raised to `2!`
+	- And they are about the whole value, not the piece of it the
+	  cursor is parked in front of. `6`, `yˣ`, `3` reads `3⁶` with
+	  the cursor still in the base slot, and `x²` there is `(3⁶)²`
+	  where it used to write `3^2^6` — the 3 raised to the
+	  sixty-fourth
 - Fully compatible with COSMIC desktop themes and also inheriting accent color from KDE, GNOME, XFCE
 - Decimal separator is automatically based on the system locale
 - Fully compatible with iOS/macOS ASCII expressions e.g:
@@ -234,6 +271,14 @@ make check                         # fmt + clippy + the whole workspace
 - One `%` key for both readings, decided by what follows it: on its own
   it is a percentage (`3.5%×230` = 8.05, `200+10%` = 220), and with an
   operand straight after it, it is modulo (`5%3.2` = 1.8, `7%(-3)` = 1)
+	- It never lands in an exponent, whichever of the two it is
+	  going to be. `%` is about the value in hand, and the text
+	  cannot say it is anything else — `2^5%` reads as `2` raised to
+	  `5%` — so the press leaves the exponent and brackets the power
+	  it applies to: `2`, `xʸ`, `5`, `%` is `(2⁵)%`. Open a bracket
+	  at the head of the exponent and it stays there, since that
+	  gesture is for putting a whole expression up in the slot:
+	  `2^(5%)`
 - Shows real-time number properties in both layouts: prime ; harshad ; palindrome ; square ; triangular ; fibonacci
  	- Miller-Rabin primality test is used with 9 deterministic bases which gives a fast and 100% accurate prime number detection up to 2^64 (~10^19)
 

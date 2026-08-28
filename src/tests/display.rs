@@ -533,7 +533,7 @@ fn a_script_is_the_same_characters_drawn_smaller_and_off_the_line() {
         ),
     ];
     for (items, expected) in cases {
-        let segs = render_at(&items, items.len());
+        let segs = render_at(&items, NO_CURSOR);
         assert_eq!(texts(&segs), expected);
         // The base stays on the line, the exponent goes above it at a
         // fraction of the size.
@@ -557,7 +557,7 @@ fn a_script_inside_a_script_steps_again() {
     items.extend(digits("3"));
     items.push(InputItem::BinOp(BinOp::Pow));
     items.extend(digits("2"));
-    let segs = render_at(&items, items.len());
+    let segs = render_at(&items, NO_CURSOR);
     assert_eq!(texts(&segs), vec!["2", "3", "2"]);
     assert_eq!(segs[0].script.depth, 0);
     assert_eq!(segs[1].script.depth, 1);
@@ -623,7 +623,7 @@ fn a_root_wears_its_degree_in_front_of_the_sign() {
     // and the closing bracket is drawn where the radicand ends rather
     // than after a degree that is no longer inside it.
     let items = root("16", &digits("4"));
-    let segs = render_at(&items, items.len());
+    let segs = render_at(&items, NO_CURSOR);
     assert_eq!(texts(&segs), vec!["4", "√(", "16", ")"]);
     assert!(segs[0].script.raise > 0.0);
     assert!(segs[0].script.scale() < 1.0);
@@ -733,7 +733,13 @@ fn a_root_closer_follows_the_radicand_it_is_drawn_after() {
     let items = root("16", &digits("4"));
     let closer = |cursor: usize| {
         let segs = render_at(&items, cursor);
-        let seg = segs.iter().find(|s| s.text == ")").unwrap().clone();
+        // The one on the line: a degree the cursor is in wears a
+        // raised pair of its own, which is a different bracket.
+        let seg = segs
+            .iter()
+            .find(|s| s.text == ")" && s.script.is_on_line())
+            .unwrap()
+            .clone();
         seg.active
     };
     assert!(!closer(2)); // between the 1 and the 6
@@ -1003,7 +1009,7 @@ fn a_root_degree_is_written_into_the_radical() {
     let items = root("16", &digits("4"));
     let segs = render_at(&items, items.len());
     assert_eq!(texts(&segs), vec!["4", "√(", "16", ")"]);
-    assert_eq!(segs[0].nudge, 1.0);
+    assert_eq!(segs[0].nudge, ROOT_DEGREE_NUDGE);
     for seg in &segs[1..] {
         assert_eq!(seg.nudge, 0.0, "{:?} moved sideways", seg.text);
     }
@@ -1017,10 +1023,10 @@ fn a_root_degree_is_written_into_the_radical() {
     nested.push(InputItem::BinOp(BinOp::Add));
     nested.extend(digits("2"));
     nested.push(InputItem::RightParen);
-    let segs = render_at(&nested, nested.len());
+    let segs = render_at(&nested, NO_CURSOR);
     assert_eq!(texts(&segs), vec!["2", "+", "2", "√(", "16", ")"]);
     for seg in &segs[..3] {
-        assert_eq!(seg.nudge, 1.0, "{:?} stayed behind", seg.text);
+        assert_eq!(seg.nudge, ROOT_DEGREE_NUDGE, "{:?} stayed behind", seg.text);
     }
 
     // The slot an empty degree shows moves with it, so the press lands
@@ -1031,7 +1037,7 @@ fn a_root_degree_is_written_into_the_radical() {
         InputItem::Comma,
         InputItem::RightParen,
     ];
-    assert_eq!(render_at(&empty, 3)[0].nudge, 1.0);
+    assert_eq!(render_at(&empty, 3)[0].nudge, ROOT_DEGREE_NUDGE);
 }
 
 #[test]
@@ -1082,12 +1088,12 @@ fn a_cube_root_is_drawn_as_a_radical_with_a_degree() {
         InputItem::Digit('8'),
         InputItem::RightParen,
     ];
-    let segs = render_at(&items, items.len());
+    let segs = render_at(&items, NO_CURSOR);
     assert_eq!(texts(&segs), vec!["3", "√(", "8", ")"]);
     // The `3` is a degree: up a step, and slid into the sign like the
     // degree of a `ʸ√x`.
     assert!(segs[0].script.raise > 0.0);
-    assert_eq!(segs[0].nudge, 1.0);
+    assert_eq!(segs[0].nudge, ROOT_DEGREE_NUDGE);
     assert!(segs[1].script.is_on_line());
     assert_eq!(segs[1].nudge, 0.0);
     // One line of text has the raised glyph for it.
@@ -1219,7 +1225,7 @@ fn a_sized_rendering_keeps_levels_a_single_line_cannot() {
     chain.push(InputItem::BinOp(BinOp::Pow));
     chain.extend(digits("2"));
     assert_eq!(render_str(&chain, DecimalSeparator::Dot, None), "2⁽2²⁾");
-    let segs = render_at(&chain, chain.len());
+    let segs = render_at(&chain, NO_CURSOR);
     assert_eq!(texts(&segs), vec!["2", "2", "2"]);
     assert_eq!(
         segs.iter().map(|s| s.script.depth).collect::<Vec<_>>(),
@@ -1248,5 +1254,121 @@ fn a_sized_rendering_keeps_levels_a_single_line_cannot() {
     assert_eq!(
         segs.iter().map(|s| s.script.depth).collect::<Vec<_>>(),
         vec![0, 1, 2, 1, 1, 1, 0, 0, 0]
+    );
+}
+
+// --- the brackets a slot wears while it is being filled -------------
+
+/// The `(text, active)` of each piece drawn off the line.
+fn off_line(segs: &[DisplaySegment]) -> Vec<(&str, bool)> {
+    segs.iter()
+        .filter(|s| !s.script.is_on_line())
+        .map(|s| (s.text.as_str(), s.active))
+        .collect()
+}
+
+#[test]
+fn a_slot_keeps_its_brackets_while_the_cursor_is_in_it() {
+    // The empty brackets say where the next digit lands, and one digit
+    // does not finish the job — the user may be part-way through a
+    // number. So they stay round what has been typed, with the opener
+    // lit now that the slot has been reached and the closer dim like
+    // every closer the cursor sits inside.
+    let items = power("2", &digits("15"));
+    assert_eq!(
+        off_line(&render_at(&items, 4)),
+        vec![("(", true), ("15", true), (")", false)]
+    );
+    // Half-way through the number is the same picture — the run is
+    // drawn whole either way, and the brackets are about the slot.
+    assert_eq!(
+        off_line(&render_at(&items, 3)),
+        vec![("(", true), ("15", true), (")", false)]
+    );
+    // And once the cursor has left the slot they go, which is what
+    // makes the finished power read as one.
+    assert_eq!(off_line(&render_at(&items, NO_CURSOR)), vec![("15", true)]);
+}
+
+#[test]
+fn a_slot_the_user_bracketed_wears_no_second_pair() {
+    // Opening a bracket at the head of a slot is the gesture for
+    // putting a whole expression in it. That pair is real, it is what
+    // `)` closes, and it stays on screen afterwards — a placeholder
+    // round it would only say the same thing twice.
+    let mut exponent = vec![InputItem::LeftParen];
+    exponent.extend(digits("3"));
+    exponent.push(InputItem::BinOp(BinOp::Add));
+    exponent.extend(digits("4"));
+    exponent.push(InputItem::RightParen);
+    let items = power("2", &exponent);
+    assert_eq!(
+        off_line(&render_at(&items, 5)),
+        vec![
+            ("(", true),
+            ("3", true),
+            ("+", true),
+            ("4", true),
+            (")", false)
+        ]
+    );
+    // A call carries its own brackets for the same reason.
+    let mut call = vec![InputItem::UnaryFunc(UnaryFunc::Sin)];
+    call.extend(digits("30"));
+    call.push(InputItem::RightParen);
+    let items = power("2", &call);
+    assert_eq!(
+        off_line(&render_at(&items, 5)),
+        vec![("sin(", true), ("30", true), (")", false)]
+    );
+}
+
+#[test]
+fn a_log_base_and_a_root_degree_wear_them_too() {
+    // The same rule in the other two slots the display draws outside
+    // a call's brackets.
+    let mut base = vec![InputItem::BinaryFunc(BinaryFunc::LogBase)];
+    base.extend(digits("2"));
+    base.push(InputItem::Comma);
+    base.extend(digits("8"));
+    base.push(InputItem::RightParen);
+    assert_eq!(
+        off_line(&render_at(&base, 2)),
+        vec![("(", true), ("2", true), (")", false)]
+    );
+    assert_eq!(off_line(&render_at(&base, NO_CURSOR)), vec![("2", true)]);
+
+    let degree = root("16", &digits("4"));
+    assert_eq!(
+        off_line(&render_at(&degree, 5)),
+        vec![("(", true), ("4", true), (")", false)]
+    );
+    assert_eq!(off_line(&render_at(&degree, NO_CURSOR)), vec![("4", true)]);
+}
+
+#[test]
+fn a_fixed_exponent_is_drawn_as_the_exponent_it_is() {
+    // One item, drawn as one raised digit, with no caret in front of
+    // it and no slot brackets round it — there is no slot, which is
+    // the point of the key.
+    let items = vec![InputItem::Digit('5'), InputItem::FixedPow(2)];
+    assert_eq!(render_str(&items, DecimalSeparator::Dot, None), "5²");
+    let segs = render_at(&items, items.len());
+    assert_eq!(texts(&segs), vec!["5", "2"]);
+    assert!(segs[0].script.is_on_line());
+    assert_eq!(segs[1].script.depth, 1);
+    assert!(segs[1].script.raise > 0.0);
+    // It closes a value, so what follows takes an auto-mul glyph.
+    let mut with_factor = items.clone();
+    with_factor.extend(digits("3"));
+    assert_eq!(
+        texts(&render_at(&with_factor, NO_CURSOR)),
+        vec!["5", "2", "×", "3"]
+    );
+    // The clipboard and the tokenizer see the caret the buffer spells
+    // it with.
+    assert_eq!(
+        render_expression_string(&items, DecimalSeparator::Dot, None, Notation::Raw),
+        "5^2"
     );
 }

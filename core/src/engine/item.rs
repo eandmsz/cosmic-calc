@@ -75,6 +75,12 @@ pub enum InputItem {
     /// became `7% - 3`, and modulo by a negative was inexpressible.
     Modulo,
     Factorial,
+    /// A power the calculator wrote whole: the `²` of `x²`, the `³`
+    /// of `x³`. One item rather than a caret and a digit, because the
+    /// key writes one finished operation — the exponent is not a slot
+    /// left open for the user to type into, and nothing keyed after
+    /// it should land up there.
+    FixedPow(u8),
     UnaryFunc(UnaryFunc),
     BinaryFunc(BinaryFunc),
     /// log with an arbitrary positive-integer base typed as log<N>
@@ -102,7 +108,7 @@ impl InputItem {
         match self {
             InputItem::Digit(_) | InputItem::DecimalPoint | InputItem::Constant(_) => Arity::Leaf,
             InputItem::BinOp(_) | InputItem::AutoMul | InputItem::Modulo => Arity::Binary,
-            InputItem::Percent | InputItem::Factorial => Arity::Unary,
+            InputItem::Percent | InputItem::Factorial | InputItem::FixedPow(_) => Arity::Unary,
             InputItem::UnaryFunc(_) | InputItem::LogN(_) => Arity::Unary,
             InputItem::BinaryFunc(_) => Arity::Binary,
             InputItem::LeftParen | InputItem::RightParen | InputItem::Comma => Arity::Structural,
@@ -121,6 +127,7 @@ impl InputItem {
                 | InputItem::RightParen
                 | InputItem::Factorial
                 | InputItem::Percent
+                | InputItem::FixedPow(_)
         )
     }
 
@@ -138,6 +145,7 @@ impl InputItem {
             InputItem::Percent => "%".to_string(),
             InputItem::Modulo => " mod ".to_string(),
             InputItem::Factorial => "!".to_string(),
+            InputItem::FixedPow(n) => format!("^{}", n),
             InputItem::UnaryFunc(f) => format!("{}(", unary_func_name(*f)),
             InputItem::BinaryFunc(BinaryFunc::LogBase) => "log(".to_string(),
             InputItem::BinaryFunc(BinaryFunc::Root) => "root(".to_string(),
@@ -174,6 +182,7 @@ pub fn ascii_text(it: &InputItem, prev: Option<char>) -> String {
         InputItem::Percent => "%".to_string(),
         InputItem::Modulo => " mod ".to_string(),
         InputItem::Factorial => "!".to_string(),
+        InputItem::FixedPow(n) => format!("^{}", n),
         InputItem::UnaryFunc(UnaryFunc::Sqrt) => "sqrt(".to_string(),
         InputItem::UnaryFunc(UnaryFunc::Cbrt) => "cbrt(".to_string(),
         InputItem::UnaryFunc(f) => format!("{}(", unary_func_name(*f)),

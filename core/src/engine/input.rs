@@ -141,9 +141,10 @@ impl InputBuffer {
     /// bracket it put in front of the operand. `true` when a press was
     /// taken back and the caller has nothing more to delete.
     ///
-    /// Backspace does this before deleting anything of its own, and
-    /// `C` before taking back an operand: both keys are undoing what
-    /// was entered, and what `x²` entered was a press.
+    /// Backspace does this before deleting anything of its own: it is
+    /// undoing what was entered, and what `x²` entered was a press.
+    /// `C` does not — that key takes back the whole value, and a
+    /// fixed exponent is part of the value it hangs off.
     pub fn take_back_press(&mut self) -> bool {
         let Some(run) = self.atomic.iter().copied().find(|r| r.end() == self.cursor) else {
             return false;
@@ -195,7 +196,7 @@ impl InputBuffer {
     ///
     /// Operands recognised:
     /// * a contiguous run of digits and at most one decimal point,
-    ///   optionally followed by postfix `!` / `%`
+    ///   optionally followed by postfix `!` / `%` / a fixed exponent
     /// * a single constant (π or 𝑒), optionally followed by a postfix
     /// * a matched `(…)` group; the opener may be a bare `LeftParen`
     ///   or a function-with-paren item (`UnaryFunc`, `BinaryFunc`,
@@ -207,11 +208,13 @@ impl InputBuffer {
         }
         let mut end = at;
 
-        // Consume trailing postfix operators (`!`, `%`).
+        // Consume trailing postfix operators (`!`, `%`, and the
+        // fixed exponent `x²` and `x³` write, which hangs off the
+        // operand exactly as they do).
         while end > 0
             && matches!(
                 self.items[end - 1],
-                InputItem::Factorial | InputItem::Percent
+                InputItem::Factorial | InputItem::Percent | InputItem::FixedPow(_)
             )
         {
             end -= 1;

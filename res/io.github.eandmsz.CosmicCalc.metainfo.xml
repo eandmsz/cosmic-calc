@@ -34,6 +34,24 @@
   </categories>
 
   <releases>
+    <release version="0.1.8" date="2026-08-28">
+      <description>
+        <ul>
+          <li>x² and x³ finish the operation. The exponent they write is not a slot anything keyed next can reach, so 5, x², 3 is 5²×3 with the multiplication filled in — it used to run onto the end of the exponent and give 5 to the twenty-third. Nothing postfix reaches in either: 5² then ! is (5²)! and then xʸ is (5²)^y, since a bare 5^2! reads as 5 raised to 2!</li>
+          <li>A factorial keyed in a caret's exponent still belongs there: 2, xʸ, 3, ! is 2 raised to 3!, which is the reading both power keys are reached for</li>
+          <li>x² and x³ square the number on screen rather than the piece of it the cursor is parked in front of. 6, yˣ, 3 reads 3⁶ with the cursor still in the base slot, and x² there is now (3⁶)² where it wrote 3^2^6 — the 3 raised to the sixty-fourth</li>
+          <li>Backspace and C part company over a fixed exponent, because they ask different questions. Backspace takes back the press, so 5² gives the 5 back; C takes back the value, and 5² is one value, so 5+2³ then C is 5+</li>
+          <li>% never lands in an exponent. It is a basic-keypad operation on the value in hand and the text cannot say otherwise — 2^5% reads as 2 raised to 5% — so the press leaves the exponent and brackets the power: (2⁵)%. Open a bracket at the head of the exponent and it stays there, since that gesture is for putting a whole expression in the slot</li>
+          <li>The brackets a script slot shows stay up once you have typed into it, drawn round what is there rather than in place of it, for as long as the cursor is still in the slot: 2⁽¹⁵⁾ while the exponent is being keyed, with the opener lit and the closer dim. One digit does not mean you are finished with a number, and nothing else on screen said the next one lands up there too. A slot you opened a bracket of your own at the head of, or filled with a call, wears no second pair</li>
+          <li>logᵧ and ʸ√x fill in one order whatever is on screen when you reach them: the argument or the radicand first, then the base or the degree. 0.1.7 read the empty display the other way round, which made the keys do one thing on a fresh display and another on a typed one. logᵧ, 8, ), 2 reads log₂(8), and ʸ√x, 8, ), 3 reads ³√(8)</li>
+          <li>Backspace unwinds one of those calls in that same order reversed, last piece first: into the base or the degree, out through its characters, back inside the brackets to the argument, out through its characters, and only with both slots empty does the call itself come off</li>
+          <li>The degree of a root sits half a character into the radical rather than a whole one, which had pushed it past the opening and onto the stroke</li>
+          <li>The square and cube root keys wear the whole operation — ²√x and ³√x, the way ʸ√x does with its degree left open — rather than a bare sign that says which radical it is but not what it does to what is on screen</li>
+          <li>1⁄x and +⁄− use the fraction slash the percent sign is built from, which leans further over than the ASCII one and so reads as a division rather than as a separator</li>
+          <li>The readout is bigger. It was giving up about three tenths of its line to leading, and the gaps around the display were the keypad's inter-row spacing stacked either side of it; both are smaller now, and the digits scale into the room that gives back</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.1.7" date="2026-08-27">
       <description>
         <ul>

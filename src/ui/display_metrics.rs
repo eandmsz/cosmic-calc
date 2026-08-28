@@ -19,12 +19,21 @@ pub fn scale_main_text_size(chars: usize, window_width: f32, display_height: f32
     // result than a generic heading. The tallest tier in particular sits
     // closer to the "huge digit" feel of dedicated calc apps without
     // overflowing the 300px reference window.
+    //
+    // What decides how big the digits actually come out is the ratio
+    // between the two numbers, not either on its own: the line height
+    // is grown to fill the slot and the size follows it, so the
+    // leftover is leading — blank space split evenly above and below
+    // the digits. The original ladder left about three tenths of the
+    // slot as leading, which read as padding around a readout that
+    // had room to be bigger; a little over two tenths is enough to
+    // clear an ascender and a descender.
     let (base_size, base_line) = match chars {
-        0..=12 => (44.0, 62.0),
-        13..=16 => (36.0, 52.0),
-        17..=22 => (30.0, 44.0),
-        23..=30 => (24.0, 36.0),
-        _ => (20.0, 30.0),
+        0..=12 => (48.0, 62.0),
+        13..=16 => (40.0, 52.0),
+        17..=22 => (33.0, 44.0),
+        23..=30 => (27.0, 36.0),
+        _ => (22.0, 30.0),
     };
     let factor = window_width_scale_factor(window_width)
         * display_height_scale_factor(display_height, chars);

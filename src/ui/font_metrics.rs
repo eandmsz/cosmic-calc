@@ -70,7 +70,7 @@ pub enum Centring {
     /// own middle. For the two keys that are read against the ones
     /// beside them rather than on their own: the decimal separator,
     /// whose `.` belongs down on the digits' baseline and not halfway
-    /// up the key, and `+/−`, which has to sit where `1/x` sits.
+    /// up the key, and `+⁄−`, which has to sit where `1⁄x` sits.
     CapBand,
 }
 
