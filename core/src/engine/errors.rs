@@ -19,20 +19,29 @@ pub const ERR_UNDEFINED: &str = "Undefined";
 /// A zero is written `0` rather than spelled out — it is the digit
 /// the user pressed, and the display it lands on is a calculator's.
 pub const ERR_NEGATIVE_EVEN_ROOT: &str = "Undefined: Negative number under even root";
+pub const ERR_NEGATIVE_FRACTIONAL_POWER: &str = "Undefined: Negative number to a fractional power";
 pub const ERR_NEGATIVE_LOG: &str = "Undefined: Negative number inside logarithm";
 pub const ERR_ZERO_LOG: &str = "Undefined: 0 inside logarithm";
 pub const ERR_LOG_BASE_ONE: &str = "Undefined: Logarithm base cannot be 1";
+pub const ERR_LOG_BASE_ZERO: &str = "Undefined: Logarithm base cannot be 0";
+pub const ERR_LOG_BASE_NEGATIVE: &str = "Undefined: Logarithm base cannot be negative";
 pub const ERR_ZERO_POW_ZERO: &str = "Undefined: 0 raised to 0 power";
 pub const ERR_ZERO_POW_NEGATIVE: &str = "Undefined: 0 raised to negative power";
 pub const ERR_DIVISION_BY_ZERO: &str = "Undefined: Division by 0";
 pub const ERR_TANGENT: &str = "Undefined: Tangent";
 pub const ERR_COTANGENT: &str = "Undefined: Cotangent";
 pub const ERR_HYPERBOLIC_COTANGENT: &str = "Undefined: Hyperbolic cotangent";
-/// The two inverse-trig domains. Written with U+2212, the minus sign
-/// the keypad and the display use — escaped rather than typed so it
-/// cannot be mistaken here for the ASCII hyphen it looks like.
+/// The inverse-function domains, which name the interval the argument
+/// has to be in rather than only that it is not. Written with U+2212,
+/// the minus sign the keypad and the display use — escaped rather
+/// than typed so it cannot be mistaken here for the ASCII hyphen it
+/// looks like.
 pub const ERR_ASIN_DOMAIN: &str = "Undefined sin\u{2212}1(x) must be between \u{2212}1 and 1";
 pub const ERR_ACOS_DOMAIN: &str = "Undefined cos\u{2212}1(x) must be between \u{2212}1 and 1";
+pub const ERR_ACOSH_DOMAIN: &str = "Undefined cosh\u{2212}1(x) must be 1 or more";
+pub const ERR_ATANH_DOMAIN: &str = "Undefined tanh\u{2212}1(x) must be between \u{2212}1 and 1";
+pub const ERR_ACOTH_DOMAIN: &str =
+    "Undefined coth\u{2212}1(x) must be less than \u{2212}1 or more than 1";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CalcError {
@@ -43,6 +52,12 @@ pub enum CalcError {
     Undefined,
     /// An even root of a negative number — `√(-4)`, `root(-8, 4)`.
     NegativeEvenRoot,
+    /// A negative number raised to a power that is not a whole one —
+    /// `(-8)^0.5`, and the root that spells the same thing,
+    /// `root(-8, 2.5)`. Distinct from the even root above because the
+    /// answer is not merely off the real line for even degrees: there
+    /// is no real root at all.
+    NegativeFractionalPower,
     /// A logarithm of a negative number.
     NegativeLog,
     /// A logarithm of zero.
@@ -50,6 +65,10 @@ pub enum CalcError {
     /// A logarithm to base 1, which every positive argument but 1
     /// has no answer for and 1 itself has every answer for.
     LogBaseOne,
+    /// A logarithm to base 0.
+    LogBaseZero,
+    /// A logarithm to a negative base.
+    LogBaseNegative,
     /// `0^0`.
     ZeroPowZero,
     /// `0` raised to a negative power, which is a division by zero
@@ -68,9 +87,44 @@ pub enum CalcError {
     AsinDomain,
     /// `cos⁻¹` outside [−1, 1].
     AcosDomain,
+    /// `cosh⁻¹` below 1.
+    AcoshDomain,
+    /// `tanh⁻¹` at or outside ±1.
+    AtanhDomain,
+    /// `coth⁻¹` at or inside ±1.
+    AcothDomain,
 }
 
 impl CalcError {
+    /// Every error the evaluator can return, so a caller can walk
+    /// them. The test suite uses it to hold the catalogue of trigger
+    /// expressions complete: a variant added without one shows up as
+    /// a failure rather than as a message nothing reaches.
+    pub const ALL: [CalcError; 22] = [
+        CalcError::Overflow,
+        CalcError::Underflow,
+        CalcError::Indeterminate,
+        CalcError::Undefined,
+        CalcError::NegativeEvenRoot,
+        CalcError::NegativeFractionalPower,
+        CalcError::NegativeLog,
+        CalcError::ZeroLog,
+        CalcError::LogBaseOne,
+        CalcError::LogBaseZero,
+        CalcError::LogBaseNegative,
+        CalcError::ZeroPowZero,
+        CalcError::ZeroPowNegative,
+        CalcError::DivisionByZero,
+        CalcError::Tangent,
+        CalcError::Cotangent,
+        CalcError::HyperbolicCotangent,
+        CalcError::AsinDomain,
+        CalcError::AcosDomain,
+        CalcError::AcoshDomain,
+        CalcError::AtanhDomain,
+        CalcError::AcothDomain,
+    ];
+
     /// Return the display string associated with this error.
     pub const fn as_str(self) -> &'static str {
         match self {
@@ -79,9 +133,12 @@ impl CalcError {
             CalcError::Indeterminate => ERR_INDETERMINATE,
             CalcError::Undefined => ERR_UNDEFINED,
             CalcError::NegativeEvenRoot => ERR_NEGATIVE_EVEN_ROOT,
+            CalcError::NegativeFractionalPower => ERR_NEGATIVE_FRACTIONAL_POWER,
             CalcError::NegativeLog => ERR_NEGATIVE_LOG,
             CalcError::ZeroLog => ERR_ZERO_LOG,
             CalcError::LogBaseOne => ERR_LOG_BASE_ONE,
+            CalcError::LogBaseZero => ERR_LOG_BASE_ZERO,
+            CalcError::LogBaseNegative => ERR_LOG_BASE_NEGATIVE,
             CalcError::ZeroPowZero => ERR_ZERO_POW_ZERO,
             CalcError::ZeroPowNegative => ERR_ZERO_POW_NEGATIVE,
             CalcError::DivisionByZero => ERR_DIVISION_BY_ZERO,
@@ -90,6 +147,9 @@ impl CalcError {
             CalcError::HyperbolicCotangent => ERR_HYPERBOLIC_COTANGENT,
             CalcError::AsinDomain => ERR_ASIN_DOMAIN,
             CalcError::AcosDomain => ERR_ACOS_DOMAIN,
+            CalcError::AcoshDomain => ERR_ACOSH_DOMAIN,
+            CalcError::AtanhDomain => ERR_ATANH_DOMAIN,
+            CalcError::AcothDomain => ERR_ACOTH_DOMAIN,
         }
     }
 }

@@ -15,10 +15,11 @@
 
 use crate::engine::{
     evaluate_expression, evaluate_to_string, AngleMode, CalcError, DEFAULT_SIGNIFICANT_DIGITS,
-    ERR_ACOS_DOMAIN, ERR_ASIN_DOMAIN, ERR_COTANGENT, ERR_DIVISION_BY_ZERO,
-    ERR_HYPERBOLIC_COTANGENT, ERR_INDETERMINATE, ERR_LOG_BASE_ONE, ERR_NEGATIVE_EVEN_ROOT,
-    ERR_NEGATIVE_LOG, ERR_OVERFLOW, ERR_TANGENT, ERR_UNDEFINED, ERR_UNDERFLOW, ERR_ZERO_LOG,
-    ERR_ZERO_POW_NEGATIVE, ERR_ZERO_POW_ZERO,
+    ERR_ACOSH_DOMAIN, ERR_ACOS_DOMAIN, ERR_ACOTH_DOMAIN, ERR_ASIN_DOMAIN, ERR_ATANH_DOMAIN,
+    ERR_COTANGENT, ERR_DIVISION_BY_ZERO, ERR_HYPERBOLIC_COTANGENT, ERR_INDETERMINATE,
+    ERR_LOG_BASE_NEGATIVE, ERR_LOG_BASE_ONE, ERR_LOG_BASE_ZERO, ERR_NEGATIVE_EVEN_ROOT,
+    ERR_NEGATIVE_FRACTIONAL_POWER, ERR_NEGATIVE_LOG, ERR_OVERFLOW, ERR_TANGENT, ERR_UNDEFINED,
+    ERR_UNDERFLOW, ERR_ZERO_LOG, ERR_ZERO_POW_NEGATIVE, ERR_ZERO_POW_ZERO,
 };
 
 const DEC: u8 = DEFAULT_SIGNIFICANT_DIGITS;
@@ -521,8 +522,8 @@ fn log_zero_as_value_is_undefined() {
 
 #[test]
 fn log_zero_as_base_is_undefined() {
-    // Spec: log(0, 2) = Undefined
-    assert_eq!(deg("log(0, 2)"), ERR_UNDEFINED);
+    // Spec: log(0, 2) = Undefined, now named for the base.
+    assert_eq!(deg("log(0, 2)"), ERR_LOG_BASE_ZERO);
 }
 
 #[test]
@@ -1027,47 +1028,107 @@ fn the_range_is_still_the_double_range() {
 #[test]
 fn each_undefined_case_says_which_one_it_is() {
     // A bare "Undefined" says the expression has no value but not
-    // which part of it is the problem. These seven do.
+    // which part of it is the problem. Every case a user can key
+    // names itself, and this is the whole table of them — one row per
+    // message, so a message that loses its only trigger is a failure
+    // here rather than a string nothing reaches.
     for (expr, expected) in [
+        // Roots and powers of a negative. The two are the same
+        // operation written the other way round, so `root(-8, 2.5)`
+        // and `(-8)^0.4` answer alike.
         ("√(-4)", ERR_NEGATIVE_EVEN_ROOT),
         ("root(-8,4)", ERR_NEGATIVE_EVEN_ROOT),
+        ("(-8)^0.5", ERR_NEGATIVE_FRACTIONAL_POWER),
+        ("root(-8,2.5)", ERR_NEGATIVE_FRACTIONAL_POWER),
+        // What is inside a logarithm, and what it is to the base of.
         ("ln(-1)", ERR_NEGATIVE_LOG),
         ("log(3,-1)", ERR_NEGATIVE_LOG),
         ("ln(0)", ERR_ZERO_LOG),
         ("log2(0)", ERR_ZERO_LOG),
         ("log(1, 8)", ERR_LOG_BASE_ONE),
         ("log1(8)", ERR_LOG_BASE_ONE),
+        ("log(0, 8)", ERR_LOG_BASE_ZERO),
+        ("log(-2, 8)", ERR_LOG_BASE_NEGATIVE),
+        // Zero as a base, and zero as a divisor.
         ("0^0", ERR_ZERO_POW_ZERO),
         // This one used to report Overflow, which said the answer was
         // too big rather than that there is none.
         ("0^(-2)", ERR_ZERO_POW_NEGATIVE),
         ("4/0", ERR_DIVISION_BY_ZERO),
         ("4%0", ERR_DIVISION_BY_ZERO),
+        // The poles.
         ("tan(90)", ERR_TANGENT),
         ("cot(0)", ERR_COTANGENT),
-        // The hyperbolic one has a pole of its own, and its own name
-        // for it: `coth` is a different function from `cot`.
         ("coth(0)", ERR_HYPERBOLIC_COTANGENT),
+        // The inverse domains, which name the interval the argument
+        // has to be in rather than only that it is not.
         ("sin-1(5)", ERR_ASIN_DOMAIN),
         ("cos-1(-2)", ERR_ACOS_DOMAIN),
+        ("cosh-1(0.5)", ERR_ACOSH_DOMAIN),
+        ("tanh-1(2)", ERR_ATANH_DOMAIN),
+        ("coth-1(0.5)", ERR_ACOTH_DOMAIN),
     ] {
         assert_eq!(deg(expr), expected, "{expr}");
     }
 
+    // The two inverse domains that are open at their ends: the
+    // endpoint itself is a pole, not a value.
+    assert_eq!(deg("tanh-1(1)"), ERR_ATANH_DOMAIN);
+    assert_eq!(deg("coth-1(1)"), ERR_ACOTH_DOMAIN);
+
     // A zero on the display is the digit the user pressed, so the
     // messages write one rather than spelling it out.
-    for expr in ["ln(0)", "0^0", "0^(-2)", "4/0"] {
+    for expr in ["ln(0)", "0^0", "0^(-2)", "4/0", "log(0, 8)"] {
         assert!(!deg(expr).contains("ero"), "{expr}: {}", deg(expr));
     }
 
-    // The cases with no name of their own still read "Undefined": a
-    // logarithm to a negative base, a fractional power of a negative,
-    // an inverse hyperbolic outside its domain.
-    for expr in ["log(-2, 8)", "(-8)^0.5", "cosh-1(0.5)"] {
-        assert_eq!(deg(expr), ERR_UNDEFINED, "{expr}");
+    // A zeroth root is the one case a user can key that has no name
+    // of its own, and still reads "Undefined".
+    assert_eq!(deg("root(8,0)"), ERR_UNDEFINED);
+}
+
+#[test]
+fn every_error_has_a_message_of_its_own_and_a_way_to_reach_it() {
+    // One expression per variant, so a message added without a way to
+    // key it — or one whose only trigger has quietly started
+    // answering with something else — fails here.
+    let triggers: [(CalcError, &str); CalcError::ALL.len()] = [
+        (CalcError::Overflow, "1e308*10"),
+        (CalcError::Underflow, "1e-307/1e10"),
+        (CalcError::Indeterminate, "0/0"),
+        (CalcError::Undefined, "root(8,0)"),
+        (CalcError::NegativeEvenRoot, "√(-4)"),
+        (CalcError::NegativeFractionalPower, "(-8)^0.5"),
+        (CalcError::NegativeLog, "ln(-1)"),
+        (CalcError::ZeroLog, "ln(0)"),
+        (CalcError::LogBaseOne, "log(1,8)"),
+        (CalcError::LogBaseZero, "log(0,8)"),
+        (CalcError::LogBaseNegative, "log(-2,8)"),
+        (CalcError::ZeroPowZero, "0^0"),
+        (CalcError::ZeroPowNegative, "0^(-2)"),
+        (CalcError::DivisionByZero, "4/0"),
+        (CalcError::Tangent, "tan(90)"),
+        (CalcError::Cotangent, "cot(0)"),
+        (CalcError::HyperbolicCotangent, "coth(0)"),
+        (CalcError::AsinDomain, "sin-1(5)"),
+        (CalcError::AcosDomain, "cos-1(5)"),
+        (CalcError::AcoshDomain, "cosh-1(0.5)"),
+        (CalcError::AtanhDomain, "tanh-1(2)"),
+        (CalcError::AcothDomain, "coth-1(0.5)"),
+    ];
+    for error in CalcError::ALL {
+        let (_, expr) = triggers
+            .iter()
+            .find(|(e, _)| *e == error)
+            .unwrap_or_else(|| panic!("{error:?} has no trigger expression listed"));
+        assert_eq!(deg(expr), error.as_str(), "{expr} should give {error:?}");
     }
 
-    // And 0÷0 is still the one that is Indeterminate rather than
-    // undefined.
-    assert_eq!(deg("0/0"), ERR_INDETERMINATE);
+    // And no two of them read the same, or the display would be
+    // saying one thing about two problems.
+    let mut messages: Vec<&str> = CalcError::ALL.iter().map(|e| e.as_str()).collect();
+    let before = messages.len();
+    messages.sort_unstable();
+    messages.dedup();
+    assert_eq!(messages.len(), before, "two errors share a message");
 }

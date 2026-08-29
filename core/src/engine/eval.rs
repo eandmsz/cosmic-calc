@@ -143,8 +143,11 @@ fn log_base(base: f64, value: f64) -> Result<Decimal, CalcError> {
         // is 1 itself — and that one has every answer.
         return Err(CalcError::LogBaseOne);
     }
-    if base <= 0.0 {
-        return Err(CalcError::Undefined);
+    if base == 0.0 {
+        return Err(CalcError::LogBaseZero);
+    }
+    if base < 0.0 {
+        return Err(CalcError::LogBaseNegative);
     }
     from_float(value.ln() / base.ln())
 }
@@ -254,7 +257,7 @@ fn pow_checked(x: Decimal, y: Decimal) -> Result<Decimal, CalcError> {
         return Err(CalcError::ZeroPowNegative);
     }
     if x.is_negative() && !y.is_integer() {
-        return Err(CalcError::Undefined);
+        return Err(CalcError::NegativeFractionalPower);
     }
     if let Some(exponent) = y.to_i64().and_then(|n| i32::try_from(n).ok()) {
         if let Some(value) = x.checked_powi(exponent) {
@@ -266,7 +269,9 @@ fn pow_checked(x: Decimal, y: Decimal) -> Result<Decimal, CalcError> {
 }
 
 /// Y-th root of X: X^(1/Y). Handles negative bases with odd-integer
-/// roots and reports Undefined for y = 0 or even roots of negatives.
+/// roots; a zeroth root is Undefined, and a negative radicand is one
+/// of the two named cases — an even root, or, since a root is a power
+/// written the other way round, a fractional power.
 fn nth_root(x: Decimal, y: Decimal) -> Result<Decimal, CalcError> {
     if y.is_zero() {
         return Err(CalcError::Undefined);
@@ -279,7 +284,15 @@ fn nth_root(x: Decimal, y: Decimal) -> Result<Decimal, CalcError> {
         if is_odd_integer(y) {
             return from_float(-(-xv).powf(1.0 / yv));
         }
-        return Err(CalcError::NegativeEvenRoot);
+        // `root(-8, 2.5)` is `(-8)^(1/2.5)`, which is the power case
+        // spelled as a root: the degree is not a whole number, so the
+        // answer is not off the real line for being an even root, it
+        // is off it for the same reason `(-8)^0.5` is.
+        return Err(if y.is_integer() {
+            CalcError::NegativeEvenRoot
+        } else {
+            CalcError::NegativeFractionalPower
+        });
     }
     from_float(xv.powf(1.0 / yv))
 }
@@ -345,19 +358,19 @@ fn eval_unary_f64(f: UnaryFunc, v: f64, mode: AngleMode) -> Result<f64, CalcErro
         UnaryFunc::Asinh => classify(v.asinh()),
         UnaryFunc::Acosh => {
             if v < 1.0 {
-                return Err(CalcError::Undefined);
+                return Err(CalcError::AcoshDomain);
             }
             classify(v.acosh())
         }
         UnaryFunc::Atanh => {
             if v.abs() >= 1.0 {
-                return Err(CalcError::Undefined);
+                return Err(CalcError::AtanhDomain);
             }
             classify(v.atanh())
         }
         UnaryFunc::Acoth => {
             if v.abs() <= 1.0 {
-                return Err(CalcError::Undefined);
+                return Err(CalcError::AcothDomain);
             }
             classify(0.5 * ((v + 1.0) / (v - 1.0)).ln())
         }

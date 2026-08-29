@@ -317,16 +317,38 @@ make check                         # fmt + clippy + the whole workspace
 	  anyway: `2`, `xʸ`, `5`, `%` is `2^5%`, and `2`, `xʸ`, `3`,
 	  `!` is `2` raised to `3!` = 64
 - An expression with no value says which part of it has none, rather
-  than a bare "Undefined": `√(-4)` is `Undefined: Negative number
-  under even root`, `ln(0)` is `Undefined: 0 inside logarithm`,
-  `log₁(8)` is `Undefined: Logarithm base cannot be 1`, `4÷0` is
-  `Undefined: Division by 0`, `tan(90°)` is `Undefined: Tangent`,
-  `cot(0)` is `Undefined: Cotangent`, `coth(0)` is `Undefined:
-  Hyperbolic cotangent`, `sin⁻¹(5)` is `Undefined sin−1(x) must be
-  between −1 and 1`, and `0^-2` — which used to report Overflow,
-  saying the answer was too big rather than that there is none — is
-  `Undefined: 0 raised to negative power`. The cases with no name of
-  their own still read `Undefined`
+  than a bare "Undefined". Every case you can key names itself:
+
+  | Message | Reached by |
+  | --- | --- |
+  | `Overflow` | `1e308×10` |
+  | `Underflow` | `1e-307÷1e10` |
+  | `Indeterminate` | `0÷0` |
+  | `Undefined: Negative number under even root` | `√(-4)`, `root(-8,4)` |
+  | `Undefined: Negative number to a fractional power` | `(-8)^0.5`, `root(-8,2.5)` |
+  | `Undefined: Negative number inside logarithm` | `ln(-1)`, `log(3,-1)` |
+  | `Undefined: 0 inside logarithm` | `ln(0)`, `log2(0)` |
+  | `Undefined: Logarithm base cannot be 1` | `log(1,8)` |
+  | `Undefined: Logarithm base cannot be 0` | `log(0,8)` |
+  | `Undefined: Logarithm base cannot be negative` | `log(-2,8)` |
+  | `Undefined: 0 raised to 0 power` | `0^0` |
+  | `Undefined: 0 raised to negative power` | `0^-2` |
+  | `Undefined: Division by 0` | `4÷0`, `4 mod 0` |
+  | `Undefined: Tangent` | `tan(90°)` |
+  | `Undefined: Cotangent` | `cot(0)` |
+  | `Undefined: Hyperbolic cotangent` | `coth(0)` |
+  | `Undefined sin−1(x) must be between −1 and 1` | `sin⁻¹(5)` |
+  | `Undefined cos−1(x) must be between −1 and 1` | `cos⁻¹(5)` |
+  | `Undefined cosh−1(x) must be 1 or more` | `cosh⁻¹(0.5)` |
+  | `Undefined tanh−1(x) must be between −1 and 1` | `tanh⁻¹(2)` |
+  | `Undefined coth−1(x) must be less than −1 or more than 1` | `coth⁻¹(0.5)` |
+  | `Undefined` | `root(8,0)` — a zeroth root, the one case left with no name of its own |
+
+	- `0^-2` used to report Overflow, which said the answer was too
+	  big rather than that there is none
+	- A root and a power are the same operation written the other way
+	  round, so `root(-8, 2.5)` answers the way `(-8)^0.4` does rather
+	  than calling itself an even root
 - The memory register sits under the display, at the size and in the
   colours of the number-property labels and aligned to the right: a
   dim `M` while nothing is stored, the value beside it once something
