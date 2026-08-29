@@ -236,8 +236,7 @@ pub struct Config {
     /// verbatim.
     pub theme_kind: ThemeKind,
     /// Concrete colour palette currently in use. When `theme_kind`
-    /// is a named preset this mirrors `theme_kind.get()`; when it
-    /// is `Custom` it holds whatever the user edited.
+    /// is a named preset this mirrors `theme_kind.get()`
     pub theme: Theme,
 
     /// UI font family name. Sent verbatim to iced's text renderer.
@@ -358,9 +357,7 @@ impl Config {
             self.font = DEFAULT_FONT.to_string();
         }
 
-        // Keep `theme.name` in sync with the selected preset; Custom
-        // is left alone so a hand-edited palette can carry its own
-        // name.
+        // Keep `theme.name` in sync with the selected preset
         if self.theme_kind != ThemeKind::Custom {
             let preset = self.theme_kind.get();
             self.theme.name = preset.name;
