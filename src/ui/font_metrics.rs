@@ -67,10 +67,10 @@ pub enum Centring {
     Auto,
     /// The cap band, always — the same target letters and digits get,
     /// so the label shares their baseline instead of floating on its
-    /// own middle. For the two keys that are read against the ones
-    /// beside them rather than on their own: the decimal separator,
-    /// whose `.` belongs down on the digits' baseline and not halfway
-    /// up the key, and `+⁄−`, which has to sit where `1⁄x` sits.
+    /// own middle. For a key that is read against the ones beside it
+    /// rather than on its own: the decimal separator, whose `.`
+    /// belongs down on the digits' baseline and not halfway up the
+    /// key.
     CapBand,
 }
 

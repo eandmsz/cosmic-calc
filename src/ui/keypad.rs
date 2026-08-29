@@ -311,11 +311,15 @@ fn on_line_text(parts: &[LabelPart]) -> String {
 ///
 ///   * the decimal separator, whose `.` or `,` belongs down on the
 ///     baseline the digits beside it sit on — centring the dot's ink
-///     floats it halfway up the key, which reads as a bullet;
-///   * `+⁄−`, which sits next to `1⁄x` and has to match it.
+///     floats it halfway up the key, which reads as a bullet.
+///
+/// `⁺⁄₋` used to be here too, so it would sit where `¹⁄ₓ` sat. Both
+/// faces are now drawn from pieces with the same fraction slash alone
+/// on the line, so they are centred on the same ink by construction
+/// and the special case has nothing left to say.
 fn centring_for(button: Button) -> Centring {
     match button {
-        Button::Decimal | Button::Negate => Centring::CapBand,
+        Button::Decimal => Centring::CapBand,
         _ => Centring::Auto,
     }
 }
@@ -383,7 +387,19 @@ const LONGEST_LABEL_CHAR_UNITS: f32 = 6.0;
 /// ratio; the height target keeps labels at or above that ratio and
 /// leaves vertical room for the top bar, display, status bar, and memory
 /// row above the 62% keypad slice.
+///
+/// A width the user pinned in `config.toml` wins over the computed
+/// one — see [`Config::min_window_width`]. Every caller comes through
+/// here, so the pin reaches the startup limits and the panel-toggle
+/// floor alike without either having to know about it.
 pub fn min_window_size(config: &Config) -> (f32, f32) {
+    let (computed_w, h) = derived_min_window_size(config);
+    (config.pinned_min_window_width().unwrap_or(computed_w), h)
+}
+
+/// [`min_window_size`] before the user's pin is applied: what the
+/// keypad itself needs.
+fn derived_min_window_size(config: &Config) -> (f32, f32) {
     let min_button_height = 44.0 * MIN_LABEL_HEIGHT_RATIO;
     // Probe each shape preset and take the widest required window
     // height — different solve coefficients yield different floors.

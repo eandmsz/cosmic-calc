@@ -29,6 +29,7 @@
 //!     from between the brackets and goes under the `log`, and a root
 //!     degree comes out and goes in front of the radical.
 
+use crate::engine::input::operand_range_ending_at;
 use crate::engine::item::{ascii_text, BinOp, BinaryFunc, InputItem};
 use crate::engine::script::{self, Notation, Shift};
 use crate::locale::DecimalSeparator;
@@ -225,6 +226,33 @@ pub fn render_expression(
     inactive_range: Option<(usize, usize)>,
     notation: Notation,
 ) -> Vec<DisplaySegment> {
+    render_expression_with(
+        items,
+        cursor,
+        decimal,
+        thousands_glyph,
+        inactive_range,
+        notation,
+        false,
+    )
+}
+
+/// [`render_expression`] with the one thing the buffer cannot say for
+/// itself: `slot_closed` is set when the last press was a `)` that
+/// closed the script slot the cursor is standing at the end of. The
+/// placeholder brackets come down for it — the user has said they are
+/// done with the slot — where the cursor alone still reads as being
+/// in it. See `UiState::script_slot_closed`.
+#[allow(clippy::too_many_arguments)]
+pub fn render_expression_with(
+    items: &[InputItem],
+    cursor: usize,
+    decimal: DecimalSeparator,
+    thousands_glyph: Option<char>,
+    inactive_range: Option<(usize, usize)>,
+    notation: Notation,
+    slot_closed: bool,
+) -> Vec<DisplaySegment> {
     let (opener_of, closer_of) = match_brackets(items);
     let renderer = Renderer {
         items,
@@ -234,10 +262,37 @@ pub fn render_expression(
         notation,
         opener_of,
         closer_of,
+        slot_closed,
+        base_slot: pending_base_slot(items, cursor),
     };
     let mut out = Vec::new();
     renderer.render_run(0, items.len(), thousands_glyph, Script::ON_LINE, &mut out);
     out
+}
+
+/// The base slot of a power the cursor is standing in, as the item
+/// range the caret raises — `(start, caret)`.
+///
+/// `yˣ` writes the caret in front of the operand and parks the cursor
+/// where the base goes, so the base is a slot being filled exactly as
+/// an exponent is. The renderer draws it in the same placeholder
+/// brackets, so `5`, `yˣ`, `6` reads `(6)⁵` while the `6` is still
+/// what the next digit joins, and `)` — which steps the cursor out
+/// past the power — takes them away.
+///
+/// `None` for an empty slot, which the renderer already draws as
+/// [`script::EMPTY_SLOT`], and `None` when the cursor is anywhere but
+/// inside a base.
+fn pending_base_slot(items: &[InputItem], cursor: usize) -> Option<(usize, usize)> {
+    if cursor > items.len() {
+        return None;
+    }
+    // The first caret at or past the cursor: a later one raises an
+    // operand this position is not in.
+    let caret =
+        (cursor..items.len()).find(|j| matches!(items[*j], InputItem::BinOp(BinOp::Pow)))?;
+    let (start, end) = operand_range_ending_at(items, caret)?;
+    (start <= cursor && cursor <= end && start < end).then_some((start, end))
 }
 
 /// Everything the walk needs that does not change as it goes.
@@ -253,6 +308,12 @@ struct Renderer<'a> {
     /// Index of the closer each opening item matches, `None` while the
     /// group is still open.
     closer_of: Vec<Option<usize>>,
+    /// Whether the last press closed the slot the cursor stands at the
+    /// end of. See [`render_expression_with`].
+    slot_closed: bool,
+    /// The base slot the cursor is in, when it is in one. See
+    /// [`pending_base_slot`].
+    base_slot: Option<(usize, usize)>,
 }
 
 impl Renderer<'_> {
@@ -299,6 +360,28 @@ impl Renderer<'_> {
 
             let item_start = i;
             let seg_start = out.len();
+
+            // A base slot the cursor is in is drawn like any other
+            // slot — in placeholder brackets, unless it is already one
+            // bracket group of the user's. The whole operand goes in
+            // at once, so `i` jumps past it. Only in the pretty
+            // notation: the raw form is the text the tokenizer is
+            // handed, and a placeholder is in neither.
+            if self.notation.is_pretty() {
+                if let Some((from, to)) = self.base_slot.filter(|(from, to)| {
+                    // Not when this run *is* the slot: that call came
+                    // from the branch below, and taking it again would
+                    // put the brackets round themselves for ever.
+                    *from == i && *to <= end && (*from, *to) != (start, end)
+                }) {
+                    self.render_slot_in(from, to, thousands, script, out);
+                    self.dim_if_inactive(item_start, to, seg_start, out);
+                    i = to;
+                    prev_value_end = true;
+                    continue;
+                }
+            }
+
             match here {
                 InputItem::Digit(_) | InputItem::DecimalPoint => {
                     let (run, consumed) = extract_numeric_run(&items[i..end]);
@@ -459,16 +542,27 @@ impl Renderer<'_> {
                 }
             }
 
-            // If the items this segment came from overlap the inactive
-            // range, dim it. Synthetic auto-mul glyphs inserted above
-            // don't correspond to a buffer item, so they keep their own
-            // (already-inactive) colouring untouched.
-            if let Some((rs, re)) = self.inactive_range {
-                if item_start < re && rs < i {
-                    for seg in &mut out[seg_start..] {
-                        seg.active = false;
-                    }
-                }
+            self.dim_if_inactive(item_start, i, seg_start, out);
+        }
+    }
+
+    /// If the items `from..to` this run just drew overlap the inactive
+    /// range, dim every segment from `seg_start` on. Synthetic auto-mul
+    /// glyphs don't correspond to a buffer item, so they keep their own
+    /// (already-inactive) colouring untouched.
+    fn dim_if_inactive(
+        &self,
+        from: usize,
+        to: usize,
+        seg_start: usize,
+        out: &mut [DisplaySegment],
+    ) {
+        let Some((rs, re)) = self.inactive_range else {
+            return;
+        };
+        if from < re && rs < to {
+            for seg in &mut out[seg_start..] {
+                seg.active = false;
             }
         }
     }
@@ -528,6 +622,21 @@ impl Renderer<'_> {
     /// base, a root degree — inside the placeholder brackets when they
     /// belong there. See [`Renderer::slot_brackets`].
     fn render_slot(&self, from: usize, to: usize, script: Script, out: &mut Vec<DisplaySegment>) {
+        self.render_slot_in(from, to, None, script, out)
+    }
+
+    /// [`Renderer::render_slot`] with a grouping glyph to pass down.
+    /// The slots drawn off the line take `None` — nothing groups an
+    /// exponent — but a `yˣ` base is written on the line the power
+    /// sits on and is grouped like the number it is.
+    fn render_slot_in(
+        &self,
+        from: usize,
+        to: usize,
+        thousands: Option<char>,
+        script: Script,
+        out: &mut Vec<DisplaySegment>,
+    ) {
         let brackets = self.slot_brackets(from, to);
         if brackets {
             // Lit, because the slot has been reached and something is
@@ -535,7 +644,7 @@ impl Renderer<'_> {
             // sits inside is drawn.
             out.push(DisplaySegment::placed("(", true, script));
         }
-        self.render_run(from, to, None, script, out);
+        self.render_run(from, to, thousands, script, out);
         if brackets {
             out.push(DisplaySegment::placed(")", false, script));
         }
@@ -555,6 +664,12 @@ impl Renderer<'_> {
     /// and it stays on screen after — a placeholder round it would be
     /// a second pair saying the same thing.
     fn slot_brackets(&self, from: usize, to: usize) -> bool {
+        if self.slot_closed && self.cursor == to {
+            // A `)` at the end of the slot said the user is done with
+            // it. Nothing in the buffer changed — there was nothing to
+            // change — so the flag is the only thing that knows.
+            return false;
+        }
         (from..=to).contains(&self.cursor) && !self.own_group(from, to)
     }
 
@@ -777,6 +892,38 @@ fn extract_numeric_run(items: &[InputItem]) -> (String, usize) {
         }
     }
     (s, n)
+}
+
+/// A number the app has already formatted — a memory readout, a
+/// history row's result — written the way the display writes one:
+/// grouped, and with the user's decimal glyph. These come out of
+/// [`crate::engine::format::format_result`] as plain ASCII, which is
+/// right for the clipboard and wrong for a readout sitting next to
+/// numbers that *are* grouped.
+///
+/// Anything that is not a number comes back unchanged, which is what
+/// carries an error message ("Overflow") through untouched.
+pub fn localise_number(text: &str, decimal: DecimalSeparator, thousands: Option<char>) -> String {
+    let (sign, rest) = match text.strip_prefix('-') {
+        Some(rest) => ("-", rest),
+        None => ("", text),
+    };
+    // Scientific notation keeps its `e±NN` tail verbatim: an exponent
+    // is not grouped, here or on the display.
+    let (mantissa, exponent) = match rest.find(['e', 'E']) {
+        Some(at) => (&rest[..at], &rest[at..]),
+        None => (rest, ""),
+    };
+    let numeric = !mantissa.is_empty()
+        && mantissa.chars().all(|c| c.is_ascii_digit() || c == '.')
+        && mantissa.matches('.').count() <= 1;
+    if !numeric {
+        return text.to_string();
+    }
+    let mut out = String::from(sign);
+    write_formatted_number(&mut out, mantissa, decimal.to_char(), thousands);
+    out.push_str(exponent);
+    out
 }
 
 /// Push `run` into `out`, inserting `thousands` every 3 digits of the

@@ -50,3 +50,37 @@ fn serde_round_trip_through_toml() {
     let back: Wrap = toml::from_str(&s).unwrap();
     assert_eq!(w, back);
 }
+
+#[test]
+fn the_space_that_groups_digits_never_breaks_a_line() {
+    // An ordinary space is a place a line may be broken, and the
+    // display draws its text one line high and clipped — a grouped
+    // number that came a hair over the width estimate broke at a
+    // group and all but its first group was clipped away.
+    assert_eq!(GROUP_SPACE, '\u{00A0}');
+    for (thousands, decimal) in [
+        (ThousandsSeparator::Space, DecimalSeparator::Dot),
+        (ThousandsSeparator::Auto, DecimalSeparator::Comma),
+        (ThousandsSeparator::Comma, DecimalSeparator::Comma),
+        (ThousandsSeparator::Dot, DecimalSeparator::Dot),
+    ] {
+        assert_eq!(
+            thousands.resolve(decimal),
+            Some(GROUP_SPACE),
+            "{thousands:?} with {decimal:?}"
+        );
+    }
+    // The glyph choices that are not a space are untouched.
+    assert_eq!(
+        ThousandsSeparator::Auto.resolve(DecimalSeparator::Dot),
+        Some(',')
+    );
+    assert_eq!(
+        ThousandsSeparator::Dot.resolve(DecimalSeparator::Comma),
+        Some('.')
+    );
+    assert_eq!(
+        ThousandsSeparator::None.resolve(DecimalSeparator::Dot),
+        None
+    );
+}

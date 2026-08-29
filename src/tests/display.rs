@@ -1372,3 +1372,89 @@ fn a_fixed_exponent_is_drawn_as_the_exponent_it_is() {
         "5^2"
     );
 }
+
+// --- script slots the user is standing in ---------------------------
+
+/// The whole rendering as one string, cursor and closed-slot flag
+/// spelled out — what the display draws while an expression is being
+/// typed rather than after it is finished.
+fn drawn_at(items: &[InputItem], cursor: usize, slot_closed: bool) -> String {
+    crate::ui::display::render_expression_with(
+        items,
+        cursor,
+        DecimalSeparator::Dot,
+        None,
+        None,
+        Notation::Pretty,
+        slot_closed,
+    )
+    .iter()
+    .map(|seg| seg.text.clone())
+    .collect()
+}
+
+#[test]
+fn a_pending_base_wears_the_slot_brackets_an_exponent_does() {
+    // `yˣ` parks the cursor in the base slot, and the brackets say
+    // which slot the next digit joins — empty or not. The filled case
+    // used to draw a bare `6²`, which reads as finished.
+    let mut items = digits("6");
+    items.push(InputItem::BinOp(BinOp::Pow));
+    items.extend(digits("5"));
+    assert_eq!(drawn_at(&items, 1, false), "(6)5");
+
+    // Stepping out past the power with `)` takes them away. The
+    // cursor lands at the end of the exponent, which is a slot of its
+    // own — so what says the whole power is finished is the same flag
+    // that closes an exponent.
+    assert_eq!(drawn_at(&items, 3, true), "65");
+
+    // A base the user opened a bracket of their own at is already one
+    // thing: no placeholder goes round it, and the pair stays after
+    // it is closed.
+    let mut own = vec![InputItem::LeftParen];
+    own.extend(digits("2"));
+    own.push(InputItem::RightParen);
+    own.push(InputItem::BinOp(BinOp::Pow));
+    own.extend(digits("5"));
+    assert_eq!(drawn_at(&own, 3, false), "(2)5");
+}
+
+#[test]
+fn a_closed_exponent_slot_drops_its_brackets() {
+    // While the exponent is being typed the brackets say where the
+    // next digit lands; `)` says the user is done with it. Nothing in
+    // the buffer changes — there was nothing to change — so the flag
+    // is what the renderer reads.
+    let mut items = digits("2");
+    items.push(InputItem::BinOp(BinOp::Pow));
+    items.extend(digits("5"));
+    assert_eq!(drawn_at(&items, 3, false), "2(5)");
+    assert_eq!(drawn_at(&items, 3, true), "25");
+}
+
+#[test]
+fn an_already_formatted_number_picks_up_the_separators() {
+    // A memory readout and a history result come out of the formatter
+    // as plain ASCII; shown beside numbers the display has grouped,
+    // they have to be grouped too.
+    use crate::ui::display::localise_number;
+    assert_eq!(
+        localise_number("1234567.89", DecimalSeparator::Comma, Some('.')),
+        "1.234.567,89"
+    );
+    assert_eq!(
+        localise_number("-1234.5", DecimalSeparator::Dot, Some(',')),
+        "-1,234.5"
+    );
+    // An exponent keeps its tail verbatim; nothing groups one.
+    assert_eq!(
+        localise_number("1.5e300", DecimalSeparator::Comma, Some(' ')),
+        "1,5e300"
+    );
+    // Anything that is not a number passes straight through.
+    assert_eq!(
+        localise_number("Overflow", DecimalSeparator::Comma, Some(' ')),
+        "Overflow"
+    );
+}

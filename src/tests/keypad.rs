@@ -103,3 +103,31 @@ fn a_script_on_a_key_face_costs_less_width_than_a_full_character() {
     let plain = [LabelPart::on_line("sin")];
     assert!((parts_width_units(&plain) - label_width_units("sin")).abs() < 1e-6);
 }
+
+#[test]
+fn a_pinned_minimum_width_wins_over_the_computed_one() {
+    let auto = Config::default();
+    let (computed_w, computed_h) = min_window_size(&auto);
+
+    // A width in the config file is the floor, whether it is narrower
+    // than what the keypad would ask for or wider. The height is not
+    // pinned by it — only the width is configurable.
+    for pinned in [200u32, 1000] {
+        let config = Config {
+            min_window_width: pinned,
+            ..Config::default()
+        };
+        let (w, h) = min_window_size(&config);
+        assert_eq!(w, pinned as f32, "pinned {pinned}");
+        assert_eq!(h, computed_h, "pinned {pinned} moved the height");
+    }
+
+    // Zero is the "work it out" value, and is what a config file with
+    // no opinion carries.
+    assert_eq!(auto.min_window_width, crate::config::AUTO_MIN_WINDOW_WIDTH);
+    let (w, _) = min_window_size(&Config {
+        min_window_width: crate::config::AUTO_MIN_WINDOW_WIDTH,
+        ..Config::default()
+    });
+    assert_eq!(w, computed_w);
+}

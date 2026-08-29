@@ -28,7 +28,11 @@ const CASES: &[(&str, &str, &str)] = &[
     // `√7 …` is √7 times what follows, not √(7 × …). arcsin(5) is
     // outside [-1, 1], so the whole thing is undefined — but for the
     // right reason now.
-    ("√7 sin^-1(5)", "√(7)sin-1(5)", "Undefined"),
+    (
+        "√7 sin^-1(5)",
+        "√(7)sin-1(5)",
+        "Undefined sin\u{2212}1(x) must be between \u{2212}1 and 1",
+    ),
     ("√3", "√(3)", "1.73205080756888"),
     ("∛27", "∛(27)", "3"),
     // A function after the radical has no single operand to bind to,
@@ -42,8 +46,8 @@ const CASES: &[(&str, &str, &str)] = &[
         "-8739",
     ),
     // --- cotangent spellings -----------------------------------------
-    ("ctg(0)", "cot(0)", "Undefined"),
-    ("cot(0)", "cot(0)", "Undefined"),
+    ("ctg(0)", "cot(0)", "Undefined: Cotangent"),
+    ("cot(0)", "cot(0)", "Undefined: Cotangent"),
     // --- powers, factorials, precedence ------------------------------
     ("-3^5!", "-3^5!", "-1.79701029991443e57"),
     ("2+3^(2+1)×4", "2+3^(2+1)×4", "110"),
@@ -53,12 +57,20 @@ const CASES: &[(&str, &str, &str)] = &[
     ("root(729, 3!)", "root(729,3!)", "3"),
     ("log(π, π^2)", "log(π,π^2)", "2"),
     // An even root of a negative has no real value.
-    ("root(-1, 4)", "root(-1,4)", "Undefined"),
+    (
+        "root(-1, 4)",
+        "root(-1,4)",
+        "Undefined: Negative number under even root",
+    ),
     // `5. 6` is not an argument list: the space goes, leaving one
     // argument where root needs two.
     ("root(5. 6)", "root(5.6)", "Undefined"),
     // --- logarithms ---------------------------------------------------
-    ("log2(-2)", "log2(-2)", "Undefined"),
+    (
+        "log2(-2)",
+        "log2(-2)",
+        "Undefined: Negative number inside logarithm",
+    ),
     // Digit grouping by space survives, because the space is dropped.
     ("log2(65 535)", "log2(65535)", "15.9999779860527"),
     // --- modulo and percent ------------------------------------------

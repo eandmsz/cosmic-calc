@@ -299,6 +299,21 @@ pub fn label_parts(button: Button, ctx: LabelContext) -> Vec<LabelPart> {
         Button::TwoPowX => vec![LabelPart::on_line("2"), LabelPart::raised("x")],
         Button::EPowX => vec![LabelPart::on_line("𝑒"), LabelPart::raised("x")],
 
+        // The two fraction faces, written as the fractions they are:
+        // numerator up, fraction slash on the line, denominator down.
+        // Both used to sit flat on the line, where `1⁄x` read as a
+        // one, a slash and an `x` in a row rather than as one over x.
+        Button::Reciprocal => vec![
+            LabelPart::raised("1"),
+            LabelPart::on_line("⁄"),
+            LabelPart::lowered("x"),
+        ],
+        Button::Negate => vec![
+            LabelPart::raised("+"),
+            LabelPart::on_line("⁄"),
+            LabelPart::lowered("−"),
+        ],
+
         // Everything else is one piece, written on the line.
         other => vec![LabelPart::on_line(label_for(other, ctx))],
     }
@@ -328,14 +343,15 @@ pub fn label_for(button: Button, ctx: LabelContext) -> &'static str {
             _ => "?",
         },
         Button::Decimal => ctx.decimal,
-        // Spelt out rather than `±` so it reads the same way `1⁄x`
-        // does — the minus is U+2212, which shares the `+` sign's
-        // height and weight where a hyphen would sit higher and
-        // lighter, and the slash is the fraction slash U+2044 the
-        // percent sign is built from, which leans further over than
-        // the ASCII one and so reads as a division rather than as a
-        // separator.
-        Button::Negate => "+⁄−",
+        // Spelt out rather than `±` so it reads the same way `¹⁄ₓ`
+        // does — a fraction, with the `+` over the `−`. The slash is
+        // the fraction slash U+2044 the percent sign is built from,
+        // which leans further over than the ASCII one and so reads as
+        // a division rather than as a separator; this one-line
+        // spelling borrows Unicode's raised `+` and lowered `−`,
+        // where the face the keypad draws places its own — see
+        // [`label_parts`].
+        Button::Negate => "⁺⁄₋",
         Button::Backspace => "⌫",
 
         Button::Clear => ctx.clear,
@@ -394,8 +410,8 @@ pub fn label_for(button: Button, ctx: LabelContext) -> &'static str {
         Button::Pi => "π",
         Button::Euler => "𝑒",
 
-        // Fraction slash, as on `+⁄−`: see [`Button::Negate`].
-        Button::Reciprocal => "1⁄x",
+        // Fraction slash, as on `⁺⁄₋`: see [`Button::Negate`].
+        Button::Reciprocal => "¹⁄ₓ",
         Button::Rand => "Rand",
 
         Button::MemClear => "MC",

@@ -202,65 +202,7 @@ impl InputBuffer {
     ///   or a function-with-paren item (`UnaryFunc`, `BinaryFunc`,
     ///   `LogN`) – all of these carry an implicit `(`.
     pub fn operand_range_ending_at(&self, at: usize) -> Option<(usize, usize)> {
-        let at = at.min(self.items.len());
-        if at == 0 {
-            return None;
-        }
-        let mut end = at;
-
-        // Consume trailing postfix operators (`!`, `%`, and the
-        // fixed exponent `x²` and `x³` write, which hangs off the
-        // operand exactly as they do).
-        while end > 0
-            && matches!(
-                self.items[end - 1],
-                InputItem::Factorial | InputItem::Percent | InputItem::FixedPow(_)
-            )
-        {
-            end -= 1;
-        }
-        if end == 0 {
-            return None;
-        }
-
-        match &self.items[end - 1] {
-            InputItem::Digit(_) | InputItem::DecimalPoint => {
-                let mut start = end;
-                while start > 0
-                    && matches!(
-                        self.items[start - 1],
-                        InputItem::Digit(_) | InputItem::DecimalPoint
-                    )
-                {
-                    start -= 1;
-                }
-                Some((start, at))
-            }
-            InputItem::Constant(_) => Some((end - 1, at)),
-            InputItem::RightParen => {
-                // Walk back matching implicit + explicit openers.
-                let mut depth = 1;
-                let mut j = end - 1;
-                while j > 0 {
-                    j -= 1;
-                    match self.items[j] {
-                        InputItem::RightParen => depth += 1,
-                        InputItem::LeftParen
-                        | InputItem::UnaryFunc(_)
-                        | InputItem::BinaryFunc(_)
-                        | InputItem::LogN(_) => {
-                            depth -= 1;
-                            if depth == 0 {
-                                return Some((j, at));
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-                None
-            }
-            _ => None,
-        }
+        operand_range_ending_at(&self.items, at)
     }
 
     /// Remove the half-open item range `[start, end)`. The cursor moves
@@ -520,11 +462,85 @@ impl InputBuffer {
     /// tokenizer/parser pipeline. '×' becomes '*', '÷' becomes '/', π
     /// becomes 'pi', 𝑒 becomes 'e', √/∛ become function calls.
     pub fn ascii_expression(&self) -> String {
-        let mut s = String::new();
-        for it in &self.items {
-            push_ascii(&mut s, it);
+        ascii_of(&self.items)
+    }
+}
+
+/// [`InputBuffer::ascii_expression`] for a run of items that is not in
+/// a buffer — a history entry on its way to the config file, which is
+/// stored as the text the tokenizer reads back.
+pub fn ascii_of(items: &[InputItem]) -> String {
+    let mut s = String::new();
+    for it in items {
+        push_ascii(&mut s, it);
+    }
+    s
+}
+
+/// The operand ending at `at` in `items`, as the half-open range
+/// `[start, at)`. The buffer's own [`InputBuffer::operand_range_ending_at`]
+/// is this called on its items; the display needs the same answer
+/// about an expression it is only rendering, which is why the walk
+/// lives out here rather than on the buffer.
+pub fn operand_range_ending_at(items: &[InputItem], at: usize) -> Option<(usize, usize)> {
+    let at = at.min(items.len());
+    if at == 0 {
+        return None;
+    }
+    let mut end = at;
+
+    // Consume trailing postfix operators (`!`, `%`, and the
+    // fixed exponent `x²` and `x³` write, which hangs off the
+    // operand exactly as they do).
+    while end > 0
+        && matches!(
+            items[end - 1],
+            InputItem::Factorial | InputItem::Percent | InputItem::FixedPow(_)
+        )
+    {
+        end -= 1;
+    }
+    if end == 0 {
+        return None;
+    }
+
+    match &items[end - 1] {
+        InputItem::Digit(_) | InputItem::DecimalPoint => {
+            let mut start = end;
+            while start > 0
+                && matches!(
+                    items[start - 1],
+                    InputItem::Digit(_) | InputItem::DecimalPoint
+                )
+            {
+                start -= 1;
+            }
+            Some((start, at))
         }
-        s
+        InputItem::Constant(_) => Some((end - 1, at)),
+        InputItem::RightParen => {
+            // Walk back matching implicit + explicit openers.
+            let mut depth = 1;
+            let mut j = end - 1;
+            while j > 0 {
+                j -= 1;
+                match items[j] {
+                    InputItem::RightParen => depth += 1,
+                    InputItem::LeftParen
+                    | InputItem::UnaryFunc(_)
+                    | InputItem::BinaryFunc(_)
+                    | InputItem::LogN(_) => {
+                        depth -= 1;
+                        if depth == 0 {
+                            return Some((j, at));
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            None
+        }
+        _ => None,
     }
 }
 

@@ -15,7 +15,11 @@
 
 use crate::engine::{
     evaluate_expression, evaluate_to_string, AngleMode, CalcError, DEFAULT_SIGNIFICANT_DIGITS,
-    ERR_INDETERMINATE, ERR_OVERFLOW, ERR_UNDEFINED, ERR_UNDERFLOW,
+    ERR_ACOSH_DOMAIN, ERR_ACOS_DOMAIN, ERR_ACOTH_DOMAIN, ERR_ASIN_DOMAIN, ERR_ATANH_DOMAIN,
+    ERR_COTANGENT, ERR_DIVISION_BY_ZERO, ERR_HYPERBOLIC_COTANGENT, ERR_INDETERMINATE,
+    ERR_LOG_BASE_NEGATIVE, ERR_LOG_BASE_ONE, ERR_LOG_BASE_ZERO, ERR_NEGATIVE_EVEN_ROOT,
+    ERR_NEGATIVE_FRACTIONAL_POWER, ERR_NEGATIVE_LOG, ERR_OVERFLOW, ERR_TANGENT, ERR_UNDEFINED,
+    ERR_UNDERFLOW, ERR_ZEROTH_ROOT, ERR_ZERO_LOG, ERR_ZERO_POW_NEGATIVE, ERR_ZERO_POW_ZERO,
 };
 
 const DEC: u8 = DEFAULT_SIGNIFICANT_DIGITS;
@@ -247,8 +251,8 @@ fn basic_one_sixth_rounded() {
 
 #[test]
 fn basic_divide_by_zero() {
-    // Spec: 5÷0 = Undefined
-    assert_eq!(deg("5÷0"), ERR_UNDEFINED);
+    // Spec: 5÷0 = Undefined, now named.
+    assert_eq!(deg("5÷0"), ERR_DIVISION_BY_ZERO);
 }
 
 #[test]
@@ -265,8 +269,8 @@ fn basic_zero_over_nonzero() {
 
 #[test]
 fn basic_mod_zero_by_zero() {
-    // Spec: 0%0 = Undefined
-    assert_eq!(deg("0%0"), ERR_UNDEFINED);
+    // Spec: 0%0 = Undefined, now named.
+    assert_eq!(deg("0%0"), ERR_DIVISION_BY_ZERO);
 }
 
 #[test]
@@ -277,8 +281,8 @@ fn basic_mod_zero_by_nonzero() {
 
 #[test]
 fn basic_mod_by_zero() {
-    // Spec: 3%0 = Undefined
-    assert_eq!(deg("3%0"), ERR_UNDEFINED);
+    // Spec: 3%0 = Undefined, now named.
+    assert_eq!(deg("3%0"), ERR_DIVISION_BY_ZERO);
 }
 
 #[test]
@@ -416,7 +420,7 @@ fn exp_negative_base_precedence() {
 
 #[test]
 fn exp_zero_pow_zero() {
-    assert_eq!(deg("0^0"), ERR_UNDEFINED);
+    assert_eq!(deg("0^0"), ERR_ZERO_POW_ZERO);
 }
 
 #[test]
@@ -512,14 +516,14 @@ const ERR_UNDERFLOW_STRING: &str = crate::engine::ERR_UNDERFLOW;
 
 #[test]
 fn log_zero_as_value_is_undefined() {
-    // Spec: log(2, 0) = Undefined
-    assert_eq!(deg("log(2, 0)"), ERR_UNDEFINED);
+    // Spec: log(2, 0) = Undefined, now named for the argument.
+    assert_eq!(deg("log(2, 0)"), ERR_ZERO_LOG);
 }
 
 #[test]
 fn log_zero_as_base_is_undefined() {
-    // Spec: log(0, 2) = Undefined
-    assert_eq!(deg("log(0, 2)"), ERR_UNDEFINED);
+    // Spec: log(0, 2) = Undefined, now named for the base.
+    assert_eq!(deg("log(0, 2)"), ERR_LOG_BASE_ZERO);
 }
 
 #[test]
@@ -542,7 +546,7 @@ fn log_of_100_is_two() {
 
 #[test]
 fn log10_of_zero_is_undefined() {
-    assert_eq!(deg("log10(0)"), ERR_UNDEFINED);
+    assert_eq!(deg("log10(0)"), ERR_ZERO_LOG);
 }
 
 #[test]
@@ -567,12 +571,12 @@ fn log_base_pi_of_pi_to_four() {
 
 #[test]
 fn log2_of_negative_undefined() {
-    assert_eq!(deg("log2(-2)"), ERR_UNDEFINED);
+    assert_eq!(deg("log2(-2)"), ERR_NEGATIVE_LOG);
 }
 
 #[test]
 fn log_of_negative_undefined() {
-    assert_eq!(deg("log(-5)"), ERR_UNDEFINED);
+    assert_eq!(deg("log(-5)"), ERR_NEGATIVE_LOG);
 }
 
 #[test]
@@ -592,8 +596,8 @@ fn root_729_to_the_3_factorial() {
 
 #[test]
 fn root_with_zero_degree_undefined() {
-    // Spec: root(2, 0) = Undefined
-    assert_eq!(deg("root(2, 0)"), ERR_UNDEFINED);
+    // Spec: root(2, 0) = Undefined, now named.
+    assert_eq!(deg("root(2, 0)"), ERR_ZEROTH_ROOT);
 }
 
 #[test]
@@ -613,13 +617,13 @@ fn root_square_of_eight() {
 
 #[test]
 fn root_negative_with_even_degree_undefined() {
-    // Spec: root(-1, 4) = Undefined
-    assert_eq!(deg("root(-1, 4)"), ERR_UNDEFINED);
+    // Spec: root(-1, 4) = Undefined, now named.
+    assert_eq!(deg("root(-1, 4)"), ERR_NEGATIVE_EVEN_ROOT);
 }
 
 #[test]
 fn sqrt_of_negative() {
-    assert_eq!(deg("√(-5)"), ERR_UNDEFINED);
+    assert_eq!(deg("√(-5)"), ERR_NEGATIVE_EVEN_ROOT);
 }
 
 #[test]
@@ -664,8 +668,9 @@ fn rad_cos_of_two_pi() {
 
 #[test]
 fn rad_arccos_of_pi_undefined() {
-    // Spec: cos-1(π) = Undefined   (π > 1 is outside arccos domain)
-    assert_eq!(rad("cos-1(π)"), ERR_UNDEFINED);
+    // Spec: cos-1(π) = Undefined   (π > 1 is outside arccos domain),
+    // now named for the domain it is outside.
+    assert_eq!(rad("cos-1(π)"), ERR_ACOS_DOMAIN);
 }
 
 #[test]
@@ -720,14 +725,14 @@ fn rad_tan_pole_at_pi_over_two_undefined() {
     // tan(π/2) is mathematically undefined; the pole detector
     // catches it because PI/2 is constructed exactly out of the
     // symbolic π constant.
-    assert_eq!(rad("tan(π÷2)"), ERR_UNDEFINED);
+    assert_eq!(rad("tan(π÷2)"), ERR_TANGENT);
 }
 
 #[test]
 fn rad_cot_pole_at_pi_undefined() {
     // cot(π) hits sin = 0; should be undefined regardless of the
     // tiny residual `1/tan` would otherwise produce.
-    assert_eq!(rad("cot(π)"), ERR_UNDEFINED);
+    assert_eq!(rad("cot(π)"), ERR_COTANGENT);
 }
 
 #[test]
@@ -770,7 +775,7 @@ fn deg_tan_nearly_45_14_nines_rounds_to_one() {
 
 #[test]
 fn deg_tan_of_90_pole() {
-    assert_eq!(deg("tan(90)"), ERR_UNDEFINED);
+    assert_eq!(deg("tan(90)"), ERR_TANGENT);
 }
 
 #[test]
@@ -784,14 +789,14 @@ fn deg_inverse_tanh() {
 
 #[test]
 fn deg_cot_of_zero_is_undefined() {
-    // Spec: cot(0) = Undefined
-    assert_eq!(deg("cot(0)"), ERR_UNDEFINED);
+    // Spec: cot(0) = Undefined, now named.
+    assert_eq!(deg("cot(0)"), ERR_COTANGENT);
 }
 
 #[test]
 fn deg_ctg_of_zero_is_undefined() {
-    // Spec: ctg(0) = Undefined   (ctg is an alias for cot)
-    assert_eq!(deg("ctg(0)"), ERR_UNDEFINED);
+    // Spec: ctg(0) = Undefined   (ctg is an alias for cot), now named.
+    assert_eq!(deg("ctg(0)"), ERR_COTANGENT);
 }
 
 #[test]
@@ -887,8 +892,8 @@ fn even_root_of_a_negative_is_undefined_at_any_magnitude() {
     // `y as i64` saturates at i64::MAX, which is odd, so a huge
     // exponent used to take the odd-root branch and return -1.
     assert_eq!(deg("root(-8,3)"), "-2");
-    assert_eq!(deg("root(-8,2)"), ERR_UNDEFINED);
-    assert_eq!(deg("root(-8,1e30)"), ERR_UNDEFINED);
+    assert_eq!(deg("root(-8,2)"), ERR_NEGATIVE_EVEN_ROOT);
+    assert_eq!(deg("root(-8,1e30)"), ERR_NEGATIVE_EVEN_ROOT);
 }
 
 // --- decimal arithmetic ---------------------------------------------
@@ -1013,5 +1018,183 @@ fn the_range_is_still_the_double_range() {
     assert_eq!(deg("1e308*10"), ERR_OVERFLOW);
     assert_eq!(deg("1e-307/1e10"), ERR_UNDERFLOW);
     assert_eq!(deg("0/0"), ERR_INDETERMINATE);
-    assert_eq!(deg("1/0"), ERR_UNDEFINED);
+    assert_eq!(deg("1/0"), ERR_DIVISION_BY_ZERO);
+}
+
+// =====================================================================
+// Named undefined cases
+// =====================================================================
+
+#[test]
+fn each_undefined_case_says_which_one_it_is() {
+    // A bare "Undefined" says the expression has no value but not
+    // which part of it is the problem. Every case a user can key
+    // names itself, and this is the whole table of them — one row per
+    // message, so a message that loses its only trigger is a failure
+    // here rather than a string nothing reaches.
+    for (expr, expected) in [
+        // Roots and powers of a negative. The two are the same
+        // operation written the other way round, so `root(-8, 2.5)`
+        // and `(-8)^0.4` answer alike.
+        ("√(-4)", ERR_NEGATIVE_EVEN_ROOT),
+        ("root(-8,4)", ERR_NEGATIVE_EVEN_ROOT),
+        ("(-8)^0.5", ERR_NEGATIVE_FRACTIONAL_POWER),
+        ("root(-8,2.5)", ERR_NEGATIVE_FRACTIONAL_POWER),
+        ("root(8,0)", ERR_ZEROTH_ROOT),
+        // What is inside a logarithm, and what it is to the base of.
+        ("ln(-1)", ERR_NEGATIVE_LOG),
+        ("log(3,-1)", ERR_NEGATIVE_LOG),
+        ("ln(0)", ERR_ZERO_LOG),
+        ("log2(0)", ERR_ZERO_LOG),
+        ("log(1, 8)", ERR_LOG_BASE_ONE),
+        ("log1(8)", ERR_LOG_BASE_ONE),
+        ("log(0, 8)", ERR_LOG_BASE_ZERO),
+        ("log(-2, 8)", ERR_LOG_BASE_NEGATIVE),
+        // Zero as a base, and zero as a divisor.
+        ("0^0", ERR_ZERO_POW_ZERO),
+        // This one used to report Overflow, which said the answer was
+        // too big rather than that there is none.
+        ("0^(-2)", ERR_ZERO_POW_NEGATIVE),
+        ("4/0", ERR_DIVISION_BY_ZERO),
+        ("4%0", ERR_DIVISION_BY_ZERO),
+        // The poles.
+        ("tan(90)", ERR_TANGENT),
+        ("cot(0)", ERR_COTANGENT),
+        ("coth(0)", ERR_HYPERBOLIC_COTANGENT),
+        // The inverse domains, which name the interval the argument
+        // has to be in rather than only that it is not.
+        ("sin-1(5)", ERR_ASIN_DOMAIN),
+        ("cos-1(-2)", ERR_ACOS_DOMAIN),
+        ("cosh-1(0.5)", ERR_ACOSH_DOMAIN),
+        ("tanh-1(2)", ERR_ATANH_DOMAIN),
+        ("coth-1(0.5)", ERR_ACOTH_DOMAIN),
+    ] {
+        assert_eq!(deg(expr), expected, "{expr}");
+    }
+
+    // The two inverse domains that are open at their ends: the
+    // endpoint itself is a pole, not a value.
+    assert_eq!(deg("tanh-1(1)"), ERR_ATANH_DOMAIN);
+    assert_eq!(deg("coth-1(1)"), ERR_ACOTH_DOMAIN);
+
+    // A zero on the display is the digit the user pressed, so the
+    // messages write one rather than spelling it out.
+    for expr in ["ln(0)", "0^0", "0^(-2)", "4/0", "log(0, 8)"] {
+        assert!(!deg(expr).contains("ero"), "{expr}: {}", deg(expr));
+    }
+
+    // Every case a user can key now has a name; what is left on the
+    // bare "Undefined" is the internal conversion that cannot produce
+    // a number at all, which no expression reaches on its own.
+    assert_eq!(CalcError::Undefined.as_str(), ERR_UNDEFINED);
+}
+
+#[test]
+fn the_trigonometric_poles_are_named_in_both_angle_modes() {
+    // The pole detectors branch on the mode, so each one has its own
+    // set of angles to be checked at. Nothing here is about DEG being
+    // the mode the messages were written against.
+    for expr in ["tan(90)", "tan(270)", "tan(-90)", "tan(450)"] {
+        assert_eq!(deg(expr), ERR_TANGENT, "DEG {expr}");
+    }
+    for expr in [
+        "tan(π÷2)",
+        "tan(3π÷2)",
+        "tan(-π÷2)",
+        "tan(π÷2+2π)",
+        // Written any way that comes to the same number: the
+        // arithmetic is decimal and π is one fixed decimal, so
+        // `π÷6×3` is the same angle as `π÷2` rather than a
+        // rounding of it.
+        "tan(π×0.5)",
+        "tan(π÷6×3)",
+        "tan(π+π÷2)",
+    ] {
+        assert_eq!(rad(expr), ERR_TANGENT, "RAD {expr}");
+    }
+    for expr in ["cot(0)", "cot(180)", "cot(-180)", "cot(360)"] {
+        assert_eq!(deg(expr), ERR_COTANGENT, "DEG {expr}");
+    }
+    for expr in ["cot(0)", "cot(π)", "cot(2π)", "cot(-π)", "cot(π÷3×3)"] {
+        assert_eq!(rad(expr), ERR_COTANGENT, "RAD {expr}");
+    }
+
+    // The two modes do not leak into each other: 90 radians and 180
+    // radians are ordinary angles with ordinary answers, and an angle
+    // that only nearly reaches a pole gets the large finite value it
+    // has rather than an error.
+    for expr in ["tan(90)", "cot(180)", "tan(1.5707963)", "cot(3.14159)"] {
+        assert!(
+            !rad(expr).starts_with("Undefined"),
+            "RAD {expr}: {}",
+            rad(expr)
+        );
+    }
+    assert!(!deg("tan(89.9999999)").starts_with("Undefined"));
+
+    // The messages that are about a bare number rather than an angle
+    // read the same whichever mode is set.
+    for expr in [
+        "coth(0)",
+        "sin-1(5)",
+        "cos-1(5)",
+        "cosh-1(0.5)",
+        "tanh-1(2)",
+        "coth-1(0.5)",
+    ] {
+        assert_eq!(deg(expr), rad(expr), "{expr} differs by angle mode");
+        assert!(deg(expr).starts_with("Undefined"), "{expr}");
+    }
+}
+
+#[test]
+fn every_error_has_a_message_of_its_own_and_a_way_to_reach_it() {
+    // One expression per variant, so a message added without a way to
+    // key it — or one whose only trigger has quietly started
+    // answering with something else — fails here.
+    // `Undefined` is the one with no expression of its own: it is
+    // what a float that cannot become a decimal reports, which no
+    // typed expression reaches. Everything else is keyable.
+    let triggers: [(CalcError, &str); CalcError::ALL.len() - 1] = [
+        (CalcError::Overflow, "1e308*10"),
+        (CalcError::Underflow, "1e-307/1e10"),
+        (CalcError::Indeterminate, "0/0"),
+        (CalcError::NegativeEvenRoot, "√(-4)"),
+        (CalcError::ZerothRoot, "root(8,0)"),
+        (CalcError::NegativeFractionalPower, "(-8)^0.5"),
+        (CalcError::NegativeLog, "ln(-1)"),
+        (CalcError::ZeroLog, "ln(0)"),
+        (CalcError::LogBaseOne, "log(1,8)"),
+        (CalcError::LogBaseZero, "log(0,8)"),
+        (CalcError::LogBaseNegative, "log(-2,8)"),
+        (CalcError::ZeroPowZero, "0^0"),
+        (CalcError::ZeroPowNegative, "0^(-2)"),
+        (CalcError::DivisionByZero, "4/0"),
+        (CalcError::Tangent, "tan(90)"),
+        (CalcError::Cotangent, "cot(0)"),
+        (CalcError::HyperbolicCotangent, "coth(0)"),
+        (CalcError::AsinDomain, "sin-1(5)"),
+        (CalcError::AcosDomain, "cos-1(5)"),
+        (CalcError::AcoshDomain, "cosh-1(0.5)"),
+        (CalcError::AtanhDomain, "tanh-1(2)"),
+        (CalcError::AcothDomain, "coth-1(0.5)"),
+    ];
+    for error in CalcError::ALL {
+        if error == CalcError::Undefined {
+            continue;
+        }
+        let (_, expr) = triggers
+            .iter()
+            .find(|(e, _)| *e == error)
+            .unwrap_or_else(|| panic!("{error:?} has no trigger expression listed"));
+        assert_eq!(deg(expr), error.as_str(), "{expr} should give {error:?}");
+    }
+
+    // And no two of them read the same, or the display would be
+    // saying one thing about two problems.
+    let mut messages: Vec<&str> = CalcError::ALL.iter().map(|e| e.as_str()).collect();
+    let before = messages.len();
+    messages.sort_unstable();
+    messages.dedup();
+    assert_eq!(messages.len(), before, "two errors share a message");
 }

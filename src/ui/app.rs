@@ -60,6 +60,12 @@ pub enum Message {
     SetRandDecimals(u8),
     SetPropertyTesting(bool),
     SetDebugRawFormula(bool),
+    /// Show the memory register under the display.
+    SetShowMemory(bool),
+    /// Remember the window size the user leaves the window at.
+    SetSaveWindowSize(bool),
+    /// Keep the history list in `config.toml` across restarts.
+    SetSaveHistory(bool),
 
     // --- history / memory / clipboard ----------------------------------
     RecallHistory(usize),
@@ -208,6 +214,29 @@ impl AppModel {
         self.config_dirty = true;
     }
 
+    /// Write the config out now rather than on the next timer tick.
+    /// For the settings a user expects to have taken effect the
+    /// moment they flip them — the two that are *about* what reaches
+    /// the file.
+    fn persist_now(&mut self) {
+        self.config_dirty = false;
+        if let Err(e) = self.config.save() {
+            eprintln!("cosmic-calc: failed to save config: {e}");
+        }
+    }
+
+    /// Bring `config.history` in line with the toggle and the list on
+    /// screen: the entries when it is on, nothing when it is off.
+    /// Called on every new entry as well as on the toggle itself, so
+    /// the file never lags the panel by more than one write.
+    fn sync_saved_history(&mut self) {
+        self.config.history = if self.config.save_history {
+            self.history.to_stored(crate::history::HISTORY_CAPACITY)
+        } else {
+            Vec::new()
+        };
+    }
+
     /// Flush from a `&self` context (the close handler). Skips the
     /// dirty-flag reset because the process is about to end.
     ///
@@ -220,7 +249,9 @@ impl AppModel {
             return;
         }
         let mut config = self.config.clone();
-        Self::commit_window_size(&mut config, self.window_size_to_persist());
+        if config.save_window_size {
+            Self::commit_window_size(&mut config, self.window_size_to_persist());
+        }
         if let Err(e) = config.save() {
             eprintln!("cosmic-calc: failed to save config: {e}");
         }
@@ -252,6 +283,9 @@ impl AppModel {
     /// Note that the window reported a size. Starts (or restarts) the
     /// settle delay when it differs from what the config would open at.
     fn note_window_size(&mut self) {
+        if !self.config.save_window_size {
+            return;
+        }
         let (width, height) = self.window_size_to_persist();
         if width != self.config.window_startup_width || height != self.config.window_startup_height
         {
@@ -264,6 +298,14 @@ impl AppModel {
     /// enough that the user is plainly done dragging.
     fn commit_window_size_if_settled(&mut self) {
         if !self.window_size_pending {
+            return;
+        }
+        if !self.config.save_window_size {
+            // Turned off while a size was still waiting out the
+            // settle delay: it is not going to be written, so stop
+            // waiting for it.
+            self.window_size_pending = false;
+            self.last_resize_at = None;
             return;
         }
         let settled = self
@@ -288,8 +330,10 @@ impl AppModel {
         if self.window_size_pending {
             self.window_size_pending = false;
             self.last_resize_at = None;
-            let size = self.window_size_to_persist();
-            self.config_dirty |= Self::commit_window_size(&mut self.config, size);
+            if self.config.save_window_size {
+                let size = self.window_size_to_persist();
+                self.config_dirty |= Self::commit_window_size(&mut self.config, size);
+            }
         }
         if !self.config_dirty {
             return;
@@ -362,6 +406,10 @@ impl AppModel {
                 items,
             } => {
                 self.history.push(expression, result, items);
+                if self.config.save_history {
+                    self.sync_saved_history();
+                    self.persist();
+                }
             }
             // The two panels are independent: opening one leaves the
             // other exactly as the user left it, and both can be open
@@ -635,10 +683,14 @@ impl Application for AppModel {
         // out against the real geometry; `Window::Opened` confirms it.
         let window_width = config.window_startup_width as f32;
         let window_height = config.window_startup_height as f32;
+        // A saved history comes back as it was left; with the toggle
+        // off the field is already empty (`validate_and_clamp` sees to
+        // that), so this is the same `History::new()` either way.
+        let history = History::from_stored(&config.history);
         let mut model = AppModel {
             core,
             engine,
-            history: History::new(),
+            history,
             memory: Memory::new(),
             config,
             ui: UiState::default(),
@@ -762,6 +814,33 @@ impl Application for AppModel {
                 self.config.debug_raw_formula = flag;
                 self.persist();
             }
+            Message::SetShowMemory(flag) => {
+                self.config.show_memory = flag;
+                self.persist();
+            }
+            Message::SetSaveWindowSize(flag) => {
+                self.config.save_window_size = flag;
+                // Turning it on records the size the window is at
+                // right now, rather than waiting for the next drag:
+                // the setting is about this window, and the user is
+                // looking at it.
+                if flag {
+                    let size = self.window_size_to_persist();
+                    Self::commit_window_size(&mut self.config, size);
+                    self.window_size_pending = false;
+                    self.last_resize_at = None;
+                }
+                self.persist_now();
+            }
+            Message::SetSaveHistory(flag) => {
+                self.config.save_history = flag;
+                // On, the list that is already on screen goes in; off,
+                // what the file holds comes straight out. Either way
+                // the file matches the toggle before the user has
+                // done anything else.
+                self.sync_saved_history();
+                self.persist_now();
+            }
             Message::RecallHistory(idx) => {
                 // Every entry carries the items it was built from, so
                 // recall never has to re-derive them from the rendered
@@ -854,7 +933,7 @@ impl Application for AppModel {
         let top_bar = self.render_top_bar();
         let display_metrics = self.compute_display_metrics(&layout);
         let display = self.render_display(&layout, &display_metrics);
-        let status_visible = self.config.property_bar_visible();
+        let status_visible = self.config.status_row_visible();
         let status_bar = if status_visible {
             Some(self.render_status_bar())
         } else {
@@ -944,7 +1023,6 @@ impl Application for AppModel {
             row = row.push(crate::ui::panels::history_panel(
                 &active_theme,
                 &self.history,
-                &self.memory,
                 &self.config,
             ));
         }
@@ -1073,7 +1151,7 @@ impl AppModel {
         let spacing_metrics = crate::ui::keypad::keypad_metrics(window_height, config);
         let row_spacing = spacing_metrics.spacing;
         let edge = row_spacing;
-        let status_visible = config.property_bar_visible();
+        let status_visible = config.status_row_visible();
         let status_h = if status_visible {
             PROPERTY_STATUS_HEIGHT
         } else {
@@ -1139,7 +1217,7 @@ impl AppModel {
     }
 
     fn compute_display_metrics(&self, layout: &MainColumnLayout) -> DisplayMetrics {
-        let segments = crate::ui::display::render_expression(
+        let segments = crate::ui::display::render_expression_with(
             self.engine.input.items(),
             self.engine.input.cursor(),
             self.config.decimal_separator,
@@ -1148,6 +1226,7 @@ impl AppModel {
                 .resolve(self.config.decimal_separator),
             self.ui.random_range,
             self.config.notation(),
+            self.ui.script_slot_closed,
         );
         let caption_segments = self.caption_segments();
         let has_caption = !caption_segments.is_empty();
@@ -1224,6 +1303,7 @@ impl AppModel {
             widget::text::title1(err.to_string())
                 .size(main_size)
                 .font(display_font)
+                .wrapping(cosmic::iced::advanced::text::Wrapping::None)
                 .line_height(cosmic::iced::widget::text::LineHeight::Absolute(
                     main_line_h.into(),
                 ))
@@ -1244,6 +1324,16 @@ impl AppModel {
                 let t = widget::text::title1(seg.text.clone())
                     .size(size)
                     .font(display_font)
+                    // The readout is drawn into a box one line high
+                    // and clipped, and the width it is fitted to is a
+                    // per-character estimate that can run a hair
+                    // under what the face draws. Left to wrap, a
+                    // piece that only just overflows would break and
+                    // the overflow would be clipped away unseen — so
+                    // it stays on its line and the fitting keeps it
+                    // inside the window. Same rule the keypad labels
+                    // follow.
+                    .wrapping(cosmic::iced::advanced::text::Wrapping::None)
                     .line_height(cosmic::iced::widget::text::LineHeight::Absolute(
                         (main_line_h * scale).into(),
                     ));
@@ -1277,6 +1367,7 @@ impl AppModel {
                 let t = widget::text::caption(seg.text.clone())
                     .size(size)
                     .font(display_font)
+                    .wrapping(cosmic::iced::advanced::text::Wrapping::None)
                     .line_height(cosmic::iced::widget::text::LineHeight::Absolute(
                         (caption_line_h * scale).into(),
                     ))
@@ -1341,25 +1432,29 @@ impl AppModel {
             .into()
     }
 
-    /// Status bar below the display: the property-panel summary
-    /// whenever property testing is enabled, in either keypad layout.
-    /// DEG/RAD lives on the memory row instead.
+    /// The row under the display: the property-panel summary on the
+    /// left, the memory register on the right. Either can be turned
+    /// off on its own, and the row goes only when both are.
+    /// DEG/RAD lives on the memory *button* row instead.
+    ///
+    /// The register used to be a line at the top of the history
+    /// panel, where it could only be read with that panel open — a
+    /// stored value is about the calculation in hand, so it belongs
+    /// next to it. It is drawn at the property labels' size and in
+    /// their colours, right-aligned so it cannot be mistaken for one
+    /// of them.
     fn render_status_bar(&self) -> Element<'_, Message> {
-        if !self.config.property_bar_visible() {
-            return widget::Space::new().height(Length::Shrink).into();
-        }
-
-        let mut row = widget::row::with_capacity(NumberProperty::ALL.len());
+        let theme = self.active_theme();
+        let inactive_color = {
+            let (r, g, b, a) = theme.text_active.inactive().to_f32();
+            cosmic::iced::Color::from_rgba(r, g, b, a)
+        };
+        let mut row = widget::row::with_capacity(NumberProperty::ALL.len() + 2);
 
         // Every label stays visible so the reading is stable; a
         // label is dimmed unless its property holds for the
         // currently-parsed integer.
-        {
-            let theme = self.active_theme();
-            let inactive_color = {
-                let (r, g, b, a) = theme.text_active.inactive().to_f32();
-                cosmic::iced::Color::from_rgba(r, g, b, a)
-            };
+        if self.config.property_bar_visible() {
             let flags = self
                 .property_results
                 .map(|(_, f)| f)
@@ -1373,6 +1468,26 @@ impl AppModel {
                 };
                 row = row.push(label);
             }
+        }
+        row = row.push(widget::Space::new().width(Length::Fill));
+        if self.config.show_memory {
+            // A bare `M`, dim, while nothing is stored — the same way
+            // a property that does not hold keeps its label — and the
+            // value beside it, lit, once something is.
+            let stored = self.memory.display(self.config.significant_digits);
+            let label = if stored.is_empty() {
+                widget::text::caption("M").class(cosmic::theme::Text::Color(inactive_color))
+            } else {
+                let shown = crate::ui::display::localise_number(
+                    &stored,
+                    self.config.decimal_separator,
+                    self.config
+                        .thousands_separator
+                        .resolve(self.config.decimal_separator),
+                );
+                widget::text::caption(format!("M {shown}"))
+            };
+            row = row.push(label);
         }
         row.spacing(8).width(Length::Fill).into()
     }

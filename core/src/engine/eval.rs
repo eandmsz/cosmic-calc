@@ -98,7 +98,7 @@ pub fn eval(node: &Node, mode: AngleMode) -> Result<Decimal, CalcError> {
             let l = eval(a, mode)?;
             let r = eval_percent_as_scale(b, mode)?;
             if r.is_zero() {
-                return Err(CalcError::Undefined);
+                return Err(CalcError::DivisionByZero);
             }
             // Truncated remainder (C's `fmod`): the result takes the
             // sign of the dividend, so `-7 mod 3` is -1. Note this is
@@ -129,10 +129,40 @@ pub fn eval(node: &Node, mode: AngleMode) -> Result<Decimal, CalcError> {
 /// log of `value` to `base`, both already in doubles: a ratio of two
 /// natural logarithms, which is where decimals stop being any help.
 fn log_base(base: f64, value: f64) -> Result<Decimal, CalcError> {
-    if base <= 0.0 || base == 1.0 || value <= 0.0 {
-        return Err(CalcError::Undefined);
+    // The argument first: it is the one the user keyed, and the one
+    // the named errors are about. A bad base — zero, negative, or 1,
+    // where the logarithm has no single value — stays the catch-all.
+    if value == 0.0 {
+        return Err(CalcError::ZeroLog);
+    }
+    if value < 0.0 {
+        return Err(CalcError::NegativeLog);
+    }
+    if base == 1.0 {
+        // Every power of 1 is 1, so the only argument with an answer
+        // is 1 itself — and that one has every answer.
+        return Err(CalcError::LogBaseOne);
+    }
+    if base == 0.0 {
+        return Err(CalcError::LogBaseZero);
+    }
+    if base < 0.0 {
+        return Err(CalcError::LogBaseNegative);
     }
     from_float(value.ln() / base.ln())
+}
+
+/// The check every single-argument logarithm makes on what it is
+/// handed: zero and the negatives each answer with their own name, so
+/// `ln(0)` and `ln(-1)` no longer read as the same problem.
+fn log_argument(v: f64) -> Result<(), CalcError> {
+    if v == 0.0 {
+        return Err(CalcError::ZeroLog);
+    }
+    if v < 0.0 {
+        return Err(CalcError::NegativeLog);
+    }
+    Ok(())
 }
 
 /// `x!`. Whole numbers up to [`MAX_EXACT_FACTORIAL`] are multiplied
@@ -175,7 +205,7 @@ fn eval_binary(op: BinOp, a: &Node, b: &Node, mode: AngleMode) -> Result<Decimal
             BinOp::Mul => arithmetic(l, r, Decimal::checked_mul, |a, b| a * b),
             BinOp::Div => {
                 if r.is_zero() {
-                    return Err(CalcError::Undefined);
+                    return Err(CalcError::DivisionByZero);
                 }
                 arithmetic(l, r, Decimal::checked_div, |a, b| a / b)
             }
@@ -192,7 +222,7 @@ fn eval_binary(op: BinOp, a: &Node, b: &Node, mode: AngleMode) -> Result<Decimal
                 return Err(CalcError::Indeterminate);
             }
             if r.is_zero() {
-                return Err(CalcError::Undefined);
+                return Err(CalcError::DivisionByZero);
             }
             arithmetic(l, r, Decimal::checked_div, |a, b| a / b)
         }
@@ -217,10 +247,17 @@ fn eval_percent_as_scale(b: &Node, mode: AngleMode) -> Result<Decimal, CalcError
 /// goes to `powf`.
 fn pow_checked(x: Decimal, y: Decimal) -> Result<Decimal, CalcError> {
     if x.is_zero() && y.is_zero() {
-        return Err(CalcError::Undefined);
+        return Err(CalcError::ZeroPowZero);
+    }
+    // `0^-n` is `1/0` with an exponent on it. Left to the arithmetic
+    // it came back as Overflow — the reciprocal of zero is infinite —
+    // which said the answer was too big rather than that there is
+    // none.
+    if x.is_zero() && y.is_negative() {
+        return Err(CalcError::ZeroPowNegative);
     }
     if x.is_negative() && !y.is_integer() {
-        return Err(CalcError::Undefined);
+        return Err(CalcError::NegativeFractionalPower);
     }
     if let Some(exponent) = y.to_i64().and_then(|n| i32::try_from(n).ok()) {
         if let Some(value) = x.checked_powi(exponent) {
@@ -232,10 +269,14 @@ fn pow_checked(x: Decimal, y: Decimal) -> Result<Decimal, CalcError> {
 }
 
 /// Y-th root of X: X^(1/Y). Handles negative bases with odd-integer
-/// roots and reports Undefined for y = 0 or even roots of negatives.
+/// roots; a negative radicand is one of the two named cases — an even
+/// root, or, since a root is a power written the other way round, a
+/// fractional power.
 fn nth_root(x: Decimal, y: Decimal) -> Result<Decimal, CalcError> {
     if y.is_zero() {
-        return Err(CalcError::Undefined);
+        // The root is `x^(1/y)`, and there is no `1/0` to raise
+        // anything to.
+        return Err(CalcError::ZerothRoot);
     }
     if x.is_zero() {
         return Ok(Decimal::ZERO);
@@ -245,7 +286,15 @@ fn nth_root(x: Decimal, y: Decimal) -> Result<Decimal, CalcError> {
         if is_odd_integer(y) {
             return from_float(-(-xv).powf(1.0 / yv));
         }
-        return Err(CalcError::Undefined);
+        // `root(-8, 2.5)` is `(-8)^(1/2.5)`, which is the power case
+        // spelled as a root: the degree is not a whole number, so the
+        // answer is not off the real line for being an even root, it
+        // is off it for the same reason `(-8)^0.5` is.
+        return Err(if y.is_integer() {
+            CalcError::NegativeEvenRoot
+        } else {
+            CalcError::NegativeFractionalPower
+        });
     }
     from_float(xv.powf(1.0 / yv))
 }
@@ -283,13 +332,13 @@ fn eval_unary_f64(f: UnaryFunc, v: f64, mode: AngleMode) -> Result<f64, CalcErro
         UnaryFunc::Cot => trig_cot(v, mode),
         UnaryFunc::Asin => {
             if !(-1.0..=1.0).contains(&v) {
-                return Err(CalcError::Undefined);
+                return Err(CalcError::AsinDomain);
             }
             Ok(from_rad(v.asin(), mode))
         }
         UnaryFunc::Acos => {
             if !(-1.0..=1.0).contains(&v) {
-                return Err(CalcError::Undefined);
+                return Err(CalcError::AcosDomain);
             }
             Ok(from_rad(v.acos(), mode))
         }
@@ -304,50 +353,46 @@ fn eval_unary_f64(f: UnaryFunc, v: f64, mode: AngleMode) -> Result<f64, CalcErro
         UnaryFunc::Tanh => classify(v.tanh()),
         UnaryFunc::Coth => {
             if v == 0.0 {
-                return Err(CalcError::Undefined);
+                return Err(CalcError::HyperbolicCotangent);
             }
             classify(1.0 / v.tanh())
         }
         UnaryFunc::Asinh => classify(v.asinh()),
         UnaryFunc::Acosh => {
             if v < 1.0 {
-                return Err(CalcError::Undefined);
+                return Err(CalcError::AcoshDomain);
             }
             classify(v.acosh())
         }
         UnaryFunc::Atanh => {
             if v.abs() >= 1.0 {
-                return Err(CalcError::Undefined);
+                return Err(CalcError::AtanhDomain);
             }
             classify(v.atanh())
         }
         UnaryFunc::Acoth => {
             if v.abs() <= 1.0 {
-                return Err(CalcError::Undefined);
+                return Err(CalcError::AcothDomain);
             }
             classify(0.5 * ((v + 1.0) / (v - 1.0)).ln())
         }
         UnaryFunc::Ln => {
-            if v <= 0.0 {
-                return Err(CalcError::Undefined);
-            }
+            log_argument(v)?;
             classify(v.ln())
         }
         UnaryFunc::Log | UnaryFunc::Log10 => {
-            if v <= 0.0 {
-                return Err(CalcError::Undefined);
-            }
+            log_argument(v)?;
             classify(v.log10())
         }
         UnaryFunc::Log2 => {
-            if v <= 0.0 {
-                return Err(CalcError::Undefined);
-            }
+            log_argument(v)?;
             classify(v.log2())
         }
         UnaryFunc::Sqrt => {
+            // The square root is the even root the keypad reaches
+            // for most, so it answers with the same name `ʸ√x` does.
             if v < 0.0 {
-                return Err(CalcError::Undefined);
+                return Err(CalcError::NegativeEvenRoot);
             }
             classify(v.sqrt())
         }
@@ -407,7 +452,7 @@ fn trig_cos(x: f64, mode: AngleMode) -> f64 {
 fn trig_tan(x: f64, mode: AngleMode) -> Result<f64, CalcError> {
     // tan is undefined where cos == 0 (odd multiples of π/2 in rad or 90° in deg).
     if is_tan_pole(x, mode) {
-        return Err(CalcError::Undefined);
+        return Err(CalcError::Tangent);
     }
     let r = to_rad(x, mode);
     // In DEG mode, snap tan(k·180°) to 0.
@@ -418,7 +463,7 @@ fn trig_tan(x: f64, mode: AngleMode) -> Result<f64, CalcError> {
 
 fn trig_cot(x: f64, mode: AngleMode) -> Result<f64, CalcError> {
     if is_cot_pole(x, mode) {
-        return Err(CalcError::Undefined);
+        return Err(CalcError::Cotangent);
     }
     let r = to_rad(x, mode);
     let mut v = 1.0 / r.tan();
