@@ -138,7 +138,12 @@ fn log_base(base: f64, value: f64) -> Result<Decimal, CalcError> {
     if value < 0.0 {
         return Err(CalcError::NegativeLog);
     }
-    if base <= 0.0 || base == 1.0 {
+    if base == 1.0 {
+        // Every power of 1 is 1, so the only argument with an answer
+        // is 1 itself — and that one has every answer.
+        return Err(CalcError::LogBaseOne);
+    }
+    if base <= 0.0 {
         return Err(CalcError::Undefined);
     }
     from_float(value.ln() / base.ln())
@@ -312,13 +317,13 @@ fn eval_unary_f64(f: UnaryFunc, v: f64, mode: AngleMode) -> Result<f64, CalcErro
         UnaryFunc::Cot => trig_cot(v, mode),
         UnaryFunc::Asin => {
             if !(-1.0..=1.0).contains(&v) {
-                return Err(CalcError::Undefined);
+                return Err(CalcError::AsinDomain);
             }
             Ok(from_rad(v.asin(), mode))
         }
         UnaryFunc::Acos => {
             if !(-1.0..=1.0).contains(&v) {
-                return Err(CalcError::Undefined);
+                return Err(CalcError::AcosDomain);
             }
             Ok(from_rad(v.acos(), mode))
         }
@@ -443,7 +448,7 @@ fn trig_tan(x: f64, mode: AngleMode) -> Result<f64, CalcError> {
 
 fn trig_cot(x: f64, mode: AngleMode) -> Result<f64, CalcError> {
     if is_cot_pole(x, mode) {
-        return Err(CalcError::Undefined);
+        return Err(CalcError::Cotangent);
     }
     let r = to_rad(x, mode);
     let mut v = 1.0 / r.tan();

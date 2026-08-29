@@ -28,7 +28,11 @@ const CASES: &[(&str, &str, &str)] = &[
     // `√7 …` is √7 times what follows, not √(7 × …). arcsin(5) is
     // outside [-1, 1], so the whole thing is undefined — but for the
     // right reason now.
-    ("√7 sin^-1(5)", "√(7)sin-1(5)", "Undefined"),
+    (
+        "√7 sin^-1(5)",
+        "√(7)sin-1(5)",
+        "Undefined sin\u{2212}1(x) must be between \u{2212}1 and 1",
+    ),
     ("√3", "√(3)", "1.73205080756888"),
     ("∛27", "∛(27)", "3"),
     // A function after the radical has no single operand to bind to,
@@ -42,8 +46,8 @@ const CASES: &[(&str, &str, &str)] = &[
         "-8739",
     ),
     // --- cotangent spellings -----------------------------------------
-    ("ctg(0)", "cot(0)", "Undefined"),
-    ("cot(0)", "cot(0)", "Undefined"),
+    ("ctg(0)", "cot(0)", "Undefined: Cotangent"),
+    ("cot(0)", "cot(0)", "Undefined: Cotangent"),
     // --- powers, factorials, precedence ------------------------------
     ("-3^5!", "-3^5!", "-1.79701029991443e57"),
     ("2+3^(2+1)×4", "2+3^(2+1)×4", "110"),

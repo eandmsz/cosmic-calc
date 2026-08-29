@@ -15,9 +15,9 @@
 
 use crate::engine::{
     evaluate_expression, evaluate_to_string, AngleMode, CalcError, DEFAULT_SIGNIFICANT_DIGITS,
-    ERR_DIVISION_BY_ZERO, ERR_INDETERMINATE, ERR_NEGATIVE_EVEN_ROOT, ERR_NEGATIVE_LOG,
-    ERR_OVERFLOW, ERR_TANGENT, ERR_UNDEFINED, ERR_UNDERFLOW, ERR_ZERO_LOG, ERR_ZERO_POW_NEGATIVE,
-    ERR_ZERO_POW_ZERO,
+    ERR_ACOS_DOMAIN, ERR_ASIN_DOMAIN, ERR_COTANGENT, ERR_DIVISION_BY_ZERO, ERR_INDETERMINATE,
+    ERR_LOG_BASE_ONE, ERR_NEGATIVE_EVEN_ROOT, ERR_NEGATIVE_LOG, ERR_OVERFLOW, ERR_TANGENT,
+    ERR_UNDEFINED, ERR_UNDERFLOW, ERR_ZERO_LOG, ERR_ZERO_POW_NEGATIVE, ERR_ZERO_POW_ZERO,
 };
 
 const DEC: u8 = DEFAULT_SIGNIFICANT_DIGITS;
@@ -666,8 +666,9 @@ fn rad_cos_of_two_pi() {
 
 #[test]
 fn rad_arccos_of_pi_undefined() {
-    // Spec: cos-1(π) = Undefined   (π > 1 is outside arccos domain)
-    assert_eq!(rad("cos-1(π)"), ERR_UNDEFINED);
+    // Spec: cos-1(π) = Undefined   (π > 1 is outside arccos domain),
+    // now named for the domain it is outside.
+    assert_eq!(rad("cos-1(π)"), ERR_ACOS_DOMAIN);
 }
 
 #[test]
@@ -729,7 +730,7 @@ fn rad_tan_pole_at_pi_over_two_undefined() {
 fn rad_cot_pole_at_pi_undefined() {
     // cot(π) hits sin = 0; should be undefined regardless of the
     // tiny residual `1/tan` would otherwise produce.
-    assert_eq!(rad("cot(π)"), ERR_UNDEFINED);
+    assert_eq!(rad("cot(π)"), ERR_COTANGENT);
 }
 
 #[test]
@@ -786,14 +787,14 @@ fn deg_inverse_tanh() {
 
 #[test]
 fn deg_cot_of_zero_is_undefined() {
-    // Spec: cot(0) = Undefined
-    assert_eq!(deg("cot(0)"), ERR_UNDEFINED);
+    // Spec: cot(0) = Undefined, now named.
+    assert_eq!(deg("cot(0)"), ERR_COTANGENT);
 }
 
 #[test]
 fn deg_ctg_of_zero_is_undefined() {
-    // Spec: ctg(0) = Undefined   (ctg is an alias for cot)
-    assert_eq!(deg("ctg(0)"), ERR_UNDEFINED);
+    // Spec: ctg(0) = Undefined   (ctg is an alias for cot), now named.
+    assert_eq!(deg("ctg(0)"), ERR_COTANGENT);
 }
 
 #[test]
@@ -1033,6 +1034,8 @@ fn each_undefined_case_says_which_one_it_is() {
         ("log(3,-1)", ERR_NEGATIVE_LOG),
         ("ln(0)", ERR_ZERO_LOG),
         ("log2(0)", ERR_ZERO_LOG),
+        ("log(1, 8)", ERR_LOG_BASE_ONE),
+        ("log1(8)", ERR_LOG_BASE_ONE),
         ("0^0", ERR_ZERO_POW_ZERO),
         // This one used to report Overflow, which said the answer was
         // too big rather than that there is none.
@@ -1040,12 +1043,23 @@ fn each_undefined_case_says_which_one_it_is() {
         ("4/0", ERR_DIVISION_BY_ZERO),
         ("4%0", ERR_DIVISION_BY_ZERO),
         ("tan(90)", ERR_TANGENT),
+        ("cot(0)", ERR_COTANGENT),
+        ("sin-1(5)", ERR_ASIN_DOMAIN),
+        ("cos-1(-2)", ERR_ACOS_DOMAIN),
     ] {
         assert_eq!(deg(expr), expected, "{expr}");
     }
 
-    // The cases with no name of their own still read "Undefined".
-    for expr in ["log(1, 8)", "sin-1(5)", "(-8)^0.5"] {
+    // A zero on the display is the digit the user pressed, so the
+    // messages write one rather than spelling it out.
+    for expr in ["ln(0)", "0^0", "0^(-2)", "4/0"] {
+        assert!(!deg(expr).contains("ero"), "{expr}: {}", deg(expr));
+    }
+
+    // The cases with no name of their own still read "Undefined": a
+    // logarithm to a negative base, a hyperbolic cotangent at its
+    // pole, a fractional power of a negative.
+    for expr in ["log(-2, 8)", "coth(0)", "(-8)^0.5"] {
         assert_eq!(deg(expr), ERR_UNDEFINED, "{expr}");
     }
 

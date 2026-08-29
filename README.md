@@ -309,12 +309,14 @@ make check                         # fmt + clippy + the whole workspace
 	  `!` is `2` raised to `3!` = 64
 - An expression with no value says which part of it has none, rather
   than a bare "Undefined": `√(-4)` is `Undefined: Negative number
-  under even root`, `ln(0)` is `Undefined: Zero inside logarithm`,
-  `4÷0` is `Undefined: Division by zero`, `tan(90°)` is `Undefined:
-  Tangent`, and `0^-2` — which used to report Overflow, saying the
-  answer was too big rather than that there is none — is `Undefined:
-  Zero raised to negative power`. The cases with no name of their own
-  still read `Undefined`
+  under even root`, `ln(0)` is `Undefined: 0 inside logarithm`,
+  `log₁(8)` is `Undefined: Logarithm base cannot be 1`, `4÷0` is
+  `Undefined: Division by 0`, `tan(90°)` is `Undefined: Tangent`,
+  `cot(0)` is `Undefined: Cotangent`, `sin⁻¹(5)` is `Undefined
+  sin−1(x) must be between −1 and 1`, and `0^-2` — which used to
+  report Overflow, saying the answer was too big rather than that
+  there is none — is `Undefined: 0 raised to negative power`. The
+  cases with no name of their own still read `Undefined`
 - The memory register sits under the display, at the size and in the
   colours of the number-property labels and aligned to the right: a
   dim `M` while nothing is stored, the value beside it once something

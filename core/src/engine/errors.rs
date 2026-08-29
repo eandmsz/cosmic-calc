@@ -11,17 +11,27 @@ pub const ERR_UNDEFINED: &str = "Undefined";
 /// The named undefined cases, spelled out on the display.
 ///
 /// A bare "Undefined" says the expression has no value but not which
-/// part of it is the problem, and the seven below are the ones a user
-/// actually keys by accident: they name the operation and the operand
-/// that made it undefined, so the fix is visible without re-deriving
-/// it from the expression.
+/// part of it is the problem, and these are the ones a user actually
+/// keys by accident: they name the operation and the operand that
+/// made it undefined, so the fix is visible without re-deriving it
+/// from the expression.
+///
+/// A zero is written `0` rather than spelled out — it is the digit
+/// the user pressed, and the display it lands on is a calculator's.
 pub const ERR_NEGATIVE_EVEN_ROOT: &str = "Undefined: Negative number under even root";
 pub const ERR_NEGATIVE_LOG: &str = "Undefined: Negative number inside logarithm";
-pub const ERR_ZERO_LOG: &str = "Undefined: Zero inside logarithm";
-pub const ERR_ZERO_POW_ZERO: &str = "Undefined: Zero raised to zero power";
-pub const ERR_ZERO_POW_NEGATIVE: &str = "Undefined: Zero raised to negative power";
-pub const ERR_DIVISION_BY_ZERO: &str = "Undefined: Division by zero";
+pub const ERR_ZERO_LOG: &str = "Undefined: 0 inside logarithm";
+pub const ERR_LOG_BASE_ONE: &str = "Undefined: Logarithm base cannot be 1";
+pub const ERR_ZERO_POW_ZERO: &str = "Undefined: 0 raised to 0 power";
+pub const ERR_ZERO_POW_NEGATIVE: &str = "Undefined: 0 raised to negative power";
+pub const ERR_DIVISION_BY_ZERO: &str = "Undefined: Division by 0";
 pub const ERR_TANGENT: &str = "Undefined: Tangent";
+pub const ERR_COTANGENT: &str = "Undefined: Cotangent";
+/// The two inverse-trig domains. Written with U+2212, the minus sign
+/// the keypad and the display use — escaped rather than typed so it
+/// cannot be mistaken here for the ASCII hyphen it looks like.
+pub const ERR_ASIN_DOMAIN: &str = "Undefined sin\u{2212}1(x) must be between \u{2212}1 and 1";
+pub const ERR_ACOS_DOMAIN: &str = "Undefined cos\u{2212}1(x) must be between \u{2212}1 and 1";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CalcError {
@@ -36,6 +46,9 @@ pub enum CalcError {
     NegativeLog,
     /// A logarithm of zero.
     ZeroLog,
+    /// A logarithm to base 1, which every positive argument but 1
+    /// has no answer for and 1 itself has every answer for.
+    LogBaseOne,
     /// `0^0`.
     ZeroPowZero,
     /// `0` raised to a negative power, which is a division by zero
@@ -46,6 +59,12 @@ pub enum CalcError {
     DivisionByZero,
     /// `tan` at one of its poles.
     Tangent,
+    /// `cot` at one of its poles.
+    Cotangent,
+    /// `sin⁻¹` outside [−1, 1].
+    AsinDomain,
+    /// `cos⁻¹` outside [−1, 1].
+    AcosDomain,
 }
 
 impl CalcError {
@@ -59,10 +78,14 @@ impl CalcError {
             CalcError::NegativeEvenRoot => ERR_NEGATIVE_EVEN_ROOT,
             CalcError::NegativeLog => ERR_NEGATIVE_LOG,
             CalcError::ZeroLog => ERR_ZERO_LOG,
+            CalcError::LogBaseOne => ERR_LOG_BASE_ONE,
             CalcError::ZeroPowZero => ERR_ZERO_POW_ZERO,
             CalcError::ZeroPowNegative => ERR_ZERO_POW_NEGATIVE,
             CalcError::DivisionByZero => ERR_DIVISION_BY_ZERO,
             CalcError::Tangent => ERR_TANGENT,
+            CalcError::Cotangent => ERR_COTANGENT,
+            CalcError::AsinDomain => ERR_ASIN_DOMAIN,
+            CalcError::AcosDomain => ERR_ACOS_DOMAIN,
         }
     }
 }
