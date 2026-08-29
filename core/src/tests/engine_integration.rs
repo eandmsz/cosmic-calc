@@ -15,7 +15,9 @@
 
 use crate::engine::{
     evaluate_expression, evaluate_to_string, AngleMode, CalcError, DEFAULT_SIGNIFICANT_DIGITS,
-    ERR_INDETERMINATE, ERR_OVERFLOW, ERR_UNDEFINED, ERR_UNDERFLOW,
+    ERR_DIVISION_BY_ZERO, ERR_INDETERMINATE, ERR_NEGATIVE_EVEN_ROOT, ERR_NEGATIVE_LOG,
+    ERR_OVERFLOW, ERR_TANGENT, ERR_UNDEFINED, ERR_UNDERFLOW, ERR_ZERO_LOG, ERR_ZERO_POW_NEGATIVE,
+    ERR_ZERO_POW_ZERO,
 };
 
 const DEC: u8 = DEFAULT_SIGNIFICANT_DIGITS;
@@ -247,8 +249,8 @@ fn basic_one_sixth_rounded() {
 
 #[test]
 fn basic_divide_by_zero() {
-    // Spec: 5÷0 = Undefined
-    assert_eq!(deg("5÷0"), ERR_UNDEFINED);
+    // Spec: 5÷0 = Undefined, now named.
+    assert_eq!(deg("5÷0"), ERR_DIVISION_BY_ZERO);
 }
 
 #[test]
@@ -265,8 +267,8 @@ fn basic_zero_over_nonzero() {
 
 #[test]
 fn basic_mod_zero_by_zero() {
-    // Spec: 0%0 = Undefined
-    assert_eq!(deg("0%0"), ERR_UNDEFINED);
+    // Spec: 0%0 = Undefined, now named.
+    assert_eq!(deg("0%0"), ERR_DIVISION_BY_ZERO);
 }
 
 #[test]
@@ -277,8 +279,8 @@ fn basic_mod_zero_by_nonzero() {
 
 #[test]
 fn basic_mod_by_zero() {
-    // Spec: 3%0 = Undefined
-    assert_eq!(deg("3%0"), ERR_UNDEFINED);
+    // Spec: 3%0 = Undefined, now named.
+    assert_eq!(deg("3%0"), ERR_DIVISION_BY_ZERO);
 }
 
 #[test]
@@ -416,7 +418,7 @@ fn exp_negative_base_precedence() {
 
 #[test]
 fn exp_zero_pow_zero() {
-    assert_eq!(deg("0^0"), ERR_UNDEFINED);
+    assert_eq!(deg("0^0"), ERR_ZERO_POW_ZERO);
 }
 
 #[test]
@@ -512,8 +514,8 @@ const ERR_UNDERFLOW_STRING: &str = crate::engine::ERR_UNDERFLOW;
 
 #[test]
 fn log_zero_as_value_is_undefined() {
-    // Spec: log(2, 0) = Undefined
-    assert_eq!(deg("log(2, 0)"), ERR_UNDEFINED);
+    // Spec: log(2, 0) = Undefined, now named for the argument.
+    assert_eq!(deg("log(2, 0)"), ERR_ZERO_LOG);
 }
 
 #[test]
@@ -542,7 +544,7 @@ fn log_of_100_is_two() {
 
 #[test]
 fn log10_of_zero_is_undefined() {
-    assert_eq!(deg("log10(0)"), ERR_UNDEFINED);
+    assert_eq!(deg("log10(0)"), ERR_ZERO_LOG);
 }
 
 #[test]
@@ -567,12 +569,12 @@ fn log_base_pi_of_pi_to_four() {
 
 #[test]
 fn log2_of_negative_undefined() {
-    assert_eq!(deg("log2(-2)"), ERR_UNDEFINED);
+    assert_eq!(deg("log2(-2)"), ERR_NEGATIVE_LOG);
 }
 
 #[test]
 fn log_of_negative_undefined() {
-    assert_eq!(deg("log(-5)"), ERR_UNDEFINED);
+    assert_eq!(deg("log(-5)"), ERR_NEGATIVE_LOG);
 }
 
 #[test]
@@ -613,13 +615,13 @@ fn root_square_of_eight() {
 
 #[test]
 fn root_negative_with_even_degree_undefined() {
-    // Spec: root(-1, 4) = Undefined
-    assert_eq!(deg("root(-1, 4)"), ERR_UNDEFINED);
+    // Spec: root(-1, 4) = Undefined, now named.
+    assert_eq!(deg("root(-1, 4)"), ERR_NEGATIVE_EVEN_ROOT);
 }
 
 #[test]
 fn sqrt_of_negative() {
-    assert_eq!(deg("√(-5)"), ERR_UNDEFINED);
+    assert_eq!(deg("√(-5)"), ERR_NEGATIVE_EVEN_ROOT);
 }
 
 #[test]
@@ -720,7 +722,7 @@ fn rad_tan_pole_at_pi_over_two_undefined() {
     // tan(π/2) is mathematically undefined; the pole detector
     // catches it because PI/2 is constructed exactly out of the
     // symbolic π constant.
-    assert_eq!(rad("tan(π÷2)"), ERR_UNDEFINED);
+    assert_eq!(rad("tan(π÷2)"), ERR_TANGENT);
 }
 
 #[test]
@@ -770,7 +772,7 @@ fn deg_tan_nearly_45_14_nines_rounds_to_one() {
 
 #[test]
 fn deg_tan_of_90_pole() {
-    assert_eq!(deg("tan(90)"), ERR_UNDEFINED);
+    assert_eq!(deg("tan(90)"), ERR_TANGENT);
 }
 
 #[test]
@@ -887,8 +889,8 @@ fn even_root_of_a_negative_is_undefined_at_any_magnitude() {
     // `y as i64` saturates at i64::MAX, which is odd, so a huge
     // exponent used to take the odd-root branch and return -1.
     assert_eq!(deg("root(-8,3)"), "-2");
-    assert_eq!(deg("root(-8,2)"), ERR_UNDEFINED);
-    assert_eq!(deg("root(-8,1e30)"), ERR_UNDEFINED);
+    assert_eq!(deg("root(-8,2)"), ERR_NEGATIVE_EVEN_ROOT);
+    assert_eq!(deg("root(-8,1e30)"), ERR_NEGATIVE_EVEN_ROOT);
 }
 
 // --- decimal arithmetic ---------------------------------------------
@@ -1013,5 +1015,41 @@ fn the_range_is_still_the_double_range() {
     assert_eq!(deg("1e308*10"), ERR_OVERFLOW);
     assert_eq!(deg("1e-307/1e10"), ERR_UNDERFLOW);
     assert_eq!(deg("0/0"), ERR_INDETERMINATE);
-    assert_eq!(deg("1/0"), ERR_UNDEFINED);
+    assert_eq!(deg("1/0"), ERR_DIVISION_BY_ZERO);
+}
+
+// =====================================================================
+// Named undefined cases
+// =====================================================================
+
+#[test]
+fn each_undefined_case_says_which_one_it_is() {
+    // A bare "Undefined" says the expression has no value but not
+    // which part of it is the problem. These seven do.
+    for (expr, expected) in [
+        ("√(-4)", ERR_NEGATIVE_EVEN_ROOT),
+        ("root(-8,4)", ERR_NEGATIVE_EVEN_ROOT),
+        ("ln(-1)", ERR_NEGATIVE_LOG),
+        ("log(3,-1)", ERR_NEGATIVE_LOG),
+        ("ln(0)", ERR_ZERO_LOG),
+        ("log2(0)", ERR_ZERO_LOG),
+        ("0^0", ERR_ZERO_POW_ZERO),
+        // This one used to report Overflow, which said the answer was
+        // too big rather than that there is none.
+        ("0^(-2)", ERR_ZERO_POW_NEGATIVE),
+        ("4/0", ERR_DIVISION_BY_ZERO),
+        ("4%0", ERR_DIVISION_BY_ZERO),
+        ("tan(90)", ERR_TANGENT),
+    ] {
+        assert_eq!(deg(expr), expected, "{expr}");
+    }
+
+    // The cases with no name of their own still read "Undefined".
+    for expr in ["log(1, 8)", "sin-1(5)", "(-8)^0.5"] {
+        assert_eq!(deg(expr), ERR_UNDEFINED, "{expr}");
+    }
+
+    // And 0÷0 is still the one that is Indeterminate rather than
+    // undefined.
+    assert_eq!(deg("0/0"), ERR_INDETERMINATE);
 }

@@ -124,7 +124,7 @@ fn the_shipped_keypad_reads_as_designed() {
 
     assert_eq!(
         drawn(LayoutKind::Basic),
-        ["AC ⌫ % ÷", "7 8 9 ×", "4 5 6 −", "1 2 3 +", "+⁄− 0 . =",]
+        ["AC ⌫ % ÷", "7 8 9 ×", "4 5 6 −", "1 2 3 +", "⁺⁄₋ 0 . =",]
     );
     assert_eq!(
         drawn(LayoutKind::Scientific),
@@ -133,7 +133,7 @@ fn the_shipped_keypad_reads_as_designed() {
             "x² x³ xʸ 𝑒ˣ 10ˣ 7 8 9 ×",
             "²√x ³√x ʸ√x ln log 4 5 6 −",
             "x! sin cos tan π 1 2 3 +",
-            "Rand sinh cosh tanh 1⁄x +⁄− 0 . =",
+            "Rand sinh cosh tanh ¹⁄ₓ ⁺⁄₋ 0 . =",
         ]
     );
     assert_eq!(
@@ -143,7 +143,7 @@ fn the_shipped_keypad_reads_as_designed() {
             "x² x³ xʸ yˣ 2ˣ 7 8 9 ×",
             "²√x ³√x ʸ√x logᵧ log₂ 4 5 6 −",
             "x! sin⁻¹ cos⁻¹ tan⁻¹ π 1 2 3 +",
-            "Rand sinh⁻¹ cosh⁻¹ tanh⁻¹ 1⁄x +⁄− 0 . =",
+            "Rand sinh⁻¹ cosh⁻¹ tanh⁻¹ ¹⁄ₓ ⁺⁄₋ 0 . =",
         ]
     );
 }
@@ -248,6 +248,11 @@ fn borrowed_letter(text: &str, up: bool) -> String {
         ("x", true) => "ˣ".to_string(),
         ("y", true) => "ʸ".to_string(),
         ("y", false) => "ᵧ".to_string(),
+        // The two fraction faces: a subscript `x` and a subscript
+        // minus, neither of which is in the subscript digit block
+        // `to_subscript` walks.
+        ("x", false) => "ₓ".to_string(),
+        ("−", false) => "₋".to_string(),
         _ => panic!(
             "no glyph for a {} {text:?}",
             if up { "raised" } else { "lowered" }
@@ -300,4 +305,28 @@ fn the_keys_with_scripts_are_the_ones_that_have_them() {
     assert_eq!(shifts(Button::Sqrt), vec![Shift::Degree, Shift::OnLine]);
     assert_eq!(shifts(Button::Cbrt), vec![Shift::Degree, Shift::OnLine]);
     assert_eq!(shifts(Button::YRootX), vec![Shift::Degree, Shift::OnLine]);
+}
+
+#[test]
+fn the_fraction_keys_are_drawn_as_fractions() {
+    // `¹⁄ₓ` and `⁺⁄₋` are one over the other, not three characters in
+    // a row: the numerator steps up, the fraction slash stays on the
+    // line, the denominator steps down.
+    let ctx = LabelContext::default();
+    for (button, pieces) in [
+        (Button::Reciprocal, ["1", "⁄", "x"]),
+        (Button::Negate, ["+", "⁄", "−"]),
+    ] {
+        let parts = label_parts(button, ctx);
+        assert_eq!(
+            parts.iter().map(|p| p.text).collect::<Vec<_>>(),
+            pieces.to_vec(),
+            "{button:?} pieces"
+        );
+        assert_eq!(
+            parts.iter().map(|p| p.shift).collect::<Vec<_>>(),
+            vec![Shift::Up, Shift::OnLine, Shift::Down],
+            "{button:?} placement"
+        );
+    }
 }

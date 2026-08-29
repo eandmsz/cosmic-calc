@@ -53,12 +53,20 @@ const CASES: &[(&str, &str, &str)] = &[
     ("root(729, 3!)", "root(729,3!)", "3"),
     ("log(π, π^2)", "log(π,π^2)", "2"),
     // An even root of a negative has no real value.
-    ("root(-1, 4)", "root(-1,4)", "Undefined"),
+    (
+        "root(-1, 4)",
+        "root(-1,4)",
+        "Undefined: Negative number under even root",
+    ),
     // `5. 6` is not an argument list: the space goes, leaving one
     // argument where root needs two.
     ("root(5. 6)", "root(5.6)", "Undefined"),
     // --- logarithms ---------------------------------------------------
-    ("log2(-2)", "log2(-2)", "Undefined"),
+    (
+        "log2(-2)",
+        "log2(-2)",
+        "Undefined: Negative number inside logarithm",
+    ),
     // Digit grouping by space survives, because the space is dropped.
     ("log2(65 535)", "log2(65535)", "15.9999779860527"),
     // --- modulo and percent ------------------------------------------

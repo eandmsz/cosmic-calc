@@ -173,13 +173,35 @@ make check                         # fmt + clippy + the whole workspace
   instead of doing nothing: `5+2` then `)` reads `5+(2)`. Where a
   bracket *is* open the key closes it as before, stepping over the
   closer the `(` key already wrote
-	- What it brackets is the whole value on screen, so on a power it
-	  is the power: `2^3` then `)` is `(2^3)`, ready to be squared or
-	  divided into, rather than a `2⁽³⁾` with brackets round a part
-	  of it you did not ask to separate
+	- In a script slot it closes the *slot*, and writes nothing: an
+	  exponent typed straight after the caret is a slot the display
+	  draws brackets round, and `)` is how you say you are done with
+	  it. `2`, `xʸ`, `3`, `)` is `2³` — the brackets come down and
+	  the next `+` lands on the line — where it used to write a pair
+	  round the whole power and give `(2^3)`. Same for the base slot
+	  `yˣ` opens, where the press steps the cursor out past the
+	  power: `5`, `yˣ`, `6`, `)`, `+` is `6⁵+`
+	- An operator still waiting for its right operand has no value
+	  for the brackets to close over, so the press takes it back:
+	  `(5+` then `)` is `(5)`
 - Customizable Rand function, drawing from the OS entropy source
   (`getrandom`/`/dev/urandom` on Linux) so each press is independent of
   the last
+- `−` where a value begins is that value's sign rather than a
+  subtraction: `−`, `6` is `-6`, not the `0-6` a supplied left operand
+  used to make of it. `+`, `×` and `÷` still start an empty display on
+  a `0`, which is what they need and a sign does not
+	- Every slot of `logᵧ` and `ʸ√x` is a place a value begins, so a
+	  negative can be keyed into any of them — the argument, the
+	  base, the radicand, the degree — where the press used to be
+	  dropped
+	- And the two calls close over the sign along with the number:
+	  `−`, `4`, `logᵧ`, `8`, `)` is `log₈(-4)`, where the sign used
+	  to be left outside as `-log₈(4)`, which negates the logarithm
+	  instead of taking one of a negative number
+- A decimal separator with no digits behind it goes when you move on
+  from it: `5`, `.`, `+` is `5+`. Backspace is the one press that
+  leaves it, since deleting it is what you are asking for
 - Trigonometry and radical functions work both before or after inputting an operand
 - Both power orders on the keypad: `xʸ` raises what you have already
   typed to what you type next (`2`, `xʸ`, `3` = 8), and `yˣ` reads the
@@ -191,7 +213,11 @@ make check                         # fmt + clippy + the whole workspace
 	  nothing. `0`, `xʸ`, `5` is `0⁵`, because that `0` you typed
 	- `yˣ` puts the base slot in front of what you typed and parks the
 	  cursor in it, so `2`, `yˣ` reads `()²` with the brackets dim:
-	  the next digit goes under the 2, not after it
+	  the next digit goes under the 2, not after it. The brackets stay
+	  round the base once it holds something — `5`, `yˣ`, `6` reads
+	  `(6)⁵`, because that `6` is still the slot the next digit joins
+	  — and come down when `)` closes the slot. Open a bracket of your
+	  own in there and it is yours: it stays after you close it
 	- An operator keyed while the cursor is still in that slot is
 	  about the whole power, and goes after it: `2`, `yˣ`, `3`, `+`
 	  reads `3²+`. To put an expression rather than a number in the
@@ -204,17 +230,20 @@ make check                         # fmt + clippy + the whole workspace
 	- They finish the operation, so their exponent is not a slot
 	  anything else can reach. `5`, `x²`, `3` is `5²×3` = 75, with
 	  the `×` filled in for you, where the digit used to run onto the
-	  end of the exponent and give `5` to the twenty-third. Nothing
-	  postfix reaches in either: `5²` then `!` is `(5²)!` and then
-	  `xʸ` is `(5²)^y`, since the buffer spells the square `5^2` and
-	  a bare `5^2!` would read as `5` raised to `2!`
+	  end of the exponent and give `5` to the twenty-third. A second
+	  caret is bracketed for the same reason: `5²` then `xʸ` is
+	  `(5²)^y`, since the buffer spells the square `5^2` and a bare
+	  `5^2^y` would raise the `2`
 	- And they are about the whole value, not the piece of it the
 	  cursor is parked in front of. `6`, `yˣ`, `3` reads `3⁶` with
 	  the cursor still in the base slot, and `x²` there is `(3⁶)²`
 	  where it used to write `3^2^6` — the 3 raised to the
 	  sixty-fourth
 - Fully compatible with COSMIC desktop themes and also inheriting accent color from KDE, GNOME, XFCE
-- Decimal separator is automatically based on the system locale
+- Decimal separator is automatically based on the system locale, and
+  the thousands separator follows it unless you pick one. The space
+  the two of them can resolve to is a no-break space, so a grouped
+  number can never break across a line the display has no room for
 - Fully compatible with iOS/macOS ASCII expressions e.g:
 	- 1-2×-8%5×4,5e3×100÷2^2^2×((2^2)^2)^2
 	- √(sin^-1(1)+tan^-1(1))×∛8×root(16, 4)×3π×2𝑒+2e3
@@ -264,21 +293,44 @@ make check                         # fmt + clippy + the whole workspace
   Underflow
 - Opens where you left it: the window size is remembered, written out a
   couple of seconds after you stop dragging the edge rather than on
-  every frame of the drag
+  every frame of the drag. "Save window size" in the settings turns
+  that off — and turning it back on records the size you are looking
+  at there and then
 - Side panels dock beside the calculator rather than over it, so the
   window grows to make room for them and cannot be dragged in narrower
   than the calculator plus whatever panels are open
 - One `%` key for both readings, decided by what follows it: on its own
   it is a percentage (`3.5%×230` = 8.05, `200+10%` = 220), and with an
   operand straight after it, it is modulo (`5%3.2` = 1.8, `7%(-3)` = 1)
-	- It never lands in an exponent, whichever of the two it is
-	  going to be. `%` is about the value in hand, and the text
-	  cannot say it is anything else — `2^5%` reads as `2` raised to
-	  `5%` — so the press leaves the exponent and brackets the power
-	  it applies to: `2`, `xʸ`, `5`, `%` is `(2⁵)%`. Open a bracket
-	  at the head of the exponent and it stays there, since that
-	  gesture is for putting a whole expression up in the slot:
-	  `2^(5%)`
+	- `%` and `!` write themselves and nothing else — neither puts
+	  brackets round what it applies to. Keyed in an exponent they
+	  stay in the exponent, which is how the text reads them
+	  anyway: `2`, `xʸ`, `5`, `%` is `2^5%`, and `2`, `xʸ`, `3`,
+	  `!` is `2` raised to `3!` = 64
+- An expression with no value says which part of it has none, rather
+  than a bare "Undefined": `√(-4)` is `Undefined: Negative number
+  under even root`, `ln(0)` is `Undefined: Zero inside logarithm`,
+  `4÷0` is `Undefined: Division by zero`, `tan(90°)` is `Undefined:
+  Tangent`, and `0^-2` — which used to report Overflow, saying the
+  answer was too big rather than that there is none — is `Undefined:
+  Zero raised to negative power`. The cases with no name of their own
+  still read `Undefined`
+- The memory register sits under the display, at the size and in the
+  colours of the number-property labels and aligned to the right: a
+  dim `M` while nothing is stored, the value beside it once something
+  is. It used to be a line at the top of the history panel, where it
+  could only be read with that panel open
+- Every on/off setting is one block at the top of the settings panel,
+  each on its own line with the switch against the right edge — show
+  result properties, show memory, save window size, save history, show
+  ASCII expression. Theme and font go last, since they are the two
+  longest controls and the two you set once
+- "Save history" keeps the history list in `config.toml` and reads it
+  back on the next start, updated as each calculation is recorded.
+  Turning it off empties it from the file straight away; turning it on
+  writes what is already on screen. Entries are stored as the ASCII
+  expression the clipboard would carry, so the file stays readable and
+  a row can be clicked back into the buffer after a restart
 - Shows real-time number properties in both layouts: prime ; harshad ; palindrome ; square ; triangular ; fibonacci
  	- Miller-Rabin primality test is used with 9 deterministic bases which gives a fast and 100% accurate prime number detection up to 2^64 (~10^19)
 

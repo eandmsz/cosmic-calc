@@ -66,6 +66,8 @@ impl DecimalSeparator {
 /// decimal → space thousands). `None` disables grouping entirely.
 /// Concrete choices are constrained at render time so we never pick a
 /// glyph that collides with the current decimal separator.
+///
+/// The space is [`GROUP_SPACE`], not an ordinary one: see there.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ThousandsSeparator {
@@ -76,6 +78,17 @@ pub enum ThousandsSeparator {
     Dot,
     None,
 }
+
+/// The space that groups digits: U+00A0, no-break.
+///
+/// An ordinary space is a place a line may be broken, and the display
+/// draws its text into a box exactly one line high and clipped. A
+/// grouped number that came a hair over the width estimate therefore
+/// broke at a group boundary and all but its first group was clipped
+/// away — `1 234 567` reading as `1`, which is a good deal worse than
+/// no grouping at all. It is also simply the right character for the
+/// job: a group separator is never a word break.
+pub const GROUP_SPACE: char = '\u{00A0}';
 
 impl ThousandsSeparator {
     /// Whether this stored choice is excluded from the settings UI
@@ -99,20 +112,20 @@ impl ThousandsSeparator {
         let decimal = decimal.resolved();
         match self {
             Self::None => None,
-            Self::Space => Some(' '),
+            Self::Space => Some(GROUP_SPACE),
             Self::Comma => match decimal {
-                DecimalSeparator::Comma => Some(' '),
+                DecimalSeparator::Comma => Some(GROUP_SPACE),
                 DecimalSeparator::Dot => Some(','),
                 DecimalSeparator::Auto => Some(','),
             },
             Self::Dot => match decimal {
-                DecimalSeparator::Dot => Some(' '),
+                DecimalSeparator::Dot => Some(GROUP_SPACE),
                 DecimalSeparator::Comma => Some('.'),
                 DecimalSeparator::Auto => Some('.'),
             },
             Self::Auto => match decimal {
                 DecimalSeparator::Dot => Some(','),
-                DecimalSeparator::Comma => Some(' '),
+                DecimalSeparator::Comma => Some(GROUP_SPACE),
                 DecimalSeparator::Auto => Some(','),
             },
         }

@@ -8,12 +8,44 @@ pub const ERR_UNDERFLOW: &str = "Underflow";
 pub const ERR_INDETERMINATE: &str = "Indeterminate";
 pub const ERR_UNDEFINED: &str = "Undefined";
 
+/// The named undefined cases, spelled out on the display.
+///
+/// A bare "Undefined" says the expression has no value but not which
+/// part of it is the problem, and the seven below are the ones a user
+/// actually keys by accident: they name the operation and the operand
+/// that made it undefined, so the fix is visible without re-deriving
+/// it from the expression.
+pub const ERR_NEGATIVE_EVEN_ROOT: &str = "Undefined: Negative number under even root";
+pub const ERR_NEGATIVE_LOG: &str = "Undefined: Negative number inside logarithm";
+pub const ERR_ZERO_LOG: &str = "Undefined: Zero inside logarithm";
+pub const ERR_ZERO_POW_ZERO: &str = "Undefined: Zero raised to zero power";
+pub const ERR_ZERO_POW_NEGATIVE: &str = "Undefined: Zero raised to negative power";
+pub const ERR_DIVISION_BY_ZERO: &str = "Undefined: Division by zero";
+pub const ERR_TANGENT: &str = "Undefined: Tangent";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CalcError {
     Overflow,
     Underflow,
     Indeterminate,
+    /// No named case fits: the catch-all, still spelled "Undefined".
     Undefined,
+    /// An even root of a negative number — `√(-4)`, `root(-8, 4)`.
+    NegativeEvenRoot,
+    /// A logarithm of a negative number.
+    NegativeLog,
+    /// A logarithm of zero.
+    ZeroLog,
+    /// `0^0`.
+    ZeroPowZero,
+    /// `0` raised to a negative power, which is a division by zero
+    /// wearing an exponent. It used to report Overflow, which said
+    /// the answer was too big rather than that there was none.
+    ZeroPowNegative,
+    /// A division (or a modulo) whose divisor is zero.
+    DivisionByZero,
+    /// `tan` at one of its poles.
+    Tangent,
 }
 
 impl CalcError {
@@ -24,6 +56,13 @@ impl CalcError {
             CalcError::Underflow => ERR_UNDERFLOW,
             CalcError::Indeterminate => ERR_INDETERMINATE,
             CalcError::Undefined => ERR_UNDEFINED,
+            CalcError::NegativeEvenRoot => ERR_NEGATIVE_EVEN_ROOT,
+            CalcError::NegativeLog => ERR_NEGATIVE_LOG,
+            CalcError::ZeroLog => ERR_ZERO_LOG,
+            CalcError::ZeroPowZero => ERR_ZERO_POW_ZERO,
+            CalcError::ZeroPowNegative => ERR_ZERO_POW_NEGATIVE,
+            CalcError::DivisionByZero => ERR_DIVISION_BY_ZERO,
+            CalcError::Tangent => ERR_TANGENT,
         }
     }
 }

@@ -310,3 +310,79 @@ fn legacy_per_channel_colour_tables_still_load() {
     let rewritten = toml::to_string_pretty(&cfg).expect("serialise");
     assert!(rewritten.contains(r##"app_bg = "#1B1B1BFF""##));
 }
+
+#[test]
+fn the_new_toggles_default_to_what_the_app_always_did() {
+    let c = Config::default();
+    // The memory register is on: it used to be shown unconditionally,
+    // just in a place only the history panel could reach.
+    assert!(c.show_memory);
+    // The window size has always been remembered.
+    assert!(c.save_window_size);
+    // The history never has, so keeping it is the user's to ask for.
+    assert!(!c.save_history);
+    assert!(c.history.is_empty());
+    // Either half of the row under the display is reason enough to
+    // draw it.
+    assert!(c.status_row_visible());
+    assert!(!Config {
+        show_memory: false,
+        ..Config::default()
+    }
+    .status_row_visible());
+}
+
+#[test]
+fn a_stored_history_is_kept_only_while_the_toggle_is_on() {
+    use crate::history::{StoredEntry, HISTORY_CAPACITY};
+    let rows: Vec<StoredEntry> = (0..HISTORY_CAPACITY + 4)
+        .map(|i| StoredEntry {
+            expression: format!("{i}"),
+            result: format!("{i}"),
+        })
+        .collect();
+
+    // Off, whatever is in the file is dropped on load — including a
+    // hand-edited list and the leftovers of the toggle being turned
+    // off while the app was not running.
+    let mut c = Config {
+        save_history: false,
+        history: rows.clone(),
+        ..Config::default()
+    };
+    c.validate_and_clamp();
+    assert!(c.history.is_empty());
+
+    // On, only as much of it as the panel would hold, newest kept.
+    let mut c = Config {
+        save_history: true,
+        history: rows,
+        ..Config::default()
+    };
+    c.validate_and_clamp();
+    assert_eq!(c.history.len(), HISTORY_CAPACITY);
+    assert_eq!(c.history[0].result, "4");
+}
+
+#[test]
+fn the_new_fields_round_trip_through_the_file() {
+    use crate::history::StoredEntry;
+    let c = Config {
+        save_history: true,
+        show_memory: false,
+        save_window_size: false,
+        history: vec![StoredEntry {
+            expression: "2^3".to_string(),
+            result: "8".to_string(),
+        }],
+        ..Config::default()
+    };
+    let text = toml::to_string_pretty(&c).expect("serialises");
+    let mut back: Config = toml::from_str(&text).expect("parses");
+    back.validate_and_clamp();
+    assert!(back.save_history);
+    assert!(!back.show_memory);
+    assert!(!back.save_window_size);
+    assert_eq!(back.history.len(), 1);
+    assert_eq!(back.history[0].expression, "2^3");
+}

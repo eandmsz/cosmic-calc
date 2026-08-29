@@ -26,14 +26,17 @@ pub fn scale_main_text_size(chars: usize, window_width: f32, display_height: f32
     // leftover is leading — blank space split evenly above and below
     // the digits. The original ladder left about three tenths of the
     // slot as leading, which read as padding around a readout that
-    // had room to be bigger; a little over two tenths is enough to
-    // clear an ascender and a descender.
+    // had room to be bigger; these keep about one seventh of it,
+    // which still clears an ascender and a descender and gives the
+    // rest of the slot to the digits. Every tier holds the same
+    // ratio, so the readout keeps its proportions as it steps down,
+    // and the leading stays split evenly top and bottom.
     let (base_size, base_line) = match chars {
-        0..=12 => (48.0, 62.0),
-        13..=16 => (40.0, 52.0),
-        17..=22 => (33.0, 44.0),
-        23..=30 => (27.0, 36.0),
-        _ => (22.0, 30.0),
+        0..=12 => (53.0, 62.0),
+        13..=16 => (45.0, 52.0),
+        17..=22 => (38.0, 44.0),
+        23..=30 => (31.0, 36.0),
+        _ => (26.0, 30.0),
     };
     let factor = window_width_scale_factor(window_width)
         * display_height_scale_factor(display_height, chars);

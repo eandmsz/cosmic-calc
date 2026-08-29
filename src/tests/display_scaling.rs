@@ -111,3 +111,31 @@ fn a_slide_costs_the_row_nothing() {
     let still = segment_padding(0.1, 0.0, 50.0);
     assert_eq!((still.left, still.right), (0.0, 0.0));
 }
+
+#[test]
+fn the_readout_keeps_only_as_much_leading_as_it_needs() {
+    // The size-to-line ratio is what decides how big the digits come
+    // out: the line height is grown to fill the slot and the size
+    // follows it, so whatever the ratio leaves over is blank space
+    // split evenly above and below. Every tier holds the same ratio,
+    // so stepping down for a longer expression does not also change
+    // how much of the slot the digits get.
+    let ratios: Vec<f32> = [4, 14, 20, 26, 40]
+        .iter()
+        .map(|chars| {
+            let (size, line) = scale_main_text_size(*chars, 480.0, 72.0);
+            size / line
+        })
+        .collect();
+    for ratio in &ratios {
+        assert!(
+            (0.84..=0.88).contains(ratio),
+            "a tier leaves {:.0}% of its slot as leading",
+            (1.0 - ratio) * 100.0
+        );
+    }
+    let spread = ratios
+        .iter()
+        .fold(0.0f32, |acc, r| acc.max((r - ratios[0]).abs()));
+    assert!(spread < 0.02, "the tiers disagree about their leading");
+}

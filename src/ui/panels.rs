@@ -1,6 +1,6 @@
 //! Side panels docked beside the main app layout. The history
-//! panel reads from [`History`] and [`Memory`]; the settings panel
-//! emits the existing per-field `Message` variants.
+//! panel reads from [`History`]; the settings panel emits the
+//! existing per-field `Message` variants.
 //!
 //! Both panels scroll their contents. Neither list is bounded – the
 //! history holds up to 255 entries and the settings column is longer
@@ -26,7 +26,6 @@ use crate::config::{
 };
 use crate::history::History;
 use crate::locale::{DecimalSeparator, ThousandsSeparator};
-use crate::memory::Memory;
 use crate::theme::{Theme, ThemeKind};
 use crate::ui::app::Message;
 use crate::ui::button_style;
@@ -96,7 +95,28 @@ fn option_buttons<'a, T: Copy + PartialEq>(
         .into()
 }
 
-/// Left-hand history + memory panel. Newest entries first. Clicking
+/// One line of the settings panel's toggle block: the name on the
+/// left, the switch hard against the right edge. A `toggler`'s own
+/// label sits immediately beside its switch, which puts every switch
+/// at a different place down the column — the width of the longest
+/// name apart — so the label is a separate widget with the space
+/// between them doing the pushing.
+fn toggle_row<'a>(
+    label: &'static str,
+    value: bool,
+    on_toggle: impl Fn(bool) -> Message + 'a,
+) -> Element<'a, Message> {
+    widget::row::with_capacity(3)
+        .push(widget::text::body(label))
+        .push(widget::Space::new().width(Length::Fill))
+        .push(widget::toggler(value).on_toggle(on_toggle))
+        .align_y(cosmic::iced::Alignment::Center)
+        .spacing(8)
+        .width(Length::Fill)
+        .into()
+}
+
+/// Left-hand history panel. Newest entries first. Clicking
 /// a row emits `Message::RecallHistory(idx)` which rewrites the
 /// display (but leaves the buffer alone, per spec).
 ///
@@ -107,22 +127,17 @@ fn option_buttons<'a, T: Copy + PartialEq>(
 pub fn history_panel<'a>(
     theme: &Theme,
     history: &History,
-    memory: &Memory,
     config: &Config,
 ) -> Element<'a, Message> {
     let radius = config.effective_button_corner_radius();
     let header = widget::text::title4("History");
-    let mem_label = match memory.display(config.significant_digits) {
-        s if s.is_empty() => "Memory: (empty)".to_string(),
-        s => format!("Memory: {s}"),
-    };
 
     let mut list = widget::column::with_capacity(2 * history.len()).spacing(6);
 
+    let thousands = config.thousands_separator.resolve(config.decimal_separator);
     if history.is_empty() {
         list = list.push(widget::text::body("(no history yet)"));
     } else {
-        let thousands = config.thousands_separator.resolve(config.decimal_separator);
         for (idx, entry) in history.iter_newest_first().enumerate() {
             let expression = if entry.items.is_empty() {
                 entry.expression.clone()
@@ -134,9 +149,18 @@ pub fn history_panel<'a>(
                     config.notation(),
                 )
             };
+            // The result is a number the app is showing, so it wears
+            // the same grouping and decimal glyph the display gives
+            // one. It used to be the formatter's plain ASCII, which
+            // read as a different locale from the expression above it.
+            let result = crate::ui::display::localise_number(
+                &entry.result,
+                config.decimal_separator,
+                thousands,
+            );
             let entry_column = widget::column::with_capacity(2)
                 .push(widget::text::caption(expression))
-                .push(widget::text::body(entry.result.clone()))
+                .push(widget::text::body(result))
                 .spacing(2);
             list = list.push(
                 widget::button::custom(entry_column)
@@ -148,12 +172,15 @@ pub fn history_panel<'a>(
         }
     }
 
-    // The list scrolls; the header and the memory line stay put. Before
-    // this, entry number N pushed the oldest entry out through the
-    // bottom of the window, one row at a time, as the history grew.
-    widget::column::with_capacity(3)
+    // The list scrolls; the header stays put. Before this, entry
+    // number N pushed the oldest entry out through the bottom of the
+    // window, one row at a time, as the history grew.
+    //
+    // The memory register used to be a line under that header, where
+    // it could only be read with this panel open. It is under the
+    // main display now — see `AppModel::render_status_bar`.
+    widget::column::with_capacity(2)
         .push(header)
-        .push(widget::text::caption(mem_label))
         .push(
             widget::scrollable(list)
                 .spacing(SCROLLBAR_GAP)
@@ -213,18 +240,18 @@ pub fn settings_panel<'a>(
     let radius = config.effective_button_corner_radius();
     let header = widget::text::title4("Settings");
 
-    // Theme dropdown – presents every preset in a single menu so the
-    // panel isn't dominated by a tall row of theme buttons.
-    let theme_names: Vec<String> = ThemeKind::all()
-        .iter()
-        .map(|k| k.display_name().to_string())
-        .collect();
-    let selected_idx = ThemeKind::all()
-        .iter()
-        .position(|k| *k == config.theme_kind);
-    let theme_dropdown = widget::dropdown(theme_names, selected_idx, |i| {
-        Message::SetTheme(ThemeKind::all()[i])
-    });
+    // Theme — a row of buttons, like every other choice in this
+    // panel. It was the last drop-down left: a menu hides what is on
+    // offer behind a click, and the presets are short enough to wrap
+    // onto a couple of lines and be read at a glance.
+    let theme_buttons = option_buttons(
+        theme,
+        radius,
+        &ThemeKind::all(),
+        config.theme_kind,
+        |k: ThemeKind| k.display_name(),
+        Message::SetTheme,
+    );
 
     // Decimal separator — one button per choice, so the three are
     // readable at a glance and switching is a single click rather than
@@ -294,21 +321,33 @@ pub fn settings_panel<'a>(
         Message::SetButtonShape,
     );
 
-    // Property-testing exposes a cosmic Toggler so the on/off state is
-    // visible at a glance; the underlying message is unchanged so the
-    // rest of the app keeps working through the same handler.
-    let prop_toggle = widget::toggler(config.property_testing)
-        .label("Show result properties".to_string())
-        .on_toggle(Message::SetPropertyTesting)
-        .spacing(8.0);
-
-    // Debug switch between the buffer's own spelling and the rendered
-    // one. Purely a display choice: the tokenizer is handed the raw
-    // form either way, so a result never depends on this.
-    let debug_toggle = widget::toggler(config.debug_raw_formula)
-        .label("Show ASCII expression".to_string())
-        .on_toggle(Message::SetDebugRawFormula)
-        .spacing(8.0);
+    // Every on/off setting in one block, each on its own line with
+    // the switch pushed to the right edge, so the switches line up in
+    // a column and the block reads as one list rather than as
+    // toggles scattered between the sliders and the option rows.
+    let toggles = widget::column::with_children(vec![
+        toggle_row(
+            "Show result properties",
+            config.property_testing,
+            Message::SetPropertyTesting,
+        ),
+        toggle_row("Show memory", config.show_memory, Message::SetShowMemory),
+        toggle_row(
+            "Save window size",
+            config.save_window_size,
+            Message::SetSaveWindowSize,
+        ),
+        toggle_row("Save history", config.save_history, Message::SetSaveHistory),
+        // Purely a display choice: the tokenizer is handed the raw
+        // form either way, so a result never depends on this one.
+        toggle_row(
+            "Show ASCII expression",
+            config.debug_raw_formula,
+            Message::SetDebugRawFormula,
+        ),
+    ])
+    .spacing(8)
+    .width(Length::Fill);
 
     // Font selector — enumerates every family fontdb finds installed on
     // the host. Each row renders the family's name in its own typeface
@@ -386,12 +425,14 @@ pub fn settings_panel<'a>(
         config.significant_digits
     ));
 
-    let content = widget::column::with_capacity(22)
+    // Theme and font are the two longest controls in the panel — a
+    // wrapped row of presets and a scrolling list of every family on
+    // the machine — and they are the two a user sets once. They go
+    // last, so the settings that get changed are reachable without
+    // scrolling past them.
+    let content = widget::column::with_capacity(20)
         .push(header)
-        .push(widget::text::caption("Theme"))
-        .push(theme_dropdown)
-        .push(widget::text::caption("Font"))
-        .push(font_selector)
+        .push(toggles)
         .push(widget::text::caption("Decimal separator"))
         .push(decimal_buttons)
         .push(widget::text::caption("Thousands separator"))
@@ -406,8 +447,10 @@ pub fn settings_panel<'a>(
         .push(rand_max_input)
         .push(rand_decimals_label)
         .push(rand_decimals_slider)
-        .push(prop_toggle)
-        .push(debug_toggle)
+        .push(widget::text::caption("Theme"))
+        .push(theme_buttons)
+        .push(widget::text::caption("Font"))
+        .push(font_selector)
         .spacing(8)
         .padding(12)
         .width(Length::Fill);

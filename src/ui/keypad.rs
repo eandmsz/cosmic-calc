@@ -311,11 +311,15 @@ fn on_line_text(parts: &[LabelPart]) -> String {
 ///
 ///   * the decimal separator, whose `.` or `,` belongs down on the
 ///     baseline the digits beside it sit on — centring the dot's ink
-///     floats it halfway up the key, which reads as a bullet;
-///   * `+⁄−`, which sits next to `1⁄x` and has to match it.
+///     floats it halfway up the key, which reads as a bullet.
+///
+/// `⁺⁄₋` used to be here too, so it would sit where `¹⁄ₓ` sat. Both
+/// faces are now drawn from pieces with the same fraction slash alone
+/// on the line, so they are centred on the same ink by construction
+/// and the special case has nothing left to say.
 fn centring_for(button: Button) -> Centring {
     match button {
-        Button::Decimal | Button::Negate => Centring::CapBand,
+        Button::Decimal => Centring::CapBand,
         _ => Centring::Auto,
     }
 }

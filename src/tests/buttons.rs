@@ -866,11 +866,12 @@ fn an_operator_after_y_pow_x_follows_the_whole_power() {
 }
 
 #[test]
-fn closing_a_bracket_over_a_power_takes_the_whole_power() {
-    // `)` with nothing open brackets what is on screen. On a power
-    // that is the power: `2^3` then `)` is `(2^3)`, where bracketing
-    // the last operand alone drew `2⁽³⁾` — the same value with
-    // brackets round a part of it nobody asked to separate.
+fn closing_a_bracket_in_an_exponent_closes_the_exponent() {
+    // An exponent typed straight after the caret is a slot the
+    // display draws brackets round, and `)` is how the user says they
+    // are done with it. Nothing is written: `2^3` is already the
+    // number they mean, and the press used to bracket the whole power
+    // as `(2^3)` — the same value wearing a pair nobody asked for.
     let (mut e, mut s, c) = fresh();
     for b in [
         Button::Num(2),
@@ -880,11 +881,18 @@ fn closing_a_bracket_over_a_power_takes_the_whole_power() {
     ] {
         apply_button(&mut e, &mut s, &c, b);
     }
-    assert_eq!(e.input.display_string(), "(2^3)");
-    apply_button(&mut e, &mut s, &c, Button::Square);
-    assert_eq!(e.evaluate().expect("eight squared").display, "64");
+    assert_eq!(e.input.display_string(), "2^3");
+    assert_eq!(e.input.cursor(), 3);
+    assert_eq!(e.evaluate().expect("two cubed").display, "8");
 
-    // A whole tower goes in together, the way `x²` brackets one.
+    // The keys with a base of their own read the same way.
+    let (mut e, mut s, c) = fresh();
+    for b in [Button::EPowX, Button::Num(8), Button::RightParen] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert_eq!(e.input.ascii_expression(), "e^8");
+
+    // A whole tower is one slot closed, not a bracket round it.
     let (mut e, mut s, c) = fresh();
     for b in [
         Button::Num(2),
@@ -896,10 +904,11 @@ fn closing_a_bracket_over_a_power_takes_the_whole_power() {
     ] {
         apply_button(&mut e, &mut s, &c, b);
     }
-    assert_eq!(e.input.display_string(), "(2^3^2)");
+    assert_eq!(e.input.display_string(), "2^3^2");
 
-    // An operand that is not a power is unaffected: the brackets go
-    // round the number just typed, not the sum in front of it.
+    // An operand that is not in an exponent is unaffected: the
+    // brackets go round the number just typed, not the sum in front
+    // of it.
     let (mut e, mut s, c) = fresh();
     for b in [
         Button::Num(5),
@@ -2146,22 +2155,33 @@ fn a_closing_bracket_with_nothing_open_brackets_the_operand() {
     assert_eq!(e.input.display_string(), "5+(2)");
     assert_eq!(e.input.cursor(), 5);
 
-    // With nothing to bracket the press still does nothing, rather
-    // than leaving an empty pair or a stray closer behind.
-    for keys in [
-        vec![Button::RightParen],
-        vec![Button::Num(5), Button::Add, Button::RightParen],
-    ] {
-        let (mut e, mut s, c) = fresh();
-        let mut expected = String::new();
-        for b in keys {
-            apply_button(&mut e, &mut s, &c, b);
-            if !matches!(b, Button::RightParen) {
-                expected = e.input.display_string();
-            }
-        }
-        assert_eq!(e.input.display_string(), expected);
+    // With nothing at all to bracket the press still does nothing,
+    // rather than leaving an empty pair or a stray closer behind.
+    let (mut e, mut s, c) = fresh();
+    apply_button(&mut e, &mut s, &c, Button::RightParen);
+    assert!(e.input.is_empty());
+
+    // A trailing operator has no right operand for the brackets to
+    // close over, so the press takes it back and brackets the value
+    // that is left: `5+` then `)` is `(5)`.
+    let (mut e, mut s, c) = fresh();
+    for b in [Button::Num(5), Button::Add, Button::RightParen] {
+        apply_button(&mut e, &mut s, &c, b);
     }
+    assert_eq!(e.input.display_string(), "(5)");
+
+    // The same inside a bracket the user opened, which is where the
+    // half-finished sum is most often left: `(5+` then `)` is `(5)`.
+    let (mut e, mut s, c) = fresh();
+    for b in [
+        Button::LeftParen,
+        Button::Num(5),
+        Button::Add,
+        Button::RightParen,
+    ] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert_eq!(e.input.display_string(), "(5)");
 
     // A bracket that is open is closed as it always was: the press
     // steps over the closer the `(` key put there.
@@ -2235,25 +2255,23 @@ fn a_fixed_exponent_is_not_a_slot_anything_else_can_reach() {
 }
 
 #[test]
-fn a_fixed_exponent_goes_in_brackets_before_anything_postfix() {
-    // The buffer spells `5²` as `5^2`, where a postfix binds tighter
-    // than the caret — so `5^2!` is `5` raised to `2!` and `5^2^3` is
-    // `5` raised to `2^3`. Since the square is finished, the brackets
-    // go in and say so.
-    for (key, expected, value) in [
-        (Button::Factorial, "(5^2)!", "1.5511210043331e25"),
-        (Button::Percent, "(5^2)%", "0.25"),
-    ] {
+fn a_fixed_exponent_goes_in_brackets_before_another_caret() {
+    // `!` and `%` write themselves and nothing else — no brackets go
+    // in around what they apply to — so after a square they read the
+    // way the buffer spells it, `5^2`, with the postfix binding to
+    // the exponent.
+    for (key, expected) in [(Button::Factorial, "5^2!"), (Button::Percent, "5^2%")] {
         let (mut e, mut s, c) = fresh();
         for b in [Button::Num(5), Button::Square, key] {
             apply_button(&mut e, &mut s, &c, b);
         }
         assert_eq!(e.input.display_string(), expected);
-        assert_eq!(e.evaluate().expect("evaluates").display, value);
     }
 
-    // And the caret keys, which would otherwise have raised the `2`
-    // rather than the square.
+    // The caret keys do bracket, because without it they would raise
+    // the `2` rather than the square — a different number, where a
+    // postfix on the exponent is only a different reading of the same
+    // gesture.
     let (mut e, mut s, c) = fresh();
     for b in [
         Button::Num(5),
@@ -2313,11 +2331,10 @@ fn squaring_a_swapped_power_squares_the_whole_power() {
 }
 
 #[test]
-fn percent_never_lands_in_an_exponent() {
-    // `%` is a basic-keypad operation on the value in hand, and the
-    // text cannot say it is anything else — `2^5%` reads as `2` raised
-    // to `5%`. So the press leaves the exponent and brackets the power
-    // it applies to.
+fn percent_and_factorial_write_no_brackets_of_their_own() {
+    // Both keys write one item at the cursor. Keyed in an exponent
+    // they stay in the exponent — `2^5%` is `2` raised to `5%` — and
+    // nothing is moved or bracketed on their behalf.
     let (mut e, mut s, c) = fresh();
     for b in [
         Button::Num(2),
@@ -2327,39 +2344,22 @@ fn percent_never_lands_in_an_exponent() {
     ] {
         apply_button(&mut e, &mut s, &c, b);
     }
-    assert_eq!(e.input.display_string(), "(2^5)%");
-    assert_eq!(e.evaluate().expect("a third of a hundred").display, "0.32");
+    assert_eq!(e.input.display_string(), "2^5%");
 
-    // A whole chain of them comes out together, not just the last step.
     let (mut e, mut s, c) = fresh();
     for b in [
         Button::Num(2),
         Button::XPowY,
         Button::Num(3),
-        Button::XPowY,
-        Button::Num(2),
-        Button::Percent,
+        Button::Factorial,
     ] {
         apply_button(&mut e, &mut s, &c, b);
     }
-    assert_eq!(e.input.display_string(), "(2^3^2)%");
+    assert_eq!(e.input.display_string(), "2^3!");
+    assert_eq!(e.evaluate().expect("two to the six").display, "64");
 
-    // A sign in front of the exponent is part of the power, not a
-    // break in it: the brackets still start at the base. Pasted
-    // rather than keyed, since the `-` key replaces a trailing caret
-    // instead of signing what comes after it.
-    let (mut e, mut s, c) = fresh();
-    e.input.replace(vec![
-        InputItem::Digit('2'),
-        InputItem::BinOp(crate::engine::item::BinOp::Pow),
-        InputItem::BinOp(crate::engine::item::BinOp::Sub),
-        InputItem::Digit('3'),
-    ]);
-    apply_button(&mut e, &mut s, &c, Button::Percent);
-    assert_eq!(e.input.display_string(), "(2^-3)%");
-
-    // Unless the user opened a bracket at the head of the exponent,
-    // which is the gesture for putting a whole expression up there.
+    // A bracket the user opened at the head of the exponent is
+    // untouched too, as it always was.
     let (mut e, mut s, c) = fresh();
     for b in [
         Button::Num(2),
@@ -2371,4 +2371,313 @@ fn percent_never_lands_in_an_exponent() {
         apply_button(&mut e, &mut s, &c, b);
     }
     assert_eq!(e.input.display_string(), "2^(5%)");
+
+    // On the line they are the postfix they have always been.
+    let (mut e, mut s, c) = fresh();
+    for b in [Button::Num(5), Button::Num(0), Button::Percent] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert_eq!(e.evaluate().expect("half").display, "0.5");
+}
+
+// --- the reported input defects ------------------------------------
+
+#[test]
+fn a_minus_where_a_value_begins_is_its_sign() {
+    // On an empty display the `−` key used to supply a left operand
+    // nobody typed: `−`, `6` read `0-6`. It is the sign of the number
+    // about to be keyed.
+    let (mut e, mut s, c) = fresh();
+    for b in [Button::Sub, Button::Num(6)] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert_eq!(e.input.display_string(), "-6");
+    assert_eq!(e.evaluate().expect("minus six").display, "-6");
+
+    // The other three still start on a `0`, which is what they need
+    // and what the sign does not.
+    for (key, expected) in [
+        (Button::Add, "0+"),
+        (Button::Mul, "0×"),
+        (Button::Div, "0÷"),
+    ] {
+        let (mut e, mut s, c) = fresh();
+        apply_button(&mut e, &mut s, &c, key);
+        assert_eq!(e.input.display_string(), expected);
+    }
+
+    // A trailing operator is still a change of mind, and changing it
+    // back to a sign leaves the sign.
+    let (mut e, mut s, c) = fresh();
+    for b in [Button::Sub, Button::Add] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert_eq!(e.input.display_string(), "0+");
+}
+
+#[test]
+fn the_two_argument_calls_take_a_minus_in_every_slot() {
+    // Each slot is a place a value begins, so a `−` keyed there is a
+    // sign. Every one of these used to drop the press.
+    for (presses, expected) in [
+        (vec![Button::YRootX, Button::Sub], "root(-,)"),
+        (
+            vec![Button::Num(5), Button::YRootX, Button::Sub],
+            "root(5,-)",
+        ),
+        (vec![Button::LogY, Button::Sub], "log(,-)"),
+        (vec![Button::Num(5), Button::LogY, Button::Sub], "log(-,5)"),
+    ] {
+        let (mut e, mut s, c) = fresh();
+        for b in presses {
+            apply_button(&mut e, &mut s, &c, b);
+        }
+        assert_eq!(e.input.ascii_expression(), expected);
+    }
+
+    // And the value they close over keeps its own sign rather than
+    // leaving it outside, where it negated the call instead.
+    let (mut e, mut s, c) = fresh();
+    for b in [
+        Button::Sub,
+        Button::Num(4),
+        Button::LogY,
+        Button::Num(8),
+        Button::RightParen,
+    ] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert_eq!(e.input.ascii_expression(), "log(8,-4)");
+
+    let (mut e, mut s, c) = fresh();
+    for b in [
+        Button::Sub,
+        Button::Num(5),
+        Button::YRootX,
+        Button::Num(3),
+        Button::RightParen,
+    ] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert_eq!(e.input.ascii_expression(), "root(-5,3)");
+
+    // A binary minus is not a sign: the call closes over the right
+    // operand alone.
+    let (mut e, mut s, c) = fresh();
+    for b in [
+        Button::Num(9),
+        Button::Sub,
+        Button::Num(4),
+        Button::YRootX,
+        Button::Num(2),
+        Button::RightParen,
+    ] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert_eq!(e.input.ascii_expression(), "9-root(4,2)");
+}
+
+#[test]
+fn a_decimal_point_with_no_fraction_behind_it_goes() {
+    // `5.` then `+` is `5+`: the point was started and left.
+    let (mut e, mut s, c) = fresh();
+    for b in [Button::Num(5), Button::Decimal, Button::Add, Button::Num(6)] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert_eq!(e.input.display_string(), "5+6");
+    assert_eq!(e.evaluate().expect("eleven").display, "11");
+
+    // `=` drops it too, rather than evaluating a half-typed number.
+    let (mut e, mut s, c) = fresh();
+    for b in [Button::Num(5), Button::Decimal, Button::Equals] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert_eq!(s.last_expression, "5");
+
+    // Backspace is the one press that leaves it alone: deleting the
+    // point is exactly what it is being asked to do.
+    let (mut e, mut s, c) = fresh();
+    for b in [Button::Num(5), Button::Decimal, Button::Backspace] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert_eq!(e.input.display_string(), "5");
+
+    // A point with digits behind it is a number, not a leftover.
+    let (mut e, mut s, c) = fresh();
+    for b in [Button::Num(5), Button::Decimal, Button::Num(2), Button::Add] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert_eq!(e.input.display_string(), "5.2+");
+}
+
+#[test]
+fn closing_a_bracket_takes_back_the_operator_left_hanging() {
+    // The brackets go round a value, and a trailing operator is not
+    // part of one: `(5+` then `)` is `(5)`.
+    let (mut e, mut s, c) = fresh();
+    for b in [
+        Button::LeftParen,
+        Button::Num(5),
+        Button::Add,
+        Button::RightParen,
+    ] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert_eq!(e.input.display_string(), "(5)");
+    assert_eq!(e.evaluate().expect("five").display, "5");
+
+    // Modulo counts as an operator waiting for its right operand too.
+    let (mut e, mut s, c) = fresh();
+    for b in [Button::Num(7), Button::Mod, Button::RightParen] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert_eq!(e.input.display_string(), "(7)");
+
+    // A value that is already closed is left alone: the press
+    // brackets it as it always did.
+    let (mut e, mut s, c) = fresh();
+    for b in [
+        Button::Num(5),
+        Button::Add,
+        Button::Num(2),
+        Button::RightParen,
+    ] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert_eq!(e.input.display_string(), "5+(2)");
+}
+
+#[test]
+fn an_opening_bracket_leaves_the_base_slot_it_finds_filled() {
+    // A bracket after a finished base multiplies the power, so it
+    // belongs after it: `5`, `yˣ`, `6`, `(` is `6⁵×()`. It used to
+    // land in the slot and push the `6` out of it — `6×()⁵`.
+    let (mut e, mut s, c) = fresh();
+    for b in [
+        Button::Num(5),
+        Button::YPowX,
+        Button::Num(6),
+        Button::LeftParen,
+    ] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert_eq!(e.input.ascii_expression(), "6^5*()");
+
+    // With the slot still empty the bracket is how a base gets typed,
+    // so the press stays where it is.
+    let (mut e, mut s, c) = fresh();
+    for b in [
+        Button::Num(5),
+        Button::YPowX,
+        Button::LeftParen,
+        Button::Num(2),
+        Button::RightParen,
+    ] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert_eq!(e.input.ascii_expression(), "(2)^5");
+    assert_eq!(e.evaluate().expect("two to the fifth").display, "32");
+}
+
+#[test]
+fn a_bracket_closed_inside_a_call_slot_finishes_the_slot() {
+    // A bracket opened in the degree of a root is a formula written
+    // *in* the degree, so closing it finishes the degree: the `+2`
+    // then lands outside the call. It used to stay up there and give
+    // `root(8,(2)+2)`.
+    let (mut e, mut s, c) = fresh();
+    for b in [
+        Button::Num(8),
+        Button::YRootX,
+        Button::LeftParen,
+        Button::Num(2),
+        Button::RightParen,
+        Button::Add,
+        Button::Num(2),
+    ] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert_eq!(e.input.ascii_expression(), "root(8,(2))+2");
+
+    // The `log_y` base reads the same way.
+    let (mut e, mut s, c) = fresh();
+    for b in [
+        Button::Num(8),
+        Button::LogY,
+        Button::LeftParen,
+        Button::Num(2),
+        Button::RightParen,
+        Button::Add,
+        Button::Num(2),
+    ] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert_eq!(e.input.ascii_expression(), "log((2),8)+2");
+
+    // The slot-to-slot walk the two keys exist for is untouched.
+    let (mut e, mut s, c) = fresh();
+    for b in [
+        Button::LogY,
+        Button::Num(8),
+        Button::RightParen,
+        Button::Num(2),
+    ] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert_eq!(e.input.ascii_expression(), "log(2,8)");
+}
+
+#[test]
+fn closing_a_base_slot_steps_past_the_whole_power() {
+    // `)` in the base slot `yˣ` opened closes it; the cursor lands
+    // past the power, which is where anything keyed next belongs.
+    let (mut e, mut s, c) = fresh();
+    for b in [
+        Button::Num(5),
+        Button::YPowX,
+        Button::Num(6),
+        Button::RightParen,
+    ] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert_eq!(e.input.ascii_expression(), "6^5");
+    assert_eq!(e.input.cursor(), 3);
+    apply_button(&mut e, &mut s, &c, Button::Add);
+    assert_eq!(e.input.ascii_expression(), "6^5+");
+}
+
+#[test]
+fn the_caption_goes_as_soon_as_the_result_is_added_to() {
+    // The caption is the expression that produced what is on the
+    // display. Add to that result and it is no longer that
+    // expression's answer.
+    let (mut e, mut s, c) = fresh();
+    for b in [Button::Num(2), Button::Add, Button::Num(3), Button::Equals] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert_eq!(s.last_expression, "2+3");
+    apply_button(&mut e, &mut s, &c, Button::Add);
+    assert!(s.last_expression.is_empty());
+    assert!(s.last_expression_items.is_empty());
+
+    // A press that leaves the buffer alone leaves the caption up.
+    let (mut e, mut s, c) = fresh();
+    for b in [Button::Num(2), Button::Add, Button::Num(3), Button::Equals] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    apply_button(&mut e, &mut s, &c, Button::CursorLeft);
+    assert_eq!(s.last_expression, "2+3");
+
+    // And a repeat `=` writes its own caption rather than clearing it.
+    let (mut e, mut s, c) = fresh();
+    for b in [
+        Button::Num(2),
+        Button::Add,
+        Button::Num(3),
+        Button::Equals,
+        Button::Equals,
+    ] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert_eq!(s.last_expression, "5+3");
 }

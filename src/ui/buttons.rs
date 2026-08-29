@@ -186,6 +186,15 @@ pub struct UiState {
     /// non-cosmetic button press clears the message and lets the user
     /// resume editing.
     pub error_message: Option<String>,
+    /// Set by a `)` that closed a script slot the cursor was written
+    /// directly into — an exponent, the base slot `yˣ` opens — rather
+    /// than a bracket pair. Nothing in the buffer records that step,
+    /// because nothing was written: the cursor is already past the
+    /// slot's last item and the only difference is that the user has
+    /// said they are done with it. The display reads this to take the
+    /// placeholder brackets down; the next press that touches the
+    /// buffer clears it, and the brackets come back.
+    pub script_slot_closed: bool,
     /// Half-open item-index range covering the most recent `Rand`
     /// insertion, when one is still live (i.e. no buffer-mutating press
     /// has happened since). The display layer dims only this range so
@@ -282,8 +291,27 @@ pub fn apply_resolved_button(
     // it armed.
     dismiss_rand_caption_if_buffer_changes(state, button);
 
+    // A closed script slot stays closed only until the next press that
+    // touches the line: anything typed there joins the slot again, so
+    // the brackets that say which slot it is come back with it.
+    if !matches!(button, Button::Second | Button::RightParen) {
+        state.script_slot_closed = false;
+    }
+
     // Handle Equals's "continue with Ans" pre-step uniformly.
     handle_post_eval(engine, state, button);
+
+    // A decimal separator with no fractional digits behind it is a
+    // point the user started and moved on from: `5.` then `+` is `5+`.
+    // Every press that ends the numeric run drops it — the digits and
+    // the point itself do not, since those are the run continuing, and
+    // backspace does not, since deleting the point is exactly what it
+    // is being asked to do.
+    if is_buffer_mutating_button(button)
+        && !matches!(button, Button::Num(_) | Button::Decimal | Button::Backspace)
+    {
+        drop_empty_decimal(engine);
+    }
 
     // An operator pressed while the cursor is parked in the base slot
     // `yˣ` opened belongs after the whole power. See
@@ -378,12 +406,22 @@ pub fn apply_resolved_button(
             ButtonEffect::None
         }
         Button::RightParen => {
+            // An operator with nothing after it has no operand to be
+            // closed over, and the `)` is the user saying they are
+            // done: it goes, rather than being left dangling inside
+            // the brackets. `(5+)` is `(5)`.
+            drop_pending_operator(engine);
             match right_paren_target(engine) {
                 Some(target) => {
                     engine.input.set_cursor(target);
+                    // Where the press closed a slot rather than a
+                    // bracket the cursor cannot say so on its own; see
+                    // [`UiState::script_slot_closed`].
+                    state.script_slot_closed = closes_a_script_slot(engine, target);
                     state.clear_mode = ClearMode::Single;
                 }
                 None => {
+                    state.script_slot_closed = false;
                     if close_around_last_operand(engine) {
                         state.clear_mode = ClearMode::Single;
                     }
@@ -446,16 +484,15 @@ pub fn apply_resolved_button(
             // scratch; otherwise the press only takes effect when there
             // is a value-producing token to the left of the cursor.
             //
-            // In an exponent the `!` stays in the exponent: `2`, `xʸ`,
-            // `3`, `!` is `2` raised to `3!`, which is the reading
-            // both power keys are reached for. A fixed exponent is the
-            // one that will not have it — see [`seal_fixed_power`] —
-            // so `5²` then `!` is `(5²)!`.
+            // The key writes a `!` and nothing else: no brackets go in
+            // around what it applies to. In an exponent it stays in the
+            // exponent — `2`, `xʸ`, `3`, `!` is `2` raised to `3!` —
+            // and after a fixed exponent it reads the way the buffer
+            // spells it, `5^2!`.
             if engine.input.is_empty() {
                 engine.input.insert(InputItem::Digit('0'));
                 engine.input.insert(InputItem::Factorial);
             } else if has_left_operand_at_cursor(engine) {
-                seal_fixed_power(engine);
                 engine.input.insert(InputItem::Factorial);
             }
             ButtonEffect::None
@@ -813,11 +850,13 @@ fn handle_post_eval(engine: &mut Engine, state: &mut UiState, button: Button) {
     if starts_new {
         engine.clear();
     }
-    // Backspace right after `=` keeps the result on the main display so
-    // the user can correct the tail of the value digit-by-digit; only
-    // the caption gets cleared so the previous expression doesn't keep
-    // hanging around as the user edits.
-    if matches!(button, Button::Backspace) {
+    // The caption is the expression that produced what is on the
+    // display. The moment the user adds to that result — an operator,
+    // a digit, a wrapper, a backspace — the display stops being that
+    // expression's answer, so the caption stops being true and comes
+    // down. Presses that leave the buffer alone (a cursor move, a
+    // panel toggle) leave it up.
+    if is_buffer_mutating_button(button) {
         state.last_expression.clear();
         state.last_expression_items.clear();
     }
@@ -1233,36 +1272,97 @@ fn toggle_negate(engine: &mut Engine) {
     }
 }
 
-/// Insert a binary operator. Three cases:
-/// 1. Buffer empty → prepend `0` so pressing `+` first gives `0+`.
-/// 2. Cursor sits immediately after another binop with no operand
+/// Insert a binary operator. Four cases:
+/// 1. Cursor sits immediately after another binop with no operand
 ///    between → replace that trailing operator with the new one (so
-///    typing `5+` then `-` yields `5-`).
-/// 3. Cursor sits where there is no left operand at all (after a `(`,
+///    typing `5+` then `-` yields `5-`), then decide again from what
+///    is left.
+/// 2. `−` where a value may begin → the sign of the operand about to
+///    be typed, written on its own. See [`value_may_start_here`].
+/// 3. Buffer empty → prepend `0` so pressing `+` first gives `0+`.
+/// 4. Cursor sits where there is no left operand at all (after a `(`,
 ///    function opener, etc.) → no action.
 ///
 /// Otherwise the operator is inserted normally.
 fn replace_or_insert_binop(engine: &mut Engine, op: BinOp) {
-    if engine.input.is_empty() {
-        engine.input.insert(InputItem::Digit('0'));
+    let cur = engine.input.cursor();
+    if cur > 0 && matches!(engine.input.items()[cur - 1], InputItem::BinOp(_)) {
+        // Replace the trailing binop with the new one. We pop and
+        // push so any cursor bookkeeping in the engine stays
+        // consistent with the standard insert path.
+        engine.input.delete_before();
+    }
+    if has_left_operand_at_cursor(engine) {
         engine.input.insert(InputItem::BinOp(op));
         return;
     }
-    let cur = engine.input.cursor();
-    if cur > 0 {
-        if let InputItem::BinOp(_) = engine.input.items()[cur - 1] {
-            // Replace the trailing binop with the new one. We pop and
-            // push so any cursor bookkeeping in the engine stays
-            // consistent with the standard insert path.
-            engine.input.delete_before();
-            engine.input.insert(InputItem::BinOp(op));
-            return;
-        }
-    }
-    if !has_left_operand_at_cursor(engine) {
+    // Nothing to the left to operate on. A `−` is then the sign of
+    // what comes next rather than a subtraction — `−`, `6` is `-6`,
+    // not the `0-6` a supplied left operand used to make of it, and
+    // in the slots of a two-argument call it is the only way to key a
+    // negative base, degree or argument at all.
+    if op == BinOp::Sub && value_may_start_here(engine) {
+        engine.input.insert(InputItem::BinOp(BinOp::Sub));
         return;
     }
-    engine.input.insert(InputItem::BinOp(op));
+    // The other three need a left operand, and an empty display is
+    // the one place the calculator supplies it: `+` first gives `0+`.
+    if engine.input.is_empty() {
+        engine.input.insert(InputItem::Digit('0'));
+        engine.input.insert(InputItem::BinOp(op));
+    }
+}
+
+/// True when a value may begin at the cursor: the start of the
+/// expression, or straight after something that opens one — a
+/// bracket, a function's bracket, or the comma between a call's two
+/// arguments.
+fn value_may_start_here(engine: &Engine) -> bool {
+    let cur = engine.input.cursor();
+    if cur == 0 {
+        return true;
+    }
+    matches!(
+        engine.input.items()[cur - 1],
+        InputItem::LeftParen
+            | InputItem::UnaryFunc(_)
+            | InputItem::BinaryFunc(_)
+            | InputItem::LogN(_)
+            | InputItem::Comma
+    )
+}
+
+/// Take out a decimal separator with no fractional digits behind it.
+/// `5.` then `+` is `5+`: the point was started and left, and a
+/// number ending in one reads as unfinished wherever it is shown.
+/// Nothing happens when the point has digits after it — the cursor is
+/// then inside the number rather than at the end of it.
+fn drop_empty_decimal(engine: &mut Engine) {
+    let cur = engine.input.cursor();
+    if cur == 0 || !matches!(engine.input.items()[cur - 1], InputItem::DecimalPoint) {
+        return;
+    }
+    if matches!(engine.input.items().get(cur), Some(InputItem::Digit(_))) {
+        return;
+    }
+    engine.input.delete_range(cur - 1, cur);
+}
+
+/// Take out the operator the cursor sits on when it is still waiting
+/// for its right operand. What `)` does before closing anything: the
+/// brackets go round a value, and a trailing `+` is not part of one.
+fn drop_pending_operator(engine: &mut Engine) {
+    let cur = engine.input.cursor();
+    if cur == 0 {
+        return;
+    }
+    if !matches!(
+        engine.input.items()[cur - 1],
+        InputItem::BinOp(_) | InputItem::AutoMul | InputItem::Modulo
+    ) {
+        return;
+    }
+    engine.input.delete_range(cur - 1, cur);
 }
 
 /// The one `%` key, covering both readings. There is no separate
@@ -1282,48 +1382,14 @@ fn press_percent(engine: &mut Engine) {
     if !has_left_operand_at_cursor(engine) {
         return;
     }
-    leave_exponent(engine);
-    seal_fixed_power(engine);
     engine.input.insert(InputItem::Percent);
-}
-
-/// Step a `%` out of the exponent it was keyed in, and put that power
-/// in brackets so the `%` reads as applying to it.
-///
-/// `%` is one of the basic keys: it is about the value in hand, and an
-/// exponent is not where a user reaches for it. The text has no way to
-/// put it there and mean anything else anyway — `2^5%` reads as `2`
-/// raised to `5%`, since the parser binds a postfix tighter than the
-/// caret — so the press leaves the exponent and the whole power goes
-/// in brackets: `(2⁵)%`.
-///
-/// The exception is an exponent the user opened a bracket at the head
-/// of. That gesture asks for a whole expression up there, and a `%`
-/// typed inside it is part of the expression: `2`, `xʸ`, `(`, `5`,
-/// `%` stays `2^(5%)`.
-fn leave_exponent(engine: &mut Engine) {
-    let cursor = engine.input.cursor();
-    let Some(caret) = enclosing_exponent(engine.input.items(), cursor) else {
-        return;
-    };
-    // Out to the end of what the caret raises, and round the whole
-    // power the chain of them built — `2^3^4`, not its last step, and
-    // `2^-3` from its `2` rather than from the `3` a sign separates
-    // the operand walk at.
-    let items = engine.input.items();
-    let span = script::exponent_span(items, caret).unwrap_or(items.len());
-    let Some((start, _)) = power_chain_range(engine, caret) else {
-        return;
-    };
-    engine.input.set_cursor(span);
-    engine.input.insert_at(start, InputItem::LeftParen);
-    engine.input.insert_at(span + 1, InputItem::RightParen);
 }
 
 /// The caret whose exponent the cursor is written in directly — not
 /// inside a bracket group of its own, and not in a call's slot.
 /// `None` anywhere else, and `None` too for an exponent that begins
-/// with a bracket the user opened: see [`leave_exponent`].
+/// with a bracket the user opened: that pair is the user's own, and
+/// `)` is there to close it rather than to leave the exponent.
 fn enclosing_exponent(items: &[InputItem], cursor: usize) -> Option<usize> {
     let mut depth = 0usize;
     for j in (0..cursor.min(items.len())).rev() {
@@ -1352,9 +1418,9 @@ fn enclosing_exponent(items: &[InputItem], cursor: usize) -> Option<usize> {
 }
 
 /// Keys that attach to a value that is already finished — the binary
-/// operators, modulo, `%`, `!`, `EE` and the two fixed powers. They
-/// are the presses that have to step out of a power's base slot
-/// first: see [`leave_pending_power_base`].
+/// operators, modulo, `%`, `!`, `EE`, the two fixed powers and the
+/// opening bracket. They are the presses that have to step out of a
+/// power's base slot first: see [`leave_pending_power_base`].
 ///
 /// `x²` and `x³` are among them because they square what is on
 /// screen, not the piece of it the cursor happens to be parked in
@@ -1362,9 +1428,16 @@ fn enclosing_exponent(items: &[InputItem], cursor: usize) -> Option<usize> {
 /// `(3⁶)²`; keyed in the base slot where the `3` was typed it used to
 /// write `3^2^6`, which raises the `3` to the sixty-fourth.
 ///
-/// The digits are not among them, and neither are the functions and
-/// the brackets: those are how the slot gets filled in the first
-/// place.
+/// `(` is among them for the same reason once the slot holds
+/// something: a bracket opened after a finished base multiplies the
+/// power, so `5`, `yˣ`, `6`, `(` is `6⁵×()` where it used to be
+/// `6×()⁵` — the bracket landing *in* the slot and pushing the base
+/// the user had just typed out of it. With the slot still empty there
+/// is no base yet and the bracket is how one gets typed, so the press
+/// stays where it is.
+///
+/// The digits are not among them, and neither are the functions:
+/// those are how the slot gets filled in the first place.
 fn operates_on_a_whole_value(button: Button) -> bool {
     matches!(
         button,
@@ -1378,6 +1451,7 @@ fn operates_on_a_whole_value(button: Button) -> bool {
             | Button::EE
             | Button::Square
             | Button::Cube
+            | Button::LeftParen
     )
 }
 
@@ -1517,6 +1591,27 @@ enum CallOperand {
     TooDeep,
 }
 
+/// Widen an operand range to take in the `−` written in front of it,
+/// when that `−` is the operand's sign rather than a subtraction —
+/// nothing that ends a value stands before it.
+///
+/// It is what makes the two calls close over the number the user
+/// keyed. `−`, `4`, `logᵧ` used to wrap the `4` alone and leave the
+/// sign outside as `-log(,4)`, which negates the logarithm instead of
+/// taking one of a negative number; the same press now reads
+/// `log(,-4)`, and `−`, `5`, `ʸ√x` reads `root(-5,)`.
+fn with_leading_sign(items: &[InputItem], start: usize) -> usize {
+    if start == 0 || !matches!(items[start - 1], InputItem::BinOp(BinOp::Sub)) {
+        return start;
+    }
+    if start >= 2 && items[start - 2].ends_operand() {
+        // Something to subtract from: a binary minus, and the operand
+        // is only what follows it.
+        return start;
+    }
+    start - 1
+}
+
 /// Decide which of those a press gets.
 ///
 /// The slot is written one step off the line the call sits on, so the
@@ -1528,7 +1623,11 @@ enum CallOperand {
 /// go exactly where a reader would put them.
 fn call_operand(engine: &Engine) -> CallOperand {
     let cursor = engine.input.cursor();
-    let Some((start, end)) = engine.input.last_operand_range() else {
+    let Some((start, end)) = engine
+        .input
+        .last_operand_range()
+        .map(|(start, end)| (with_leading_sign(engine.input.items(), start), end))
+    else {
         // Nothing to close over, so the call lands at the cursor.
         return if depth_at(engine.input.items(), cursor) < MAX_SCRIPT_DEPTH {
             CallOperand::Empty
@@ -1746,20 +1845,98 @@ fn right_paren_target(engine: &Engine) -> Option<usize> {
     if let Some((opener, closer)) = call_with_cursor_in_outer_slot(engine) {
         return Some(empty_bracketed_argument(engine, opener).unwrap_or(closer + 1));
     }
+    // In the base slot `yˣ` opened, with a base now in it: the press
+    // closes the slot, and the cursor goes past the whole power,
+    // which is where anything keyed next belongs.
+    if let Some(end) = pending_base_slot_end(engine) {
+        return Some(end);
+    }
     let items = engine.input.items();
     let cursor = engine.input.cursor();
-    match items.get(cursor)? {
+    match items.get(cursor) {
         // The end of a bracketed argument: into the outer slot when it
         // is still waiting to be typed, past the closer when it is not.
-        InputItem::RightParen => {
-            Some(empty_log_base_before_closer(engine, cursor).unwrap_or(cursor + 1))
-        }
+        Some(InputItem::RightParen) => Some(match empty_log_base_before_closer(engine, cursor) {
+            Some(slot) => slot,
+            // Stepping over a closer that ends a call's outer slot
+            // ends the call too: a bracket opened in the degree of a
+            // root is a formula written *in* the degree, so closing
+            // it finishes the degree. Without this the cursor stayed
+            // in the slot and `8 ʸ√x ( 2 ) + 2` read as
+            // `root(8,(2)+2)` — the `+2` up in the degree.
+            None => leave_outer_slot_at(engine, cursor + 1).unwrap_or(cursor + 1),
+        }),
         // A root's radicand ends at the call's comma — its degree is
         // drawn in front of the sign, so the `)` on screen there is the
         // one the comma stands for.
-        InputItem::Comma => close_root_radicand(engine, cursor),
-        _ => None,
+        Some(InputItem::Comma) => close_root_radicand(engine, cursor),
+        // Nothing of the user's is open here. An exponent written
+        // straight after the caret is still a slot the display draws
+        // brackets round, so the press closes that: the cursor goes to
+        // the end of what the caret raises and nothing is written.
+        // `𝑒ˣ`, `8`, `)` is `e^8`, where bracketing the value it is
+        // the whole of gave `(e^8)`.
+        _ => {
+            let caret = enclosing_exponent(items, cursor)?;
+            script::exponent_span(items, caret)
+        }
     }
+}
+
+/// The end of the base slot a `yˣ` press opened, when the cursor is
+/// in it and it now holds something: past the whole power the caret
+/// builds. `None` anywhere else, including an empty slot — there is
+/// no base yet, so there is nothing to close over.
+fn pending_base_slot_end(engine: &Engine) -> Option<usize> {
+    let items = engine.input.items();
+    let cursor = engine.input.cursor();
+    if !matches!(items.get(cursor), Some(InputItem::BinOp(BinOp::Pow))) {
+        return None;
+    }
+    if cursor == 0 || !items[cursor - 1].ends_operand() {
+        return None;
+    }
+    Some(script::exponent_span(items, cursor).unwrap_or(items.len()))
+}
+
+/// Where `)` goes from a position that is the *end* of a call's outer
+/// slot — the comma a `log_y` base runs up to, the closer a root
+/// degree runs up to. The same rule
+/// [`call_with_cursor_in_outer_slot`] applies to a cursor sitting in
+/// the slot, asked about an explicit position instead, so a press that
+/// has just stepped over a bracket inside the slot carries on out of
+/// the call rather than stopping there.
+fn leave_outer_slot_at(engine: &Engine, at: usize) -> Option<usize> {
+    let items = engine.input.items();
+    for opener in 0..at {
+        let InputItem::BinaryFunc(kind) = items[opener] else {
+            continue;
+        };
+        let (Some(comma), Some(closer)) = (
+            script::argument_separator(items, opener),
+            script::closing_paren(items, opener),
+        ) else {
+            continue;
+        };
+        let (from, to) = match kind {
+            BinaryFunc::LogBase => (opener + 1, comma),
+            BinaryFunc::Root => (comma + 1, closer),
+        };
+        if at == to && from <= at && depth_between(items, from, at) == 0 {
+            return Some(empty_bracketed_argument(engine, opener).unwrap_or(closer + 1));
+        }
+    }
+    None
+}
+
+/// Whether a `)` that landed the cursor on `target` closed a script
+/// slot rather than a bracket pair: the cursor is now at the end of
+/// an exponent, or past a power whose base slot it was parked in.
+/// Only the display cares — see [`UiState::script_slot_closed`].
+fn closes_a_script_slot(engine: &Engine, target: usize) -> bool {
+    let items = engine.input.items();
+    enclosing_exponent(items, target)
+        .is_some_and(|caret| script::exponent_span(items, caret).is_some_and(|span| span == target))
 }
 
 /// The two-argument call whose outer slot — the `log_y` base, the root

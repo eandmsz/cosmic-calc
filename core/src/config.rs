@@ -16,6 +16,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::engine::{AngleMode, Notation};
+use crate::history::{StoredEntry, HISTORY_CAPACITY};
 use crate::layout::KeypadLayouts;
 use crate::locale::{DecimalSeparator, ThousandsSeparator};
 use crate::theme::{Theme, ThemeKind};
@@ -190,6 +191,22 @@ pub struct Config {
     /// the user had enabled back off.
     pub property_testing: bool,
 
+    /// Show the memory register under the main display, on the same
+    /// row as the number-property labels and aligned to the right.
+    /// The value used to sit above the history panel, where it was
+    /// only visible while that panel was open.
+    pub show_memory: bool,
+
+    /// Whether a window the user resizes is remembered as the size to
+    /// open at next time. Off, `window_startup_*` stay exactly as they
+    /// are and dragging the window edge changes nothing on disk.
+    pub save_window_size: bool,
+
+    /// Whether the history list is written to this file and read back
+    /// on the next start. Off, [`Config::history`] is emptied and kept
+    /// empty.
+    pub save_history: bool,
+
     /// Debug switch: render expressions exactly as the buffer stores
     /// them (`root(2^2,6)`, `log2(8)`, `sin-1(1)`) instead of the
     /// pretty form with raised exponents and lowered log bases
@@ -230,6 +247,12 @@ pub struct Config {
     /// 4×5, Scientific 8×5); everything inside it is the user's to
     /// rearrange. See [`crate::layout`].
     pub keypad: KeypadLayouts,
+
+    /// The saved history, oldest first, when `save_history` is on —
+    /// otherwise empty. Written every time a calculation is recorded,
+    /// and capped at the same [`HISTORY_CAPACITY`] the panel itself
+    /// holds, since there is nothing past that to come back to.
+    pub history: Vec<StoredEntry>,
 }
 
 impl Default for Config {
@@ -249,6 +272,13 @@ impl Default for Config {
             window_startup_height: DEFAULT_WINDOW_HEIGHT,
 
             property_testing: false,
+            show_memory: true,
+            // The window size has always been remembered; the toggle
+            // is there to stop it, not to start it.
+            save_window_size: true,
+            // The history has never outlived the process, so keeping
+            // it is the user's to ask for.
+            save_history: false,
             debug_raw_formula: false,
 
             theme_kind: ThemeKind::default(),
@@ -264,6 +294,8 @@ impl Default for Config {
             angle_mode: AngleMode::Deg,
 
             keypad: KeypadLayouts::default(),
+
+            history: Vec::new(),
         }
     }
 }
@@ -317,6 +349,18 @@ impl Config {
             self.thousands_separator = ThousandsSeparator::None;
         }
 
+        // A history left in the file with the toggle off is a
+        // hand-edit (or the leftovers of the toggle being turned off
+        // while the app was not running); either way it is not to be
+        // loaded. With the toggle on, only as much of it as the panel
+        // would hold is kept.
+        if self.save_history {
+            let extra = self.history.len().saturating_sub(HISTORY_CAPACITY);
+            self.history.drain(..extra);
+        } else {
+            self.history.clear();
+        }
+
         self.keypad.normalize();
     }
 
@@ -326,6 +370,14 @@ impl Config {
     /// is taking up space.
     pub fn property_bar_visible(&self) -> bool {
         self.property_testing
+    }
+
+    /// Whether the row under the display is drawn at all. It carries
+    /// the property labels on the left and the memory register on the
+    /// right, and either one alone is reason enough for the row to
+    /// take its height out of the layout.
+    pub fn status_row_visible(&self) -> bool {
+        self.property_bar_visible() || self.show_memory
     }
 
     /// Notation the display, the caption above it and the history

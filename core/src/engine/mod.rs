@@ -14,7 +14,11 @@ pub mod script;
 pub mod tokenizer;
 
 pub use decimal::Decimal;
-pub use errors::{CalcError, ERR_INDETERMINATE, ERR_OVERFLOW, ERR_UNDEFINED, ERR_UNDERFLOW};
+pub use errors::{
+    CalcError, ERR_DIVISION_BY_ZERO, ERR_INDETERMINATE, ERR_NEGATIVE_EVEN_ROOT, ERR_NEGATIVE_LOG,
+    ERR_OVERFLOW, ERR_TANGENT, ERR_UNDEFINED, ERR_UNDERFLOW, ERR_ZERO_LOG, ERR_ZERO_POW_NEGATIVE,
+    ERR_ZERO_POW_ZERO,
+};
 pub use eval::AngleMode;
 pub use format::DEFAULT_SIGNIFICANT_DIGITS;
 pub use input::{CursorMove, InputBuffer};
