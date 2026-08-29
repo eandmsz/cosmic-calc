@@ -47,7 +47,7 @@ pub enum ThemeKind {
     RedmondLight,
     HighContrastDark,
     HighContrastLight,
-    Texas,
+    Custom,
 }
 
 impl ThemeKind {
@@ -151,8 +151,8 @@ impl ThemeKind {
                 decimal_button: Rgba::from_hex(0xE5_E5_E5_FF),
                 number_button: Rgba::from_hex(0xF0_F1_F1_FF),
             },
-            ThemeKind::Texas => Theme {
-                name: "Texas".to_string(),
+            ThemeKind::Custom => Theme {
+                name: "Custom".to_string(),
                 app_bg: Rgba::from_hex(0x1E_23_29_FF),
                 sidepanel_bg: Rgba::from_hex(0x1E_23_29_FF),
                 text_active: Rgba::from_hex(0x00_00_00_FF),
@@ -179,7 +179,7 @@ impl ThemeKind {
             ThemeKind::RedmondLight => "Redmond Light",
             ThemeKind::HighContrastDark => "High Contrast Dark",
             ThemeKind::HighContrastLight => "High Contrast Light",
-            ThemeKind::Texas => "Texas",
+            ThemeKind::Custom => "Custom",
         }
     }
 
@@ -194,7 +194,7 @@ impl ThemeKind {
             ThemeKind::RedmondLight,
             ThemeKind::HighContrastDark,
             ThemeKind::HighContrastLight,
-            ThemeKind::Texas,
+            ThemeKind::Custom,
         ]
     }
 }
