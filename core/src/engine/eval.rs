@@ -338,7 +338,7 @@ fn eval_unary_f64(f: UnaryFunc, v: f64, mode: AngleMode) -> Result<f64, CalcErro
         UnaryFunc::Tanh => classify(v.tanh()),
         UnaryFunc::Coth => {
             if v == 0.0 {
-                return Err(CalcError::Undefined);
+                return Err(CalcError::HyperbolicCotangent);
             }
             classify(1.0 / v.tanh())
         }

@@ -35,6 +35,9 @@ pub const MAX_SIGNIFICANT_DIGITS: u8 = 15;
 pub use crate::engine::format::DEFAULT_SIGNIFICANT_DIGITS;
 
 pub const MIN_WINDOW_DIM: u32 = 10;
+
+/// [`Config::min_window_width`] meaning "let the keypad decide".
+pub const AUTO_MIN_WINDOW_WIDTH: u32 = 0;
 pub const MAX_WINDOW_DIM: u32 = 34_560;
 pub const DEFAULT_WINDOW_WIDTH: u32 = 300;
 pub const DEFAULT_WINDOW_HEIGHT: u32 = 700;
@@ -184,6 +187,20 @@ pub struct Config {
     /// width.
     pub window_startup_height: u32,
 
+    /// Floor the window may not be dragged in past, in logical
+    /// pixels, or [`AUTO_MIN_WINDOW_WIDTH`] to have the keypad work
+    /// one out — the width that keeps its longest label legible,
+    /// which is the default and what every version before this one
+    /// used.
+    ///
+    /// Deliberately not in the settings panel. The computed floor is
+    /// the one that keeps the app readable, and a hand-set one is a
+    /// deliberate trade of legibility for a narrower window: worth
+    /// having on a small screen or a tiling desktop, not worth a
+    /// control that invites every user to make the keypad unreadable.
+    /// Clamped to the same range as the startup dimensions.
+    pub min_window_width: u32,
+
     /// Show the number-property row (prime / harshad / palindrome /
     /// square / triangular / fibonacci) below the display. Applies to
     /// both keypad layouts — the row used to be suppressed in Basic
@@ -270,6 +287,7 @@ impl Default for Config {
 
             window_startup_width: DEFAULT_WINDOW_WIDTH,
             window_startup_height: DEFAULT_WINDOW_HEIGHT,
+            min_window_width: AUTO_MIN_WINDOW_WIDTH,
 
             property_testing: false,
             show_memory: true,
@@ -329,6 +347,12 @@ impl Config {
         self.window_startup_height = self
             .window_startup_height
             .clamp(MIN_WINDOW_DIM, MAX_WINDOW_DIM);
+        // Zero is the "work it out" value and passes through; anything
+        // else is a width and is held to the same range as the two
+        // above it.
+        if self.min_window_width != AUTO_MIN_WINDOW_WIDTH {
+            self.min_window_width = self.min_window_width.clamp(MIN_WINDOW_DIM, MAX_WINDOW_DIM);
+        }
 
         if self.font.trim().is_empty() {
             self.font = DEFAULT_FONT.to_string();
@@ -362,6 +386,13 @@ impl Config {
         }
 
         self.keypad.normalize();
+    }
+
+    /// The floor the user pinned the window width to, if they pinned
+    /// one. `None` leaves it to the keypad — see
+    /// [`Config::min_window_width`].
+    pub fn pinned_min_window_width(&self) -> Option<f32> {
+        (self.min_window_width != AUTO_MIN_WINDOW_WIDTH).then_some(self.min_window_width as f32)
     }
 
     /// Whether the number-property row belongs under the display.

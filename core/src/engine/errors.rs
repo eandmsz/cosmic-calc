@@ -27,6 +27,7 @@ pub const ERR_ZERO_POW_NEGATIVE: &str = "Undefined: 0 raised to negative power";
 pub const ERR_DIVISION_BY_ZERO: &str = "Undefined: Division by 0";
 pub const ERR_TANGENT: &str = "Undefined: Tangent";
 pub const ERR_COTANGENT: &str = "Undefined: Cotangent";
+pub const ERR_HYPERBOLIC_COTANGENT: &str = "Undefined: Hyperbolic cotangent";
 /// The two inverse-trig domains. Written with U+2212, the minus sign
 /// the keypad and the display use — escaped rather than typed so it
 /// cannot be mistaken here for the ASCII hyphen it looks like.
@@ -61,6 +62,8 @@ pub enum CalcError {
     Tangent,
     /// `cot` at one of its poles.
     Cotangent,
+    /// `coth` at its pole, which is the one place it has: zero.
+    HyperbolicCotangent,
     /// `sin⁻¹` outside [−1, 1].
     AsinDomain,
     /// `cos⁻¹` outside [−1, 1].
@@ -84,6 +87,7 @@ impl CalcError {
             CalcError::DivisionByZero => ERR_DIVISION_BY_ZERO,
             CalcError::Tangent => ERR_TANGENT,
             CalcError::Cotangent => ERR_COTANGENT,
+            CalcError::HyperbolicCotangent => ERR_HYPERBOLIC_COTANGENT,
             CalcError::AsinDomain => ERR_ASIN_DOMAIN,
             CalcError::AcosDomain => ERR_ACOS_DOMAIN,
         }

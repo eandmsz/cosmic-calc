@@ -296,6 +296,15 @@ make check                         # fmt + clippy + the whole workspace
   every frame of the drag. "Save window size" in the settings turns
   that off — and turning it back on records the size you are looking
   at there and then
+	- The window cannot be dragged in past the width that keeps the
+	  keypad's longest label legible. That floor is worked out from
+	  your button shape and font, and `min_window_width` in
+	  `config.toml` overrides it if you would rather have a narrower
+	  window than a readable one — a hand-edit rather than a setting,
+	  since the computed floor is the right answer for almost
+	  everybody. `0`, the default, means "work it out"
+- The settings panel carries the build's version in its bottom-right
+  corner
 - Side panels dock beside the calculator rather than over it, so the
   window grows to make room for them and cannot be dragged in narrower
   than the calculator plus whatever panels are open
@@ -312,11 +321,12 @@ make check                         # fmt + clippy + the whole workspace
   under even root`, `ln(0)` is `Undefined: 0 inside logarithm`,
   `log₁(8)` is `Undefined: Logarithm base cannot be 1`, `4÷0` is
   `Undefined: Division by 0`, `tan(90°)` is `Undefined: Tangent`,
-  `cot(0)` is `Undefined: Cotangent`, `sin⁻¹(5)` is `Undefined
-  sin−1(x) must be between −1 and 1`, and `0^-2` — which used to
-  report Overflow, saying the answer was too big rather than that
-  there is none — is `Undefined: 0 raised to negative power`. The
-  cases with no name of their own still read `Undefined`
+  `cot(0)` is `Undefined: Cotangent`, `coth(0)` is `Undefined:
+  Hyperbolic cotangent`, `sin⁻¹(5)` is `Undefined sin−1(x) must be
+  between −1 and 1`, and `0^-2` — which used to report Overflow,
+  saying the answer was too big rather than that there is none — is
+  `Undefined: 0 raised to negative power`. The cases with no name of
+  their own still read `Undefined`
 - The memory register sits under the display, at the size and in the
   colours of the number-property labels and aligned to the right: a
   dim `M` while nothing is stored, the value beside it once something

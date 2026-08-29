@@ -387,7 +387,19 @@ const LONGEST_LABEL_CHAR_UNITS: f32 = 6.0;
 /// ratio; the height target keeps labels at or above that ratio and
 /// leaves vertical room for the top bar, display, status bar, and memory
 /// row above the 62% keypad slice.
+///
+/// A width the user pinned in `config.toml` wins over the computed
+/// one — see [`Config::min_window_width`]. Every caller comes through
+/// here, so the pin reaches the startup limits and the panel-toggle
+/// floor alike without either having to know about it.
 pub fn min_window_size(config: &Config) -> (f32, f32) {
+    let (computed_w, h) = derived_min_window_size(config);
+    (config.pinned_min_window_width().unwrap_or(computed_w), h)
+}
+
+/// [`min_window_size`] before the user's pin is applied: what the
+/// keypad itself needs.
+fn derived_min_window_size(config: &Config) -> (f32, f32) {
     let min_button_height = 44.0 * MIN_LABEL_HEIGHT_RATIO;
     // Probe each shape preset and take the widest required window
     // height — different solve coefficients yield different floors.

@@ -386,3 +386,40 @@ fn the_new_fields_round_trip_through_the_file() {
     assert_eq!(back.history.len(), 1);
     assert_eq!(back.history[0].expression, "2^3");
 }
+
+#[test]
+fn a_pinned_minimum_width_is_held_to_the_window_range() {
+    // Zero passes through: it is the "let the keypad decide" value,
+    // not a width.
+    let mut c = Config {
+        min_window_width: AUTO_MIN_WINDOW_WIDTH,
+        ..Config::default()
+    };
+    c.validate_and_clamp();
+    assert_eq!(c.min_window_width, AUTO_MIN_WINDOW_WIDTH);
+    assert_eq!(c.pinned_min_window_width(), None);
+
+    // Anything else is a width, and is held to the same range the
+    // startup dimensions are.
+    for (given, expected) in [
+        (5u32, MIN_WINDOW_DIM),
+        (250, 250),
+        (MAX_WINDOW_DIM + 1000, MAX_WINDOW_DIM),
+    ] {
+        let mut c = Config {
+            min_window_width: given,
+            ..Config::default()
+        };
+        c.validate_and_clamp();
+        assert_eq!(c.min_window_width, expected, "given {given}");
+        assert_eq!(c.pinned_min_window_width(), Some(expected as f32));
+    }
+
+    // And it round-trips through the file like every other field.
+    let c = Config {
+        min_window_width: 240,
+        ..Config::default()
+    };
+    let back: Config = toml::from_str(&toml::to_string_pretty(&c).unwrap()).unwrap();
+    assert_eq!(back.min_window_width, 240);
+}

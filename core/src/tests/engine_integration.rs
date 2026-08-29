@@ -15,9 +15,10 @@
 
 use crate::engine::{
     evaluate_expression, evaluate_to_string, AngleMode, CalcError, DEFAULT_SIGNIFICANT_DIGITS,
-    ERR_ACOS_DOMAIN, ERR_ASIN_DOMAIN, ERR_COTANGENT, ERR_DIVISION_BY_ZERO, ERR_INDETERMINATE,
-    ERR_LOG_BASE_ONE, ERR_NEGATIVE_EVEN_ROOT, ERR_NEGATIVE_LOG, ERR_OVERFLOW, ERR_TANGENT,
-    ERR_UNDEFINED, ERR_UNDERFLOW, ERR_ZERO_LOG, ERR_ZERO_POW_NEGATIVE, ERR_ZERO_POW_ZERO,
+    ERR_ACOS_DOMAIN, ERR_ASIN_DOMAIN, ERR_COTANGENT, ERR_DIVISION_BY_ZERO,
+    ERR_HYPERBOLIC_COTANGENT, ERR_INDETERMINATE, ERR_LOG_BASE_ONE, ERR_NEGATIVE_EVEN_ROOT,
+    ERR_NEGATIVE_LOG, ERR_OVERFLOW, ERR_TANGENT, ERR_UNDEFINED, ERR_UNDERFLOW, ERR_ZERO_LOG,
+    ERR_ZERO_POW_NEGATIVE, ERR_ZERO_POW_ZERO,
 };
 
 const DEC: u8 = DEFAULT_SIGNIFICANT_DIGITS;
@@ -1044,6 +1045,9 @@ fn each_undefined_case_says_which_one_it_is() {
         ("4%0", ERR_DIVISION_BY_ZERO),
         ("tan(90)", ERR_TANGENT),
         ("cot(0)", ERR_COTANGENT),
+        // The hyperbolic one has a pole of its own, and its own name
+        // for it: `coth` is a different function from `cot`.
+        ("coth(0)", ERR_HYPERBOLIC_COTANGENT),
         ("sin-1(5)", ERR_ASIN_DOMAIN),
         ("cos-1(-2)", ERR_ACOS_DOMAIN),
     ] {
@@ -1057,9 +1061,9 @@ fn each_undefined_case_says_which_one_it_is() {
     }
 
     // The cases with no name of their own still read "Undefined": a
-    // logarithm to a negative base, a hyperbolic cotangent at its
-    // pole, a fractional power of a negative.
-    for expr in ["log(-2, 8)", "coth(0)", "(-8)^0.5"] {
+    // logarithm to a negative base, a fractional power of a negative,
+    // an inverse hyperbolic outside its domain.
+    for expr in ["log(-2, 8)", "(-8)^0.5", "cosh-1(0.5)"] {
         assert_eq!(deg(expr), ERR_UNDEFINED, "{expr}");
     }
 

@@ -16,7 +16,7 @@
 //! palette and corner radius, so the settings look like the thing they
 //! configure and every choice is visible without opening a menu.
 
-use cosmic::iced::Length;
+use cosmic::iced::{Alignment, Length};
 use cosmic::widget;
 use cosmic::widget::button::ButtonClass;
 use cosmic::Element;
@@ -455,12 +455,31 @@ pub fn settings_panel<'a>(
         .padding(12)
         .width(Length::Fill);
 
+    // Which build this is, in the corner where a version belongs:
+    // outside the scrollable, so it sits at the foot of the panel
+    // rather than at the foot of a column the user has to scroll to
+    // the end of. Read from the crate's own version, so it cannot
+    // drift from what `Cargo.toml` says.
+    let version = widget::container(widget::text::caption(format!(
+        "Version: {}",
+        env!("CARGO_PKG_VERSION")
+    )))
+    .width(Length::Fill)
+    .align_x(Alignment::End)
+    .padding([0, 12, 8, 12]);
+
     // The column is taller than the default window, so the panel
     // scrolls as a whole; the font list keeps its own inner scrollable
     // so it cannot dominate the height on a host with hundreds of
     // families installed.
-    widget::scrollable(content)
-        .spacing(SCROLLBAR_GAP)
+    widget::column::with_capacity(2)
+        .push(
+            widget::scrollable(content)
+                .spacing(SCROLLBAR_GAP)
+                .width(Length::Fill)
+                .height(Length::Fill),
+        )
+        .push(version)
         .width(Length::Fixed(SETTINGS_PANEL_WIDTH))
         .height(Length::Fill)
         .into()
