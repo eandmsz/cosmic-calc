@@ -325,6 +325,7 @@ make check                         # fmt + clippy + the whole workspace
   | `Underflow` | `1e-307÷1e10` |
   | `Indeterminate` | `0÷0` |
   | `Undefined: Negative number under even root` | `√(-4)`, `root(-8,4)` |
+  | `Undefined: 0th root` | `root(8,0)` |
   | `Undefined: Negative number to a fractional power` | `(-8)^0.5`, `root(-8,2.5)` |
   | `Undefined: Negative number inside logarithm` | `ln(-1)`, `log(3,-1)` |
   | `Undefined: 0 inside logarithm` | `ln(0)`, `log2(0)` |
@@ -334,21 +335,31 @@ make check                         # fmt + clippy + the whole workspace
   | `Undefined: 0 raised to 0 power` | `0^0` |
   | `Undefined: 0 raised to negative power` | `0^-2` |
   | `Undefined: Division by 0` | `4÷0`, `4 mod 0` |
-  | `Undefined: Tangent` | `tan(90°)` |
-  | `Undefined: Cotangent` | `cot(0)` |
+  | `Undefined: Tangent` | `tan(90)` in DEG, `tan(π÷2)` in RAD |
+  | `Undefined: Cotangent` | `cot(0)`, `cot(180)` in DEG, `cot(π)` in RAD |
   | `Undefined: Hyperbolic cotangent` | `coth(0)` |
   | `Undefined sin−1(x) must be between −1 and 1` | `sin⁻¹(5)` |
   | `Undefined cos−1(x) must be between −1 and 1` | `cos⁻¹(5)` |
   | `Undefined cosh−1(x) must be 1 or more` | `cosh⁻¹(0.5)` |
   | `Undefined tanh−1(x) must be between −1 and 1` | `tanh⁻¹(2)` |
   | `Undefined coth−1(x) must be less than −1 or more than 1` | `coth⁻¹(0.5)` |
-  | `Undefined` | `root(8,0)` — a zeroth root, the one case left with no name of its own |
 
 	- `0^-2` used to report Overflow, which said the answer was too
 	  big rather than that there is none
 	- A root and a power are the same operation written the other way
 	  round, so `root(-8, 2.5)` answers the way `(-8)^0.4` does rather
 	  than calling itself an even root
+	- The two poles are found in either angle mode, at that mode's own
+	  angles: `tan(90)`, `tan(270)` and `cot(180)` in DEG, `tan(π÷2)`
+	  and `cot(π)` in RAD. Written any way that comes to the same
+	  number — the arithmetic is decimal and π is one fixed decimal,
+	  so `π÷6×3` is the angle `π÷2` is rather than a rounding of it.
+	  An angle that only *nearly* reaches a pole keeps the large
+	  finite value it has: `tan(1.5707963)` in RAD is 37320539.6…,
+	  not an error
+	- The messages about a bare number rather than an angle — the
+	  hyperbolic cotangent and the five inverse domains — read the
+	  same in either mode
 - The memory register sits under the display, at the size and in the
   colours of the number-property labels and aligned to the right: a
   dim `M` while nothing is stored, the value beside it once something

@@ -19,7 +19,7 @@ use crate::engine::{
     ERR_COTANGENT, ERR_DIVISION_BY_ZERO, ERR_HYPERBOLIC_COTANGENT, ERR_INDETERMINATE,
     ERR_LOG_BASE_NEGATIVE, ERR_LOG_BASE_ONE, ERR_LOG_BASE_ZERO, ERR_NEGATIVE_EVEN_ROOT,
     ERR_NEGATIVE_FRACTIONAL_POWER, ERR_NEGATIVE_LOG, ERR_OVERFLOW, ERR_TANGENT, ERR_UNDEFINED,
-    ERR_UNDERFLOW, ERR_ZERO_LOG, ERR_ZERO_POW_NEGATIVE, ERR_ZERO_POW_ZERO,
+    ERR_UNDERFLOW, ERR_ZEROTH_ROOT, ERR_ZERO_LOG, ERR_ZERO_POW_NEGATIVE, ERR_ZERO_POW_ZERO,
 };
 
 const DEC: u8 = DEFAULT_SIGNIFICANT_DIGITS;
@@ -596,8 +596,8 @@ fn root_729_to_the_3_factorial() {
 
 #[test]
 fn root_with_zero_degree_undefined() {
-    // Spec: root(2, 0) = Undefined
-    assert_eq!(deg("root(2, 0)"), ERR_UNDEFINED);
+    // Spec: root(2, 0) = Undefined, now named.
+    assert_eq!(deg("root(2, 0)"), ERR_ZEROTH_ROOT);
 }
 
 #[test]
@@ -1040,6 +1040,7 @@ fn each_undefined_case_says_which_one_it_is() {
         ("root(-8,4)", ERR_NEGATIVE_EVEN_ROOT),
         ("(-8)^0.5", ERR_NEGATIVE_FRACTIONAL_POWER),
         ("root(-8,2.5)", ERR_NEGATIVE_FRACTIONAL_POWER),
+        ("root(8,0)", ERR_ZEROTH_ROOT),
         // What is inside a logarithm, and what it is to the base of.
         ("ln(-1)", ERR_NEGATIVE_LOG),
         ("log(3,-1)", ERR_NEGATIVE_LOG),
@@ -1082,9 +1083,68 @@ fn each_undefined_case_says_which_one_it_is() {
         assert!(!deg(expr).contains("ero"), "{expr}: {}", deg(expr));
     }
 
-    // A zeroth root is the one case a user can key that has no name
-    // of its own, and still reads "Undefined".
-    assert_eq!(deg("root(8,0)"), ERR_UNDEFINED);
+    // Every case a user can key now has a name; what is left on the
+    // bare "Undefined" is the internal conversion that cannot produce
+    // a number at all, which no expression reaches on its own.
+    assert_eq!(CalcError::Undefined.as_str(), ERR_UNDEFINED);
+}
+
+#[test]
+fn the_trigonometric_poles_are_named_in_both_angle_modes() {
+    // The pole detectors branch on the mode, so each one has its own
+    // set of angles to be checked at. Nothing here is about DEG being
+    // the mode the messages were written against.
+    for expr in ["tan(90)", "tan(270)", "tan(-90)", "tan(450)"] {
+        assert_eq!(deg(expr), ERR_TANGENT, "DEG {expr}");
+    }
+    for expr in [
+        "tan(π÷2)",
+        "tan(3π÷2)",
+        "tan(-π÷2)",
+        "tan(π÷2+2π)",
+        // Written any way that comes to the same number: the
+        // arithmetic is decimal and π is one fixed decimal, so
+        // `π÷6×3` is the same angle as `π÷2` rather than a
+        // rounding of it.
+        "tan(π×0.5)",
+        "tan(π÷6×3)",
+        "tan(π+π÷2)",
+    ] {
+        assert_eq!(rad(expr), ERR_TANGENT, "RAD {expr}");
+    }
+    for expr in ["cot(0)", "cot(180)", "cot(-180)", "cot(360)"] {
+        assert_eq!(deg(expr), ERR_COTANGENT, "DEG {expr}");
+    }
+    for expr in ["cot(0)", "cot(π)", "cot(2π)", "cot(-π)", "cot(π÷3×3)"] {
+        assert_eq!(rad(expr), ERR_COTANGENT, "RAD {expr}");
+    }
+
+    // The two modes do not leak into each other: 90 radians and 180
+    // radians are ordinary angles with ordinary answers, and an angle
+    // that only nearly reaches a pole gets the large finite value it
+    // has rather than an error.
+    for expr in ["tan(90)", "cot(180)", "tan(1.5707963)", "cot(3.14159)"] {
+        assert!(
+            !rad(expr).starts_with("Undefined"),
+            "RAD {expr}: {}",
+            rad(expr)
+        );
+    }
+    assert!(!deg("tan(89.9999999)").starts_with("Undefined"));
+
+    // The messages that are about a bare number rather than an angle
+    // read the same whichever mode is set.
+    for expr in [
+        "coth(0)",
+        "sin-1(5)",
+        "cos-1(5)",
+        "cosh-1(0.5)",
+        "tanh-1(2)",
+        "coth-1(0.5)",
+    ] {
+        assert_eq!(deg(expr), rad(expr), "{expr} differs by angle mode");
+        assert!(deg(expr).starts_with("Undefined"), "{expr}");
+    }
 }
 
 #[test]
@@ -1092,12 +1152,15 @@ fn every_error_has_a_message_of_its_own_and_a_way_to_reach_it() {
     // One expression per variant, so a message added without a way to
     // key it — or one whose only trigger has quietly started
     // answering with something else — fails here.
-    let triggers: [(CalcError, &str); CalcError::ALL.len()] = [
+    // `Undefined` is the one with no expression of its own: it is
+    // what a float that cannot become a decimal reports, which no
+    // typed expression reaches. Everything else is keyable.
+    let triggers: [(CalcError, &str); CalcError::ALL.len() - 1] = [
         (CalcError::Overflow, "1e308*10"),
         (CalcError::Underflow, "1e-307/1e10"),
         (CalcError::Indeterminate, "0/0"),
-        (CalcError::Undefined, "root(8,0)"),
         (CalcError::NegativeEvenRoot, "√(-4)"),
+        (CalcError::ZerothRoot, "root(8,0)"),
         (CalcError::NegativeFractionalPower, "(-8)^0.5"),
         (CalcError::NegativeLog, "ln(-1)"),
         (CalcError::ZeroLog, "ln(0)"),
@@ -1117,6 +1180,9 @@ fn every_error_has_a_message_of_its_own_and_a_way_to_reach_it() {
         (CalcError::AcothDomain, "coth-1(0.5)"),
     ];
     for error in CalcError::ALL {
+        if error == CalcError::Undefined {
+            continue;
+        }
         let (_, expr) = triggers
             .iter()
             .find(|(e, _)| *e == error)

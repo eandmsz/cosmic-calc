@@ -19,6 +19,7 @@ pub const ERR_UNDEFINED: &str = "Undefined";
 /// A zero is written `0` rather than spelled out — it is the digit
 /// the user pressed, and the display it lands on is a calculator's.
 pub const ERR_NEGATIVE_EVEN_ROOT: &str = "Undefined: Negative number under even root";
+pub const ERR_ZEROTH_ROOT: &str = "Undefined: 0th root";
 pub const ERR_NEGATIVE_FRACTIONAL_POWER: &str = "Undefined: Negative number to a fractional power";
 pub const ERR_NEGATIVE_LOG: &str = "Undefined: Negative number inside logarithm";
 pub const ERR_ZERO_LOG: &str = "Undefined: 0 inside logarithm";
@@ -52,6 +53,9 @@ pub enum CalcError {
     Undefined,
     /// An even root of a negative number — `√(-4)`, `root(-8, 4)`.
     NegativeEvenRoot,
+    /// A root of degree zero. `root(x, n)` is `x^(1/n)`, and there is
+    /// no `1/0` to raise anything to.
+    ZerothRoot,
     /// A negative number raised to a power that is not a whole one —
     /// `(-8)^0.5`, and the root that spells the same thing,
     /// `root(-8, 2.5)`. Distinct from the even root above because the
@@ -100,12 +104,13 @@ impl CalcError {
     /// them. The test suite uses it to hold the catalogue of trigger
     /// expressions complete: a variant added without one shows up as
     /// a failure rather than as a message nothing reaches.
-    pub const ALL: [CalcError; 22] = [
+    pub const ALL: [CalcError; 23] = [
         CalcError::Overflow,
         CalcError::Underflow,
         CalcError::Indeterminate,
         CalcError::Undefined,
         CalcError::NegativeEvenRoot,
+        CalcError::ZerothRoot,
         CalcError::NegativeFractionalPower,
         CalcError::NegativeLog,
         CalcError::ZeroLog,
@@ -133,6 +138,7 @@ impl CalcError {
             CalcError::Indeterminate => ERR_INDETERMINATE,
             CalcError::Undefined => ERR_UNDEFINED,
             CalcError::NegativeEvenRoot => ERR_NEGATIVE_EVEN_ROOT,
+            CalcError::ZerothRoot => ERR_ZEROTH_ROOT,
             CalcError::NegativeFractionalPower => ERR_NEGATIVE_FRACTIONAL_POWER,
             CalcError::NegativeLog => ERR_NEGATIVE_LOG,
             CalcError::ZeroLog => ERR_ZERO_LOG,

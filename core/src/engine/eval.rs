@@ -269,12 +269,14 @@ fn pow_checked(x: Decimal, y: Decimal) -> Result<Decimal, CalcError> {
 }
 
 /// Y-th root of X: X^(1/Y). Handles negative bases with odd-integer
-/// roots; a zeroth root is Undefined, and a negative radicand is one
-/// of the two named cases — an even root, or, since a root is a power
-/// written the other way round, a fractional power.
+/// roots; a negative radicand is one of the two named cases — an even
+/// root, or, since a root is a power written the other way round, a
+/// fractional power.
 fn nth_root(x: Decimal, y: Decimal) -> Result<Decimal, CalcError> {
     if y.is_zero() {
-        return Err(CalcError::Undefined);
+        // The root is `x^(1/y)`, and there is no `1/0` to raise
+        // anything to.
+        return Err(CalcError::ZerothRoot);
     }
     if x.is_zero() {
         return Ok(Decimal::ZERO);
