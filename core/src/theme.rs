@@ -37,9 +37,6 @@ impl Theme {
     }
 }
 
-/// Preset identifier for the `Theme` tagged-union. `Custom` means
-/// the user has hand-edited the palette and we should round-trip
-/// whatever is in the TOML without treating it as a preset.
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub enum ThemeKind {
     #[default]
@@ -54,9 +51,6 @@ pub enum ThemeKind {
 }
 
 impl ThemeKind {
-    /// Return the preset palette for this kind. For `Custom` we hand
-    /// back the HighContrastLight palette as a seed; the real stored
-    /// palette lives in the config file and is loaded at startup.
     pub fn get(self) -> Theme {
         match self {
             ThemeKind::Cosmic => Theme {
