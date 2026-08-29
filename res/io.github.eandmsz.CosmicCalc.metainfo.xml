@@ -34,6 +34,30 @@
   </categories>
 
   <releases>
+    <release version="0.1.9" date="2026-08-29">
+      <description>
+        <ul>
+          <li>) closes what a key opened rather than bracketing round it. An exponent typed straight after the caret is a slot the display draws brackets round, and ) is how you say you are done with it: 2, xʸ, 3, ) is 2³ with the brackets down, where it used to write a pair round the whole power and give (2^3). The base slot yˣ opens closes the same way, stepping the cursor out past the power, so 5, yˣ, 6, ), + reads 6⁵+</li>
+          <li>A bracket closed inside a call's slot finishes that slot. 8, ʸ√x, (, 2, ), +, 2 reads root(8,(2))+2 — the sum lands outside the call, where it used to be carried up into the degree as root(8,(2)+2). Same for a logᵧ base</li>
+          <li>The base slot yˣ opens wears the placeholder brackets every other slot does, once it holds something and not only while it is empty: 5, yˣ, 6 reads (6)⁵, because that 6 is still the slot the next digit joins. A bracket you opened there yourself is real and stays after you close it</li>
+          <li>) with an operator still waiting for its right operand takes the operator back rather than closing over it: (5+ then ) is (5)</li>
+          <li>( keyed after a base that is already typed multiplies the power instead of landing in the slot: 5, yˣ, 6, ( is 6⁵×() where it was 6×()⁵, with the 6 pushed out of the slot it had just been typed into</li>
+          <li>− where a value begins is that value's sign rather than a subtraction: −, 6 is -6, not the 0-6 a supplied left operand made of it. +, × and ÷ still start an empty display on a 0, which is what they need and a sign does not</li>
+          <li>Every slot of logᵧ and ʸ√x takes a minus, so a negative base, degree, argument or radicand can be keyed at all — the press used to be dropped. And the two calls close over the sign along with the number: −, 4, logᵧ, 8, ) is log₈(-4), where the sign was left outside as -log₈(4), which negates the logarithm instead of taking one of a negative number</li>
+          <li>A decimal separator with no digits behind it goes when you move on from it: 5, ., + is 5+. Backspace is the one press that leaves it, since deleting it is what you are asking for</li>
+          <li>% and ! write themselves and nothing else — neither puts brackets round what it applies to any more. Keyed in an exponent they stay in the exponent, which is how the text reads them anyway: 2, xʸ, 5, % is 2^5%</li>
+          <li>The expression above the display comes down as soon as you add to the result under it. It is the expression that produced that result, so an operator or a digit keyed after = makes it no longer true</li>
+          <li>Every expression with no value now says which part of it has none, instead of a bare Undefined: a negative number under an even root or to a fractional power, a negative or a zero inside a logarithm, a logarithm base of 1, 0 or a negative, 0 to the zeroth or a negative power, division by 0, a zeroth root, the tangent and cotangent poles in either angle mode, the hyperbolic cotangent at zero, and the five inverse domains, which name the interval the argument has to be in. 0 raised to a negative power used to report Overflow, which said the answer was too big rather than that there is none</li>
+          <li>The thousands separator groups with a no-break space, and the readout no longer wraps. A grouped number that came a hair over the width the font was fitted to used to break at a group boundary into a line the display has no room for, so 1 234 567 read as 1 — which is a good deal worse than no grouping at all</li>
+          <li>The memory register sits under the display, at the size and in the colours of the number-property labels and against the right edge: a dim M while nothing is stored, the value beside it once something is. It was a line at the top of the history panel, where it could only be read with that panel open</li>
+          <li>Every on/off setting is one block at the top of the settings panel, each on its own line with the switch against the right edge. Two of them are new: Save window size, and Save history, which keeps the history list in config.toml and reads it back on the next start, updated as each calculation lands</li>
+          <li>Theme is a row of buttons like every other choice in the panel rather than a drop-down, and it and the font list go last, since they are the two longest controls and the two you set once</li>
+          <li>The settings panel carries the version in its bottom-right corner, and the window's minimum width can be pinned with min_window_width in config.toml for a small screen or a tiling desktop</li>
+          <li>The readout is bigger again: it keeps about a seventh of its line as leading rather than three tenths, split evenly above and below the digits</li>
+          <li>¹⁄ₓ and ⁺⁄₋ are drawn as the fractions they are, numerator over denominator, rather than three characters in a row</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.1.8" date="2026-08-28">
       <description>
         <ul>
