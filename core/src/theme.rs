@@ -50,7 +50,7 @@ pub enum ThemeKind {
     RedmondLight,
     HighContrastDark,
     HighContrastLight,
-    Custom,
+    Texas,
 }
 
 impl ThemeKind {
@@ -157,19 +157,19 @@ impl ThemeKind {
                 decimal_button: Rgba::from_hex(0xE5_E5_E5_FF),
                 number_button: Rgba::from_hex(0xF0_F1_F1_FF),
             },
-            ThemeKind::Custom => Theme {
-                name: "Custom".to_string(),
-                app_bg: Rgba::from_hex(0xDB_DB_DB_FF),
-                sidepanel_bg: Rgba::from_hex(0xDB_DB_DB_FF),
+            ThemeKind::Texas => Theme {
+                name: "Texas".to_string(),
+                app_bg: Rgba::from_hex(0x1E_23_29_FF),
+                sidepanel_bg: Rgba::from_hex(0x1E_23_29_FF),
                 text_active: Rgba::from_hex(0x00_00_00_FF),
-                science_button: Rgba::from_hex(0xE5_E5_E5_FF),
-                second_button: Rgba::from_hex(0xE5_E5_E5_FF),
-                toprow_button: Rgba::from_hex(0xE5_E5_E5_FF),
-                basicop_button: Rgba::from_hex(0xE5_E5_E5_FF),
-                equals_button: Rgba::from_hex(0xE5_E5_E5_FF),
-                negate_button: Rgba::from_hex(0xE5_E5_E5_FF),
-                decimal_button: Rgba::from_hex(0xE5_E5_E5_FF),
-                number_button: Rgba::from_hex(0xF0_F1_F1_FF),
+                science_button: Rgba::from_hex(0x1C_1F_27_FF),
+                second_button: Rgba::from_hex(0x68_7B_99_FF),
+                toprow_button: Rgba::from_hex(0x1C_1F_27_FF),
+                basicop_button: Rgba::from_hex(0x32_4C_67_FF),
+                equals_button: Rgba::from_hex(0x32_4C_67_FF),
+                negate_button: Rgba::from_hex(0x70_70_70_FF),
+                decimal_button: Rgba::from_hex(0x70_70_70_FF),
+                number_button: Rgba::from_hex(0x70_70_70_FF),
             },
         }
     }
@@ -185,7 +185,7 @@ impl ThemeKind {
             ThemeKind::RedmondLight => "Redmond Light",
             ThemeKind::HighContrastDark => "High Contrast Dark",
             ThemeKind::HighContrastLight => "High Contrast Light",
-            ThemeKind::Custom => "Custom",
+            ThemeKind::Texas => "Texas",
         }
     }
 
@@ -200,7 +200,7 @@ impl ThemeKind {
             ThemeKind::RedmondLight,
             ThemeKind::HighContrastDark,
             ThemeKind::HighContrastLight,
-            ThemeKind::Custom,
+            ThemeKind::Texas,
         ]
     }
 }
