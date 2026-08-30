@@ -26,10 +26,20 @@ fn second_has_its_own_slot() {
 }
 
 #[test]
-fn parens_clear_and_memory_share_toprow() {
+fn parens_and_memory_share_toprow() {
     assert_eq!(category_for(Button::LeftParen), Category::TopRow);
-    assert_eq!(category_for(Button::Clear), Category::TopRow);
+    assert_eq!(category_for(Button::RightParen), Category::TopRow);
     assert_eq!(category_for(Button::MemRecall), Category::TopRow);
+    assert_eq!(category_for(Button::ToggleAngleMode), Category::TopRow);
+}
+
+#[test]
+fn the_two_keys_that_take_something_away_share_a_slot() {
+    // `AC`/`C` and backspace are a group of their own so a theme can
+    // mark them; the shipped ones paint the group exactly as the top
+    // row, so nothing on screen has moved for the split.
+    assert_eq!(category_for(Button::Clear), Category::Delete);
+    assert_eq!(category_for(Button::Backspace), Category::Delete);
 }
 
 #[test]
@@ -49,10 +59,11 @@ fn scientific_functions_share_science_slot() {
 }
 
 #[test]
-fn category_color_reads_expected_slot() {
+fn category_colors_read_expected_slot() {
     use crate::theme::ThemeKind;
     let t = ThemeKind::Cosmic.get();
-    assert_eq!(Category::Number.color(&t), t.number_button);
-    assert_eq!(Category::BasicOp.color(&t), t.basicop_button);
-    assert_eq!(Category::Equals.color(&t), t.equals_button);
+    assert_eq!(Category::Number.colors(&t), t.number);
+    assert_eq!(Category::BasicOp.colors(&t), t.basicop);
+    assert_eq!(Category::Equals.colors(&t), t.equals);
+    assert_eq!(Category::Delete.colors(&t), t.delete);
 }

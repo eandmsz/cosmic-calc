@@ -199,14 +199,15 @@ pub struct AppModel {
 
 impl AppModel {
     /// Current active palette – for the Cosmic preset we overlay the
-    /// live desktop colours on top of the stored palette. Every
-    /// other preset (including Custom) is returned as-is.
+    /// live desktop colours on top of the shipped one. Every other
+    /// preset is its table as written.
     pub fn active_theme(&self) -> Theme {
+        let base = self.config.theme();
         if self.config.theme_kind == ThemeKind::Cosmic {
             let over = override_from_cosmic(self.core.system_theme().cosmic());
-            apply_cosmic_override(self.config.theme.clone(), over)
+            apply_cosmic_override(base, over)
         } else {
-            self.config.theme.clone()
+            base
         }
     }
 
@@ -746,7 +747,7 @@ impl Application for AppModel {
             }
 
             Message::SetTheme(kind) => {
-                self.config.apply_theme_preset(kind);
+                self.config.theme_kind = kind;
                 self.persist();
             }
             Message::SetDecimalSeparator(sep) => {
@@ -1002,12 +1003,33 @@ impl Application for AppModel {
         }
         let controls = controls.push(keypad);
 
-        let display_slot = widget::container(display)
-            .width(Length::Fill)
-            .height(Length::Fixed(layout.display_budget.max(1.0)));
-        let mut main_column = widget::column::with_capacity(4)
+        // The display and the row of readouts under it are one
+        // surface with a background of its own: the caption, the
+        // readout, the number properties and the memory register all
+        // sit on `display_bg` rather than on the window. It is a
+        // separate slot so a theme can make the display a panel
+        // against the keypad; every shipped one paints it the same
+        // colour as the window, where it reads as one background.
+        let mut display_area = widget::column::with_capacity(2)
+            .push(
+                widget::container(display)
+                    .width(Length::Fill)
+                    .height(Length::Fixed(layout.display_budget.max(1.0))),
+            )
+            .width(Length::Fill);
+        if let Some(status) = status_bar {
+            display_area = display_area.push(status);
+        }
+        let display_slot = widget::container(display_area)
+            .class(surface(
+                active_theme.display_bg,
+                self.config.effective_button_corner_radius(),
+            ))
+            .width(Length::Fill);
+        let main_column = widget::column::with_capacity(3)
             .push(top_bar)
             .push(display_slot)
+            .push(controls)
             .spacing(layout.section_spacing)
             .padding(Padding {
                 top: layout.section_spacing,
@@ -1017,10 +1039,6 @@ impl Application for AppModel {
             })
             .width(Length::Fill)
             .height(Length::Fill);
-        if let Some(status) = status_bar {
-            main_column = main_column.push(status);
-        }
-        main_column = main_column.push(controls);
 
         // While a resize this app asked for is in flight the window is
         // changing width underneath the layout, so the calculator is
@@ -1154,7 +1172,12 @@ impl AppModel {
         let radius = self.config.effective_button_corner_radius();
         let key = |label: &'static str, button: Button| {
             widget::button::standard(label)
-                .class(crate::ui::button_style::class_for(&theme, button, radius))
+                .class(crate::ui::button_style::class_for(
+                    &theme,
+                    button,
+                    radius,
+                    TOP_BAR_BUTTON_HEIGHT,
+                ))
                 .on_press(Message::Button(button))
         };
         widget::row::with_capacity(3)
@@ -1182,13 +1205,16 @@ impl AppModel {
         let spacing_metrics = crate::ui::keypad::keypad_metrics(window_height, config);
         let row_spacing = spacing_metrics.spacing;
         let edge = row_spacing;
-        let status_visible = config.status_row_visible();
         // A memory register that has had to drop under the property
         // labels is a second line, and the height it takes has to
         // come out of the display's budget rather than out of the
         // keypad below it.
         let status_h = PROPERTY_STATUS_HEIGHT * self.status_row_lines() as f32;
-        let column_gaps = if status_visible { 3.0 } else { 2.0 };
+        // The main column is three sections — top bar, display,
+        // controls — however many rows the display surface holds
+        // inside itself, so the gaps between them do not change with
+        // the status row.
+        let column_gaps = 2.0;
         let section = row_spacing * SECTION_GAP_RATIO;
         // The memory row and the gap above it are only there when the
         // user has asked for them; without it the display slot is
@@ -1347,7 +1373,7 @@ impl AppModel {
     ) -> Element<'_, Message> {
         let theme = self.active_theme();
         let inactive_color = {
-            let (r, g, b, a) = theme.text_active.inactive().to_f32();
+            let (r, g, b, a) = theme.text_inactive.to_f32();
             cosmic::iced::Color::from_rgba(r, g, b, a)
         };
         let display_font = crate::ui::font::font_for(&self.config.font, self.config.font_weight);
@@ -1503,7 +1529,7 @@ impl AppModel {
     fn render_status_bar(&self) -> Element<'_, Message> {
         let theme = self.active_theme();
         let inactive_color = {
-            let (r, g, b, a) = theme.text_active.inactive().to_f32();
+            let (r, g, b, a) = theme.text_inactive.to_f32();
             cosmic::iced::Color::from_rgba(r, g, b, a)
         };
         let mut row = widget::row::with_capacity(NumberProperty::ALL.len() + 2);
@@ -1739,6 +1765,28 @@ pub(crate) fn status_row_lines(
         2
     }
 }
+
+/// A background of one colour with the keypad's own corners on it:
+/// what the display area is drawn on. Invisible where a theme paints
+/// it the same colour as the window, which every shipped one does.
+fn surface(color: crate::color::Rgba, corner_radius: f32) -> cosmic::theme::Container<'static> {
+    let color = crate::ui::button_style::rgba_to_color(color);
+    cosmic::theme::Container::custom(move |_theme| widget::container::Style {
+        background: Some(cosmic::iced::Background::Color(color)),
+        border: cosmic::iced::Border {
+            radius: cosmic::iced::border::Radius::from(corner_radius),
+            ..Default::default()
+        },
+        ..Default::default()
+    })
+}
+
+/// Height libcosmic draws a standard button at, which is what the top
+/// bar's three are. The border width is worked out from the button's
+/// own height — see [`crate::theme::Theme::border_width`] — and these
+/// three are the only buttons in the window whose height the layout
+/// does not set itself.
+const TOP_BAR_BUTTON_HEIGHT: f32 = 32.0;
 
 /// What the memory register is called on the row under the display.
 /// It used to be a bare `M`, which is a letter rather than a word and

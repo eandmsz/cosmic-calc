@@ -224,12 +224,15 @@ pub fn control_button(
         .height(Length::Fill)
         .center_x(Length::Fill)
         .center_y(Length::Fill);
+    // The border's width follows the cell it is drawn in, so a key
+    // keeps the same outline weight relative to itself however the
+    // window is sized. See [`Theme::border_width`].
     let class = if toggled {
-        button_style::class_for_toggled(theme, corner_radius)
+        button_style::class_for_toggled(theme, corner_radius, button_height)
     } else if flashing {
-        button_style::class_for_flashed(theme, button, corner_radius)
+        button_style::class_for_flashed(theme, button, corner_radius, button_height)
     } else {
-        button_style::class_for(theme, button, corner_radius)
+        button_style::class_for(theme, button, corner_radius, button_height)
     };
     widget::button::custom(centred)
         .on_press(Message::Button(button))

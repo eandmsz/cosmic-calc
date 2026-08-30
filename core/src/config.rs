@@ -323,13 +323,10 @@ pub struct Config {
     /// setting only changes what is drawn, never what is evaluated.
     pub debug_raw_formula: bool,
 
-    /// Which named palette the user picked; `Custom` means the
-    /// `theme` field was hand-edited and should be round-tripped
-    /// verbatim.
+    /// Which named palette the window is painted with. The palette
+    /// itself is not stored: it is one of the shipped ones, and this
+    /// says which. See [`ThemeKind`].
     pub theme_kind: ThemeKind,
-    /// Concrete colour palette currently in use. When `theme_kind`
-    /// is a named preset this mirrors `theme_kind.get()`
-    pub theme: Theme,
 
     /// UI font family name. Sent verbatim to iced's text renderer.
     pub font: String,
@@ -398,7 +395,6 @@ impl Default for Config {
             debug_raw_formula: false,
 
             theme_kind: ThemeKind::default(),
-            theme: ThemeKind::default().get(),
 
             font: DEFAULT_FONT.to_string(),
             font_weight: FontWeight::default(),
@@ -455,12 +451,6 @@ impl Config {
 
         if self.font.trim().is_empty() {
             self.font = DEFAULT_FONT.to_string();
-        }
-
-        // Keep `theme.name` in sync with the selected preset
-        if self.theme_kind != ThemeKind::Custom {
-            let preset = self.theme_kind.get();
-            self.theme.name = preset.name;
         }
 
         if self
@@ -549,22 +539,10 @@ impl Config {
             .unwrap_or(self.button_corner_radius)
     }
 
-    /// Switch to a named preset, replacing every palette entry.
-    pub fn apply_theme_preset(&mut self, kind: ThemeKind) {
-        self.theme_kind = kind;
-        self.theme = kind.get();
-    }
-
-    /// Flip the active preset to `Custom`, leaving `self.theme`
-    /// untouched so the already-edited palette round-trips. Called
-    /// from the settings panel whenever the user drags a colour
-    /// picker – per spec, any manual edit moves us out of a named
-    /// preset.
-    pub fn mark_theme_custom(&mut self) {
-        if self.theme_kind != ThemeKind::Custom {
-            self.theme_kind = ThemeKind::Custom;
-            self.theme.name = "Custom".to_string();
-        }
+    /// The palette in force. A preset lookup rather than a stored
+    /// value — see [`Config::theme_kind`].
+    pub fn theme(&self) -> Theme {
+        self.theme_kind.get()
     }
 }
 

@@ -55,15 +55,22 @@ const ROW_TEXT_SIZE: f32 = 14.0;
 /// Vertical / horizontal padding inside those rows.
 const ROW_PADDING: [u16; 2] = [6, 10];
 
+/// Height a panel row comes out at: its text plus the padding above
+/// and below it. The border width follows the button's own height —
+/// see [`crate::theme::Theme::border_width`] — and a row's height is
+/// its content's rather than something the layout hands down, so it
+/// is worked out here.
+const ROW_HEIGHT: f32 = ROW_TEXT_SIZE * 1.3 + 2.0 * ROW_PADDING[0] as f32;
+
 /// Paint a panel row in the keypad's palette at the keypad's corner
 /// radius. `selected` gets the same inversion the armed `2nd` key
 /// wears, which is the app's existing way of saying "this one is in
 /// force".
 fn row_class(theme: &Theme, radius: f32, selected: bool) -> ButtonClass {
     if selected {
-        button_style::class_for_toggled(theme, radius)
+        button_style::class_for_toggled(theme, radius, ROW_HEIGHT)
     } else {
-        button_style::class(theme.toprow_button, theme.text_active, radius)
+        button_style::class(theme.toprow, radius, theme.border_width(ROW_HEIGHT))
     }
 }
 
@@ -183,6 +190,13 @@ fn fill_portion(width: f32) -> u16 {
     (width.round() as u16).max(1)
 }
 
+/// Height of a switch, and half its width. libcosmic's own toggler is
+/// this tall.
+const SWITCH_HEIGHT: f32 = 24.0;
+
+/// Gap the knob keeps from the edge of the switch it sits in.
+const SWITCH_MARGIN: f32 = 2.0;
+
 /// One line of the settings panel's toggle block: the name on the
 /// left, the switch hard against the right edge. A `toggler`'s own
 /// label sits immediately beside its switch, which puts every switch
@@ -190,6 +204,7 @@ fn fill_portion(width: f32) -> u16 {
 /// name apart — so the label is a separate widget with the space
 /// between them doing the pushing.
 fn toggle_row<'a>(
+    theme: &Theme,
     label: &'static str,
     value: bool,
     on_toggle: impl Fn(bool) -> Message + 'a,
@@ -197,11 +212,117 @@ fn toggle_row<'a>(
     widget::row::with_capacity(3)
         .push(widget::text::body(label))
         .push(widget::Space::new().width(Length::Fill))
-        .push(widget::toggler(value).on_toggle(on_toggle))
+        .push(switch(theme, value, on_toggle))
         .align_y(cosmic::iced::Alignment::Center)
         .spacing(8)
         .width(Length::Fill)
         .into()
+}
+
+/// The settings panel's on/off switch, drawn from the theme.
+///
+/// libcosmic's own toggler takes its colour from the desktop palette
+/// and offers no way in — its style class is the unit type — so the
+/// one control in the window that could not follow the calculator's
+/// theme was the one the theme panel is made of. This is the same
+/// shape built from the pieces the app already styles.
+///
+/// The track carries the accent when it is on and the theme's dim
+/// text colour when it is off — a colour picked to be readable
+/// against the panel, which is what the off state needs to be. The
+/// knob is the window background: the accent is chosen to stand out
+/// from that, so a knob in it reads against the track at either end.
+fn switch<'a>(
+    theme: &Theme,
+    value: bool,
+    on_toggle: impl Fn(bool) -> Message + 'a,
+) -> Element<'a, Message> {
+    let knob = SWITCH_HEIGHT - 2.0 * SWITCH_MARGIN;
+    let track = if value {
+        theme.accent
+    } else {
+        theme.text_inactive
+    };
+    let knob = widget::container(widget::Space::new().width(knob).height(knob))
+        .class(filled(theme.app_bg, knob / 2.0));
+    let inner = widget::container(knob)
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .align_x(if value {
+            Alignment::End
+        } else {
+            Alignment::Start
+        })
+        .align_y(Alignment::Center)
+        .padding(SWITCH_MARGIN);
+    widget::button::custom(inner)
+        .class(button_style::class(
+            crate::theme::ButtonColors::flat(crate::theme::ButtonFace::new(
+                track,
+                theme.app_bg,
+                track,
+            )),
+            SWITCH_HEIGHT / 2.0,
+            0.0,
+        ))
+        .width(Length::Fixed(2.0 * SWITCH_HEIGHT))
+        .height(Length::Fixed(SWITCH_HEIGHT))
+        .padding(0)
+        .on_press(on_toggle(!value))
+        .into()
+}
+
+/// A container filled with one colour and rounded to `radius`. The
+/// switch's knob, and nothing else so far.
+fn filled(color: crate::color::Rgba, radius: f32) -> cosmic::theme::Container<'static> {
+    let color = button_style::rgba_to_color(color);
+    cosmic::theme::Container::custom(move |_theme| widget::container::Style {
+        background: Some(cosmic::iced::Background::Color(color)),
+        border: cosmic::iced::Border {
+            radius: cosmic::iced::border::Radius::from(radius),
+            ..Default::default()
+        },
+        ..Default::default()
+    })
+}
+
+/// The settings panel's sliders, drawn from the theme: the accent
+/// behind the part of the rail that is filled and under the handle,
+/// the dim text colour behind the rest, which is the same pair the
+/// switches above them use.
+fn slider_class(theme: &Theme) -> cosmic::theme::iced::Slider {
+    let filled = button_style::rgba_to_color(theme.accent);
+    let empty = button_style::rgba_to_color(theme.text_inactive);
+    let text = button_style::rgba_to_color(theme.text_active);
+    let style = move |handle: u16| cosmic::iced::widget::slider::Style {
+        rail: cosmic::iced::widget::slider::Rail {
+            backgrounds: (
+                cosmic::iced::Background::Color(filled),
+                cosmic::iced::Background::Color(empty),
+            ),
+            border: cosmic::iced::Border {
+                radius: cosmic::iced::border::Radius::from(2.0),
+                ..Default::default()
+            },
+            width: 4.0,
+        },
+        handle: cosmic::iced::widget::slider::Handle {
+            shape: cosmic::iced::widget::slider::HandleShape::Circle {
+                radius: handle as f32 / 2.0,
+            },
+            background: cosmic::iced::Background::Color(filled),
+            border_width: 0.0,
+            border_color: cosmic::iced::Color::TRANSPARENT,
+        },
+        breakpoint: cosmic::iced::widget::slider::Breakpoint { color: text },
+    };
+    cosmic::theme::iced::Slider::Custom {
+        active: std::rc::Rc::new(move |_| style(20)),
+        // The handle grows under the pointer, the way libcosmic's own
+        // slider answers a hover.
+        hovered: std::rc::Rc::new(move |_| style(26)),
+        dragging: std::rc::Rc::new(move |_| style(26)),
+    }
 }
 
 /// Left-hand history panel. Newest entries first. Clicking
@@ -422,29 +543,39 @@ pub fn settings_panel<'a>(
     // toggles scattered between the sliders and the option rows.
     let toggles = widget::column::with_children(vec![
         toggle_row(
+            theme,
             "Show result properties",
             config.property_testing,
             Message::SetPropertyTesting,
         ),
         toggle_row(
+            theme,
             "Show memory contents",
             config.show_memory,
             Message::SetShowMemory,
         ),
         toggle_row(
+            theme,
             "Show angle mode and memory buttons",
             config.show_toprow,
             Message::SetShowToprow,
         ),
         toggle_row(
+            theme,
             "Save window size",
             config.save_window_size,
             Message::SetSaveWindowSize,
         ),
-        toggle_row("Save history", config.save_history, Message::SetSaveHistory),
+        toggle_row(
+            theme,
+            "Save history",
+            config.save_history,
+            Message::SetSaveHistory,
+        ),
         // Purely a display choice: the tokenizer is handed the raw
         // form either way, so a result never depends on this one.
         toggle_row(
+            theme,
             "Show ASCII expression",
             config.debug_raw_formula,
             Message::SetDebugRawFormula,
@@ -526,7 +657,8 @@ pub fn settings_panel<'a>(
         0..=max_decimals,
         config.rand_decimals.min(max_decimals),
         Message::SetRandDecimals,
-    );
+    )
+    .class(slider_class(theme));
     let rand_decimals_label = widget::text::caption(format!(
         "Random decimals: {} (max {})",
         config.rand_decimals.min(max_decimals),
@@ -540,7 +672,8 @@ pub fn settings_panel<'a>(
         MIN_SIGNIFICANT_DIGITS..=MAX_SIGNIFICANT_DIGITS,
         config.significant_digits,
         Message::SetSignificantDigits,
-    );
+    )
+    .class(slider_class(theme));
     let significant_digits_label = widget::text::caption(format!(
         "Displayed significant digits: {}",
         config.significant_digits

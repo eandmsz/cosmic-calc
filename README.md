@@ -271,7 +271,55 @@ make check                         # fmt + clippy + the whole workspace
 	  the cursor still in the base slot, and `x²` there is `(3⁶)²`
 	  where it used to write `3^2^6` — the 3 raised to the
 	  sixty-fourth
-- Fully compatible with COSMIC desktop themes and also inheriting accent color from KDE, GNOME, XFCE
+- Nineteen palettes, and every colour in one is written down rather
+  than worked out. A button group carries a fill, a label colour and a
+  border colour for each of its three states — resting, hovered,
+  pressed — and the window draws what the table says
+	- The hover shade used to be an HSV lift of the base colour and
+	  the pressed shade a 10 % darkening of it, with one label
+	  colour for the whole theme however little contrast it had
+	  against the key it landed on. A formula cannot know that a
+	  bright accent key needs a different label from the window
+	  around it; a table can
+	- The groups are the science keys, `2nd`, the top row, the two
+	  delete keys (`AC`/`C` and backspace), the basic operators,
+	  `=`, `±`, the decimal point and the digits. `AC` and backspace
+	  are a group of their own so a theme can mark the keys that
+	  take something away; every shipped theme paints them exactly
+	  as the top row, so nothing has moved
+	- Three surfaces rather than two: the window, the side panels,
+	  and the display — the caption, the readout and the row of
+	  number properties and memory under them all sit on
+	  `display_bg`, so a theme can make the display a panel against
+	  the keypad. Every shipped theme paints it the same colour as
+	  the window
+	- The text that is not on a button has its own two colours, an
+	  active and a dim, rather than the dim one being a fixed
+	  fraction of the active one's alpha
+	- Colours are `#RRGGBBAA` in the source exactly as they are in
+	  `config.toml`, so a value can be moved between the two without
+	  translating it, and the alpha channel is live everywhere: a
+	  button filled with `#00000000` shows the background through it
+	  and is drawn by its border alone
+	- Borders are off by default (`button_border_thickness = 0`) and
+	  are a percentage of the button's height rather than a pixel
+	  count, so an outline keeps its proportion as the window grows
+	  and a settings row does not wear the same heavy line as a
+	  keypad key three times its size. The width is rounded to a
+	  whole logical pixel — a border is a hairline of solid colour,
+	  and at 0.4px the renderer draws a shimmering grey smear
+	  instead of a line — and it is drawn *inside* the button, so
+	  turning one on never moves anything
+	- The switches and sliders in the settings panel take the
+	  theme's accent colour. libcosmic's own toggler reads the
+	  desktop palette and offers no way in, so the switch is built
+	  from the pieces the app already styles
+- The Cosmic palette is the one that is not fixed: it tracks the
+  running COSMIC desktop, and takes that desktop's own component
+  colours — base, hover, pressed, the text on them and their border —
+  rather than deriving any of them. An accent-coloured key therefore
+  wears the accent's *own* text colour, which is where the contrast
+  used to go
 - Decimal separator is automatically based on the system locale, and
   the thousands separator follows it unless you pick one. The space
   the two of them can resolve to is a no-break space, so a grouped
