@@ -289,7 +289,7 @@ impl ThemeKind {
                 text_active: rgba("#D4D4D4FF"),
                 text_inactive: rgba("#D4D4D44D"),
                 accent: rgba("#FF9600FF"),
-                button_border_thickness: 0.0,
+                button_border_thickness: 1.0,
                 science: ButtonColors::new(
                     ButtonFace::new(rgba("#3E4247FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
                     ButtonFace::new(rgba("#52575EFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
@@ -784,7 +784,7 @@ impl ThemeKind {
                 text_active: rgba("#D4D4D4FF"),
                 text_inactive: rgba("#D4D4D44D"),
                 accent: rgba("#FF9600FF"),
-                button_border_thickness: 0.0,
+                button_border_thickness: 0.1,
                 science: ButtonColors::new(
                     ButtonFace::new(rgba("#3E4247FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
                     ButtonFace::new(rgba("#52575EFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
