@@ -135,6 +135,91 @@ impl ButtonShape {
     }
 }
 
+/// Weight of the UI font: the nine steps CSS names, which is also
+/// what a font's own faces are usually called — `Light`, `Medium`,
+/// `SemiBold`, `Black`.
+///
+/// Which of them a family actually has is the font's business rather
+/// than the config's, so this is only what the user asked for. The UI
+/// looks up the faces the chosen family ships and offers those; a
+/// weight it does not have falls back to the nearest it does, and the
+/// stored choice is left alone so switching families and back gets it
+/// again.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FontWeight {
+    Thin,
+    ExtraLight,
+    Light,
+    #[default]
+    Regular,
+    Medium,
+    SemiBold,
+    Bold,
+    ExtraBold,
+    Black,
+}
+
+impl FontWeight {
+    /// Every step, lightest first.
+    pub const ALL: [FontWeight; 9] = [
+        FontWeight::Thin,
+        FontWeight::ExtraLight,
+        FontWeight::Light,
+        FontWeight::Regular,
+        FontWeight::Medium,
+        FontWeight::SemiBold,
+        FontWeight::Bold,
+        FontWeight::ExtraBold,
+        FontWeight::Black,
+    ];
+
+    /// The number a face carries for this weight, which is how the
+    /// font database spells it.
+    pub fn value(self) -> u16 {
+        match self {
+            FontWeight::Thin => 100,
+            FontWeight::ExtraLight => 200,
+            FontWeight::Light => 300,
+            FontWeight::Regular => 400,
+            FontWeight::Medium => 500,
+            FontWeight::SemiBold => 600,
+            FontWeight::Bold => 700,
+            FontWeight::ExtraBold => 800,
+            FontWeight::Black => 900,
+        }
+    }
+
+    /// The step nearest `value`. Faces are free to carry any number in
+    /// the range — a variable font's instances often do — and a
+    /// settings list of nine named weights is a good deal easier to
+    /// read than one of every number a machine's fonts happen to use.
+    /// Ties go to the lighter step, which is the one whose name a
+    /// reader is more likely to have seen.
+    pub fn nearest(value: u16) -> FontWeight {
+        FontWeight::ALL
+            .into_iter()
+            .min_by_key(|w| w.value().abs_diff(value))
+            .unwrap_or_default()
+    }
+
+    /// Name for the settings panel, spelled the way a font's own face
+    /// names are.
+    pub fn display_name(self) -> &'static str {
+        match self {
+            FontWeight::Thin => "Thin",
+            FontWeight::ExtraLight => "Extra Light",
+            FontWeight::Light => "Light",
+            FontWeight::Regular => "Regular",
+            FontWeight::Medium => "Medium",
+            FontWeight::SemiBold => "Semi Bold",
+            FontWeight::Bold => "Bold",
+            FontWeight::ExtraBold => "Extra Bold",
+            FontWeight::Black => "Black",
+        }
+    }
+}
+
 // ---------------------------------------------------------------------
 // Config struct
 // ---------------------------------------------------------------------
@@ -214,6 +299,13 @@ pub struct Config {
     /// only visible while that panel was open.
     pub show_memory: bool,
 
+    /// Show the row of buttons directly above the keypad: the DEG/RAD
+    /// switch and `MC`/`MR`/`M+`/`M-`. Off, the row is not drawn and
+    /// the height it was taking goes to the expression display, which
+    /// scales its text up to fill it. Both functions stay reachable
+    /// from the keyboard, and either can be put on a keypad cell.
+    pub show_toprow: bool,
+
     /// Whether a window the user resizes is remembered as the size to
     /// open at next time. Off, `window_startup_*` stay exactly as they
     /// are and dragging the window edge changes nothing on disk.
@@ -241,6 +333,12 @@ pub struct Config {
 
     /// UI font family name. Sent verbatim to iced's text renderer.
     pub font: String,
+
+    /// Which of the family's faces to draw in. A family that has no
+    /// face at this weight is drawn in the nearest one it does have,
+    /// and the choice is kept as it stands so a family that has it
+    /// gets it back — see [`FontWeight`].
+    pub font_weight: FontWeight,
 
     /// Keypad layout.
     pub mode: Mode,
@@ -290,6 +388,7 @@ impl Default for Config {
 
             property_testing: false,
             show_memory: true,
+            show_toprow: true,
             // The window size has always been remembered; the toggle
             // is there to stop it, not to start it.
             save_window_size: true,
@@ -302,6 +401,7 @@ impl Default for Config {
             theme: ThemeKind::default().get(),
 
             font: DEFAULT_FONT.to_string(),
+            font_weight: FontWeight::default(),
 
             mode: Mode::default(),
 
@@ -373,9 +473,20 @@ impl Config {
         // A history left in the file with the toggle off is a
         // hand-edit (or the leftovers of the toggle being turned off
         // while the app was not running); either way it is not to be
-        // loaded. With the toggle on, only as much of it as the panel
-        // would hold is kept.
+        // loaded. With the toggle on, every row is put through the
+        // paste pipeline and only the ones that come back out are
+        // kept — see [`StoredEntry::read_back`] — and only as many of
+        // those as the panel would hold. A row the file made up is
+        // therefore gone from the file too, the next time one is
+        // written, rather than sitting in memory waiting to be saved
+        // again.
         if self.save_history {
+            self.history = self
+                .history
+                .iter()
+                .filter_map(StoredEntry::read_back)
+                .map(|entry| StoredEntry::of(&entry))
+                .collect();
             let extra = self.history.len().saturating_sub(HISTORY_CAPACITY);
             self.history.drain(..extra);
         } else {

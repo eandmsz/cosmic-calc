@@ -423,3 +423,51 @@ fn a_pinned_minimum_width_is_held_to_the_window_range() {
     let back: Config = toml::from_str(&toml::to_string_pretty(&c).unwrap()).unwrap();
     assert_eq!(back.min_window_width, 240);
 }
+
+#[test]
+fn font_weights_name_the_faces_a_font_ships() {
+    use crate::config::FontWeight;
+
+    // The nine steps, lightest first, at the numbers a face carries.
+    assert_eq!(FontWeight::ALL.len(), 9);
+    assert_eq!(FontWeight::default(), FontWeight::Regular);
+    assert_eq!(FontWeight::Regular.value(), 400);
+    assert_eq!(FontWeight::Black.value(), 900);
+    let mut sorted = FontWeight::ALL;
+    sorted.sort();
+    assert_eq!(sorted, FontWeight::ALL);
+
+    // A face is free to carry any number in the range — a variable
+    // font's instances often do — and lands on the step nearest it.
+    assert_eq!(FontWeight::nearest(400), FontWeight::Regular);
+    assert_eq!(FontWeight::nearest(430), FontWeight::Regular);
+    assert_eq!(FontWeight::nearest(560), FontWeight::SemiBold);
+    assert_eq!(FontWeight::nearest(0), FontWeight::Thin);
+    assert_eq!(FontWeight::nearest(2000), FontWeight::Black);
+    // A tie goes to the lighter step.
+    assert_eq!(FontWeight::nearest(450), FontWeight::Regular);
+}
+
+#[test]
+fn the_font_weight_round_trips_through_the_file() {
+    use crate::config::FontWeight;
+
+    let path = scratch_path("font-weight");
+    let written = Config {
+        font_weight: FontWeight::SemiBold,
+        ..Config::default()
+    };
+    written.save_at(&path).expect("save");
+    let read = Config::load_or_create_default_at(&path).expect("load");
+    assert_eq!(read.font_weight, FontWeight::SemiBold);
+    // Spelled readably in the file rather than as a number.
+    let body = std::fs::read_to_string(&path).expect("read");
+    assert!(body.contains("font_weight = \"semi_bold\""), "{body}");
+
+    // And a file written before the field existed still loads, at the
+    // weight a font ships as its own.
+    std::fs::write(&path, "font = \"Adwaita Sans\"\n").expect("write");
+    let read = Config::load_or_create_default_at(&path).expect("load");
+    assert_eq!(read.font_weight, FontWeight::Regular);
+    let _ = std::fs::remove_dir_all(path.parent().unwrap());
+}

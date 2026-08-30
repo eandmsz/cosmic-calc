@@ -8,16 +8,32 @@
 //! The list survives a restart only when the user asks it to, through
 //! the "Save history" toggle: [`StoredEntry`] is what the config file
 //! then holds, and it holds the *text* of a calculation rather than
-//! its items. The buffer's ASCII spelling is what the clipboard
-//! carries and what the paste path already reads back, so storing
-//! that gives a config file a person can read and edit, and reuses a
-//! round trip the app is already tested on.
+//! its items.
+//!
+//! That text is the expression as the display writes it — `√(9)×π`,
+//! not the `sqrt(9)*pi` the clipboard spells the same thing with. The
+//! two are both read back by the same parser, so either would load;
+//! what the display's own form gets right is that a file written from
+//! a pasted expression holds the characters that were pasted, rather
+//! than a translation of them. What is in the file is what is on
+//! screen.
+//!
+//! Reading it back is the paste path, exactly: [`StoredEntry::read_back`]
+//! hands the stored line to [`crate::clipboard::paste_items`], which
+//! is the same allow-list, the same length cap and the same
+//! all-or-nothing rule the clipboard is held to. A hand-edited row
+//! that does not survive it is dropped whole and in silence — a
+//! config file can therefore put nothing into the buffer that the
+//! clipboard could not, and the same goes for the result beside it,
+//! which has to read as a number the formatter could have printed or
+//! as one of the named errors.
 
 use std::collections::VecDeque;
 
 use serde::{Deserialize, Serialize};
 
-use crate::engine::input::ascii_of;
+use crate::engine::errors::CalcError;
+use crate::engine::input::display_of;
 use crate::engine::item::InputItem;
 
 /// Maximum number of entries retained. Spec: 255.
@@ -99,35 +115,96 @@ impl History {
         self.entries
             .iter()
             .skip(skip)
-            .map(|entry| StoredEntry {
-                expression: ascii_of(&entry.items),
-                result: entry.result.clone(),
-            })
+            .map(StoredEntry::of)
             .collect()
     }
 
-    /// Rebuild a history from what the config file held.
-    ///
-    /// An entry whose text no longer reads back as items keeps its
-    /// result and its expression — the panel shows the stored text
-    /// verbatim for it — but cannot be clicked back into the buffer,
-    /// which is the same rule an entry recorded from a paste follows.
+    /// Rebuild a history from what the config file held, dropping any
+    /// row that does not read back. See [`StoredEntry::read_back`].
     pub fn from_stored(stored: &[StoredEntry]) -> Self {
         let mut history = Self::new();
         for entry in stored.iter().take(HISTORY_CAPACITY) {
-            let items = crate::clipboard::items_from_paste(&entry.expression).unwrap_or_default();
-            history.push(entry.expression.clone(), entry.result.clone(), items);
+            if let Some(entry) = entry.read_back() {
+                history.push(entry.expression, entry.result, entry.items);
+            }
         }
         history
     }
 }
 
-/// One history row as `config.toml` holds it: the expression in the
-/// ASCII spelling the tokenizer reads, and the result exactly as the
-/// display showed it.
+/// One history row as `config.toml` holds it: the expression as the
+/// display writes it, and the result exactly as the display showed
+/// it.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct StoredEntry {
     pub expression: String,
     pub result: String,
+}
+
+impl StoredEntry {
+    /// The stored form of a row on screen.
+    pub fn of(entry: &HistoryEntry) -> Self {
+        Self {
+            expression: entry.expression.clone(),
+            result: entry.result.clone(),
+        }
+    }
+
+    /// The history row this stored line stands for, or `None` when it
+    /// is not one this calculator could have written.
+    ///
+    /// The expression goes through the clipboard's own paste pipeline,
+    /// so the allow-list, the length cap and the refusal to drop a
+    /// character it cannot represent all apply here exactly as they do
+    /// to a paste — a hand-edit that reaches past them is dropped in
+    /// silence rather than shown or loaded. The result has no parser
+    /// of its own, so it is held to the shapes the formatter and the
+    /// error table produce.
+    ///
+    /// The expression comes back rewritten from the items it read, so
+    /// a row that loads is a row that will be written out again
+    /// unchanged.
+    pub fn read_back(&self) -> Option<HistoryEntry> {
+        let items = crate::clipboard::paste_items(Some(&self.expression))?;
+        if !is_result_text(&self.result) {
+            return None;
+        }
+        Some(HistoryEntry {
+            expression: display_of(&items),
+            result: self.result.clone(),
+            items,
+        })
+    }
+}
+
+/// Whether `text` is a result this calculator could have shown: a
+/// number as [`crate::engine::format::format_result`] writes one, or
+/// one of the named errors.
+fn is_result_text(text: &str) -> bool {
+    CalcError::ALL.iter().any(|e| e.as_str() == text) || is_formatted_number(text)
+}
+
+/// Whether `text` has the shape the formatter prints: an optional
+/// sign, digits with at most one point, and an optional `e` exponent
+/// with a sign of its own.
+fn is_formatted_number(text: &str) -> bool {
+    let rest = text.strip_prefix('-').unwrap_or(text);
+    let (mantissa, exponent) = match rest.split_once('e') {
+        Some((mantissa, exponent)) => (mantissa, Some(exponent)),
+        None => (rest, None),
+    };
+    let well_formed_mantissa = mantissa.chars().any(|c| c.is_ascii_digit())
+        && mantissa.matches('.').count() <= 1
+        && mantissa.chars().all(|c| c.is_ascii_digit() || c == '.');
+    if !well_formed_mantissa {
+        return false;
+    }
+    match exponent {
+        None => true,
+        Some(exponent) => {
+            let digits = exponent.strip_prefix('-').unwrap_or(exponent);
+            !digits.is_empty() && digits.chars().all(|c| c.is_ascii_digit())
+        }
+    }
 }

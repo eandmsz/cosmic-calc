@@ -285,11 +285,7 @@ impl InputBuffer {
 
     /// Render the input as its display string (what the user sees).
     pub fn display_string(&self) -> String {
-        let mut s = String::new();
-        for it in &self.items {
-            s.push_str(&it.display());
-        }
-        s
+        display_of(&self.items)
     }
 
     /// Mutable access to the underlying item slice. Intended only for
@@ -461,18 +457,49 @@ impl InputBuffer {
     /// Render the input as an ASCII expression suitable for the
     /// tokenizer/parser pipeline. '×' becomes '*', '÷' becomes '/', π
     /// becomes 'pi', 𝑒 becomes 'e', √/∛ become function calls.
+    ///
+    /// The canonical form, with an ASCII `.` between a number's
+    /// digits. That is what evaluation is handed and what the
+    /// property row is parsed from; what the user is shown and what
+    /// Copy carries goes through
+    /// [`InputBuffer::ascii_expression_with`] instead, which writes
+    /// the separator their region uses.
     pub fn ascii_expression(&self) -> String {
-        ascii_of(&self.items)
+        self.ascii_expression_with('.')
+    }
+
+    /// [`InputBuffer::ascii_expression`] with `decimal` between a
+    /// number's digits. The tokenizer reads `.` and `,` alike, so
+    /// either form is one this calculator (and the paste path) takes
+    /// back — what changes is only which of the two a reader in the
+    /// user's region expects to see.
+    ///
+    /// Only a number's own separator moves: the comma that separates
+    /// a call's two arguments is punctuation rather than part of a
+    /// number, and `root(16,4)` reads the same in either region.
+    pub fn ascii_expression_with(&self, decimal: char) -> String {
+        let mut s = String::new();
+        for it in &self.items {
+            match it {
+                InputItem::DecimalPoint => s.push(decimal),
+                _ => push_ascii(&mut s, it),
+            }
+        }
+        s
     }
 }
 
-/// [`InputBuffer::ascii_expression`] for a run of items that is not in
-/// a buffer — a history entry on its way to the config file, which is
-/// stored as the text the tokenizer reads back.
-pub fn ascii_of(items: &[InputItem]) -> String {
+/// [`InputBuffer::display_string`] for a run of items that is not in a
+/// buffer — a history entry on its way to the config file, which is
+/// stored as the text the display shows rather than as a translation
+/// of it. The `√`, the `×` and the `π` the user is looking at are
+/// characters the paste path reads back, so the file can hold the
+/// expression as written instead of a spelled-out `sqrt(`, `*` and
+/// `pi`.
+pub fn display_of(items: &[InputItem]) -> String {
     let mut s = String::new();
     for it in items {
-        push_ascii(&mut s, it);
+        s.push_str(&it.display());
     }
     s
 }

@@ -22,7 +22,8 @@ use cosmic::widget::button::ButtonClass;
 use cosmic::Element;
 
 use crate::config::{
-    max_decimals_for_rand_max, ButtonShape, Config, MAX_SIGNIFICANT_DIGITS, MIN_SIGNIFICANT_DIGITS,
+    max_decimals_for_rand_max, ButtonShape, Config, FontWeight, MAX_SIGNIFICANT_DIGITS,
+    MIN_SIGNIFICANT_DIGITS,
 };
 use crate::history::History;
 use crate::locale::{DecimalSeparator, ThousandsSeparator};
@@ -66,10 +67,34 @@ fn row_class(theme: &Theme, radius: f32, selected: bool) -> ButtonClass {
     }
 }
 
+/// Gap between the buttons of an option row, and between the lines of
+/// one that has to wrap.
+const OPTION_SPACING: f32 = 4.0;
+
+/// Padding the settings column keeps at either edge.
+const PANEL_PADDING: f32 = 12.0;
+
+/// Room an option row has to lay its buttons out in: the panel less
+/// its own padding and the gap the scrollbar keeps beside it.
+pub(crate) const OPTION_ROW_WIDTH: f32 = SETTINGS_PANEL_WIDTH - 2.0 * PANEL_PADDING - SCROLLBAR_GAP;
+
 /// A row of buttons standing in for a drop-down: every choice on show
-/// at once, in the shape the user picked for the keypad. Wraps onto a
-/// second line when the panel is too narrow for one, so a long option
-/// name never pushes the others out of the panel.
+/// at once, in the shape the user picked for the keypad.
+///
+/// Every line of them is stretched to the full width of the panel, so
+/// a choice between two ends at the same right edge as a choice
+/// between four rather than trailing off in the middle with a band of
+/// nothing beside it, and the settings read as one column of controls
+/// instead of a ragged edge. What each button gets of that width is
+/// its share of the line's labels, so a `Slightly Round` is drawn
+/// wider than an `Auto` beside it rather than the two being forced to
+/// the same size.
+///
+/// Stretching is what makes the wrapping this function's own business
+/// rather than a flex row's: a button asking to fill has no width of
+/// its own for a layout to wrap on, so which buttons share a line is
+/// worked out here, from the same character estimate the keypad sizes
+/// its labels with. See [`option_lines`].
 fn option_buttons<'a, T: Copy + PartialEq>(
     theme: &Theme,
     radius: f32,
@@ -78,21 +103,84 @@ fn option_buttons<'a, T: Copy + PartialEq>(
     label: impl Fn(T) -> &'static str,
     on_press: impl Fn(T) -> Message,
 ) -> Element<'a, Message> {
-    let children: Vec<Element<'a, Message>> = options
-        .iter()
-        .map(|option| {
-            widget::button::custom(widget::text(label(*option)).size(ROW_TEXT_SIZE))
+    let widths: Vec<f32> = options.iter().map(|o| option_width(label(*o))).collect();
+    let lines = option_lines(&widths);
+    let mut column = widget::column::with_capacity(lines.len())
+        .spacing(OPTION_SPACING)
+        .width(Length::Fill);
+    let mut from = 0;
+    for count in lines {
+        let mut row = widget::row::with_capacity(count)
+            .spacing(OPTION_SPACING)
+            .width(Length::Fill);
+        for (option, width) in options[from..from + count]
+            .iter()
+            .zip(&widths[from..from + count])
+        {
+            row = row.push(
+                widget::button::custom(
+                    widget::text(label(*option))
+                        .size(ROW_TEXT_SIZE)
+                        .center()
+                        .width(Length::Fill),
+                )
                 .class(row_class(theme, radius, *option == selected))
                 .padding(ROW_PADDING)
-                .on_press(on_press(*option))
-                .into()
-        })
-        .collect();
-    widget::flex_row(children)
-        .column_spacing(4)
-        .row_spacing(4)
-        .width(Length::Fill)
-        .into()
+                .width(Length::FillPortion(fill_portion(*width)))
+                .on_press(on_press(*option)),
+            );
+        }
+        column = column.push(row);
+        from += count;
+    }
+    column.into()
+}
+
+/// Width one option button needs for its label, in logical pixels:
+/// the label at the panel's row size, plus the padding either side of
+/// it. The character estimate is the keypad's, which runs a little
+/// wide — here that means a line wraps a button early rather than
+/// stretching one too thin for its own text.
+pub(crate) fn option_width(label: &str) -> f32 {
+    crate::ui::keypad::label_width_units(label)
+        * ROW_TEXT_SIZE
+        * crate::ui::keypad::LABEL_CHAR_WIDTH_RATIO
+        + 2.0 * ROW_PADDING[1] as f32
+}
+
+/// How many buttons go on each line, filling one before starting the
+/// next. Always at least one: a label too long for a whole line is
+/// drawn on one of its own rather than dropped.
+pub(crate) fn option_lines(widths: &[f32]) -> Vec<usize> {
+    let mut lines = Vec::new();
+    let mut count = 0usize;
+    let mut used = 0.0f32;
+    for width in widths {
+        let with_gap = if count == 0 {
+            *width
+        } else {
+            *width + OPTION_SPACING
+        };
+        if count > 0 && used + with_gap > OPTION_ROW_WIDTH {
+            lines.push(count);
+            count = 1;
+            used = *width;
+        } else {
+            count += 1;
+            used += with_gap;
+        }
+    }
+    if count > 0 {
+        lines.push(count);
+    }
+    lines
+}
+
+/// A button's share of its line, as the fill portion the row divides
+/// by. Scaled off the pixel estimate and floored at one, so a portion
+/// is never zero and the shares stay in proportion to the labels.
+fn fill_portion(width: f32) -> u16 {
+    (width.round() as u16).max(1)
 }
 
 /// One line of the settings panel's toggle block: the name on the
@@ -153,11 +241,18 @@ pub fn history_panel<'a>(
             // the same grouping and decimal glyph the display gives
             // one. It used to be the formatter's plain ASCII, which
             // read as a different locale from the expression above it.
-            let result = crate::ui::display::localise_number(
+            //
+            // A row whose result is an error goes through the same
+            // raising the display gives one, folded onto the single
+            // line this widget is: `sin⁻¹(x) must be between −1 and 1`
+            // rather than a `sin` with a `-1` subtracted from it.
+            // `localise_number` hands anything that is not a number
+            // back untouched, so the two steps do not overlap.
+            let result = crate::ui::display::error_line(&crate::ui::display::localise_number(
                 &entry.result,
                 config.decimal_separator,
                 thousands,
-            );
+            ));
             let entry_column = widget::column::with_capacity(2)
                 .push(widget::text::caption(expression))
                 .push(widget::text::body(result))
@@ -331,7 +426,16 @@ pub fn settings_panel<'a>(
             config.property_testing,
             Message::SetPropertyTesting,
         ),
-        toggle_row("Show memory", config.show_memory, Message::SetShowMemory),
+        toggle_row(
+            "Show memory contents",
+            config.show_memory,
+            Message::SetShowMemory,
+        ),
+        toggle_row(
+            "Show angle mode and memory buttons",
+            config.show_toprow,
+            Message::SetShowToprow,
+        ),
         toggle_row(
             "Save window size",
             config.save_window_size,
@@ -372,6 +476,23 @@ pub fn settings_panel<'a>(
     let font_selector = widget::scrollable(font_list)
         .spacing(SCROLLBAR_GAP)
         .height(Length::Fixed(220.0));
+
+    // Weight — only the faces the chosen family actually ships, so a
+    // family with a Light and a Black offers both and one that comes
+    // in a single face offers just the one rather than nine buttons
+    // that all draw the same. The list therefore changes as the
+    // family does. A stored weight the family has no face for is left
+    // stored — switching families and back gets it again — and the
+    // button lit is the one that will really be drawn.
+    let weights = crate::ui::font::weights_for(&config.font);
+    let weight_buttons = option_buttons(
+        theme,
+        radius,
+        weights,
+        crate::ui::font::resolved_weight(&config.font, config.font_weight),
+        FontWeight::display_name,
+        Message::SetFontWeight,
+    );
 
     // Random number config: two text inputs for the bounds + a slider
     // for the decimal count. The bounds are kept as raw text in
@@ -451,6 +572,8 @@ pub fn settings_panel<'a>(
         .push(theme_buttons)
         .push(widget::text::caption("Font"))
         .push(font_selector)
+        .push(widget::text::caption("Font weight"))
+        .push(weight_buttons)
         .spacing(8)
         .padding(12)
         .width(Length::Fill);

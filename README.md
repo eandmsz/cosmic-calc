@@ -153,6 +153,14 @@ make check                         # fmt + clippy + the whole workspace
 	  the radical stands for, and a number written without the
 	  thousands separators the display groups it with — the notation
 	  changes, the value never does
+		- The one thing it keeps is the separator inside a number,
+		  which is the one the settings are set to rather than
+		  always a `.`: `1234,5` where the region writes a comma,
+		  copied as well as shown. The tokenizer reads either, so
+		  it is still text this calculator takes back, and the
+		  comma that separates a call's two arguments is
+		  punctuation rather than part of a number — `root(16,4)`
+		  reads the same in either region
 - `logᵧ` writes its base where a base belongs — under the log — and
   shows the empty slot until you type one: press it and the display
   reads `log₍₎(8)`, key the base and it reads `log₂(8)`. With an
@@ -181,6 +189,16 @@ make check                         # fmt + clippy + the whole workspace
 	  round the whole power and give `(2^3)`. Same for the base slot
 	  `yˣ` opens, where the press steps the cursor out past the
 	  power: `5`, `yˣ`, `6`, `)`, `+` is `6⁵+`
+	- And a slot that has been closed stays closed for everything,
+	  not just the operators. The power is one finished value, so
+	  the next press is about the whole of it rather than about the
+	  exponent it ends in: `2`, `xʸ`, `3`, `)`, `5` is `2³×5`,
+	  where the digit used to run onto the end of the exponent and
+	  give `2` to the thirty-fifth; `!` there is `(2³)!` rather
+	  than `2` raised to `3!`; and a second `xʸ` is `(2³)^y`,
+	  where a bare `2^3^y` would have raised the `3`. Type into the
+	  slot instead of closing it and it is still the slot — that is
+	  what the brackets round it are saying
 	- An operator still waiting for its right operand has no value
 	  for the brackets to close over, so the press takes it back:
 	  `(5+` then `)` is `(5)`
@@ -195,10 +213,24 @@ make check                         # fmt + clippy + the whole workspace
 	  negative can be keyed into any of them — the argument, the
 	  base, the radicand, the degree — where the press used to be
 	  dropped
+	- An exponent is one too, so a negative one can be keyed
+	  straight into the slot: `2`, `xʸ`, `−`, `3` is 2⁻³ and `5`,
+	  `EE`, `−`, `3` is 5×10⁻³, with the sign drawn up in the slot
+	  where the digits are going. The press used to read as a change
+	  of mind about which operator was wanted — it took the caret
+	  back and left `2-` — so there was no way to key a negative
+	  exponent at all. `+`, `×` and `÷` still replace the caret,
+	  since a sign is the only thing an exponent can begin with
 	- And the two calls close over the sign along with the number:
 	  `−`, `4`, `logᵧ`, `8`, `)` is `log₈(-4)`, where the sign used
 	  to be left outside as `-log₈(4)`, which negates the logarithm
 	  instead of taking one of a negative number
+	- `yˣ` takes it up with the number it raises: `−`, `2`, `yˣ`,
+	  `9` is `9⁻²`, where lifting the `2` on its own left the sign
+	  on the line as `-9²` — the negative of nine squared, a
+	  different number. A minus with something to subtract from is a
+	  subtraction and stays put, so `5-2` then `yˣ` then `3` is
+	  `5-3²`
 - A decimal separator with no digits behind it goes when you move on
   from it: `5`, `.`, `+` is `5+`. Backspace is the one press that
   leaves it, since deleting it is what you are asking for
@@ -316,6 +348,12 @@ make check                         # fmt + clippy + the whole workspace
 	  stay in the exponent, which is how the text reads them
 	  anyway: `2`, `xʸ`, `5`, `%` is `2^5%`, and `2`, `xʸ`, `3`,
 	  `!` is `2` raised to `3!` = 64
+	- A power the cursor has come *out* of is the other case, and
+	  there they apply to the whole of it. Brackets are the only way
+	  to say so, since the buffer spells a power `9^5` and a bare
+	  `9^5!` reads as `9` raised to `5!`: `5`, `yˣ`, `9`, `!` is
+	  `(9⁵)!`, the way `8^5-8` subtracts from the whole `8⁵`. Same
+	  after a `)` has closed the exponent slot — see below
 - An expression with no value says which part of it has none, rather
   than a bare "Undefined". Every case you can key names itself:
 
@@ -338,11 +376,11 @@ make check                         # fmt + clippy + the whole workspace
   | `Undefined: Tangent` | `tan(90)` in DEG, `tan(π÷2)` in RAD |
   | `Undefined: Cotangent` | `cot(0)`, `cot(180)` in DEG, `cot(π)` in RAD |
   | `Undefined: Hyperbolic cotangent` | `coth(0)` |
-  | `Undefined sin−1(x) must be between −1 and 1` | `sin⁻¹(5)` |
-  | `Undefined cos−1(x) must be between −1 and 1` | `cos⁻¹(5)` |
-  | `Undefined cosh−1(x) must be 1 or more` | `cosh⁻¹(0.5)` |
-  | `Undefined tanh−1(x) must be between −1 and 1` | `tanh⁻¹(2)` |
-  | `Undefined coth−1(x) must be less than −1 or more than 1` | `coth⁻¹(0.5)` |
+  | `Undefined sin⁻¹(x) must be between −1 and 1` | `sin⁻¹(5)` |
+  | `Undefined cos⁻¹(x) must be between −1 and 1` | `cos⁻¹(5)` |
+  | `Undefined cosh⁻¹(x) must be 1 or more` | `cosh⁻¹(0.5)` |
+  | `Undefined tanh⁻¹(x) must be between −1 and 1` | `tanh⁻¹(2)` |
+  | `Undefined coth⁻¹(x) must be less than −1 or more than 1` | `coth⁻¹(0.5)` |
 
 	- `0^-2` used to report Overflow, which said the answer was too
 	  big rather than that there is none
@@ -360,22 +398,72 @@ make check                         # fmt + clippy + the whole workspace
 	- The messages about a bare number rather than an angle — the
 	  hyperbolic cotangent and the five inverse domains — read the
 	  same in either mode
+	- And the five name their function the way the display writes
+	  it everywhere else, with the `−1` raised: `sin⁻¹(x) must be
+	  between −1 and 1`. Flat, it read as a `sin` with a `1`
+	  subtracted from it. Only the `−1` that ends a name goes up —
+	  the one in "between −1 and 1" is a number in a sentence and
+	  stays on the line — and a history row, which has one size to
+	  work with, borrows Unicode's raised glyphs for it
 - The memory register sits under the display, at the size and in the
   colours of the number-property labels and aligned to the right: a
-  dim `M` while nothing is stored, the value beside it once something
-  is. It used to be a line at the top of the history panel, where it
-  could only be read with that panel open
+  dim `Memory:` while nothing is stored, the value beside it once
+  something is. It used to be a line at the top of the history panel,
+  where it could only be read with that panel open
+	- The space between the word and the number is a no-break one,
+	  so the two are never left on different lines
+	- The register and the property labels grow towards each other —
+	  a window dragged in shortens the space between them, fifteen
+	  digits of stored value lengthens the register — and rather
+	  than let the two meet, the register drops to a line of its
+	  own under `fibonacci`, still against the right edge. The row
+	  the display is sized against grows with it, so nothing is
+	  drawn over anything else
 - Every on/off setting is one block at the top of the settings panel,
   each on its own line with the switch against the right edge — show
-  result properties, show memory, save window size, save history, show
-  ASCII expression. Theme and font go last, since they are the two
-  longest controls and the two you set once
+  result properties, show memory contents, show angle mode and memory
+  buttons, save window size, save history, show ASCII expression.
+  Theme and font go last, since they are the two longest controls and
+  the two you set once
+	- "Show angle mode and memory buttons" is the row directly above
+	  the keypad: the DEG/RAD switch and `MC`/`MR`/`M+`/`M-`. Turned
+	  off, the height it was taking goes to the expression display,
+	  which scales its text up to fill it. Both functions stay on
+	  the keyboard, and either can be put on a keypad cell of your
+	  own
+	- Every choice that is a row of buttons rather than a switch —
+	  theme, the two separators, button shape, font weight — is
+	  stretched to the full width of the panel, so a choice between
+	  two ends at the same edge as a choice between four instead of
+	  trailing off in the middle. What each button gets of that
+	  width is its share of the names on its line, so a `Slightly
+	  Round` is drawn wider than the `Auto` beside it
+- The font's weight is a choice of its own, under the family: only the
+  faces that family actually ships, so one with a Light and a Black
+  offers both and one that comes in a single face offers just the one.
+  The list changes as the family does, and a weight the new family has
+  no face for is drawn in the nearest it does have while your choice
+  stays stored — go back to a family that has it and you have it again
+	- The display is fitted to the weight as well as to the window.
+	  A heavier face draws a little wider per character, and without
+	  the allowance a long error message lost its last word off the
+	  right-hand edge as soon as the font was set to Bold
 - "Save history" keeps the history list in `config.toml` and reads it
   back on the next start, updated as each calculation is recorded.
   Turning it off empties it from the file straight away; turning it on
-  writes what is already on screen. Entries are stored as the ASCII
-  expression the clipboard would carry, so the file stays readable and
-  a row can be clicked back into the buffer after a restart
+  writes what is already on screen
+	- A row is stored as the expression the display shows, character
+	  for character: `√(9)×2𝑒`, not the `sqrt(9)*2*e` the clipboard
+	  spells the same thing with. What is in the file is what is on
+	  screen, which matters most for an expression that arrived by
+	  paste — the characters that went in are the ones that come
+	  back out
+	- Reading it back is the paste path exactly, allow-list, length
+	  cap and all, so a hand-edited `config.toml` can put nothing
+	  into the buffer that the clipboard could not. A row that does
+	  not survive it — a stray `<script>`, a result the formatter
+	  could never have printed — is dropped whole and in silence,
+	  and is gone from the file the next time one is written
 - Shows real-time number properties in both layouts: prime ; harshad ; palindrome ; square ; triangular ; fibonacci
  	- Miller-Rabin primality test is used with 9 deterministic bases which gives a fast and 100% accurate prime number detection up to 2^64 (~10^19)
 

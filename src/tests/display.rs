@@ -1113,11 +1113,12 @@ fn raw_str(items: &[InputItem]) -> String {
     render_expression_string(items, DecimalSeparator::Comma, Some('.'), Notation::Raw)
 }
 
-/// The same expression as the clipboard carries it.
+/// The same expression as the clipboard carries it, in the same
+/// locale `raw_str` asks for.
 fn copied(items: &[InputItem]) -> String {
     let mut buf = crate::engine::InputBuffer::new();
     buf.replace(items.to_vec());
-    crate::clipboard::copy_text_for(&buf.ascii_expression())
+    crate::clipboard::copy_text_for(&buf.ascii_expression_with(','))
 }
 
 #[test]
@@ -1197,10 +1198,11 @@ fn the_raw_notation_spells_out_what_the_display_draws() {
         ]),
         "sqrt(9)/cbrt(8)"
     );
-    // A number is digits and an ASCII point: the grouping and the
-    // locale separator are the display's, and the clipboard has
-    // neither. (Both of the arguments above ask for the comma locale.)
-    assert_eq!(raw_str(&digits("1234.5")), "1234.5");
+    // A number is plain digits: the grouping is the display's and
+    // the ASCII form has none of it. The separator between them is
+    // still the user's own, and both of the arguments above ask for
+    // the comma locale.
+    assert_eq!(raw_str(&digits("1234.5")), "1234,5");
     // The `×` the calculator inserted is still dimmed, and still a
     // `*` — it is what the tokenizer would put there anyway.
     let auto = vec![
@@ -1456,5 +1458,129 @@ fn an_already_formatted_number_picks_up_the_separators() {
     assert_eq!(
         localise_number("Overflow", DecimalSeparator::Comma, Some(' ')),
         "Overflow"
+    );
+}
+#[test]
+fn a_sign_keyed_into_an_exponent_stays_in_the_exponent() {
+    // `2`, `xʸ`, `−` is a power whose exponent is being typed, so the
+    // sign is drawn up in the slot — in the same placeholder brackets
+    // a half-typed exponent wears — rather than back on the line as a
+    // subtraction the power has been left behind by.
+    let items = vec![
+        InputItem::Digit('2'),
+        InputItem::BinOp(BinOp::Pow),
+        InputItem::BinOp(BinOp::Sub),
+    ];
+    let segs = render_expression(
+        &items,
+        3,
+        DecimalSeparator::Dot,
+        None,
+        None,
+        Notation::Pretty,
+    );
+    assert_eq!(segs[0].text, "2");
+    assert!(segs[0].script.is_on_line());
+    let raised: String = segs[1..].iter().map(|seg| seg.text.as_str()).collect();
+    assert_eq!(raised, "(-)");
+    assert!(segs[1..].iter().all(|seg| seg.script.depth == 1));
+
+    // And once the digits arrive the brackets are round the whole
+    // exponent, sign included.
+    let mut items = items;
+    items.push(InputItem::Digit('3'));
+    let s = render_str(&items, DecimalSeparator::Dot, None);
+    assert_eq!(s, "2⁻³");
+}
+
+#[test]
+fn an_inverse_function_in_an_error_wears_its_raised_minus_one() {
+    use crate::engine::errors::CalcError;
+
+    // The name is the display's own — `sin⁻¹`, the way every other
+    // rendering of the function writes it — and only the `−1` that
+    // ends it goes up. The one in "between −1 and 1" is a number in a
+    // sentence and stays on the line.
+    let segs = error_segments(CalcError::AsinDomain.as_str());
+    let raised: Vec<&str> = segs
+        .iter()
+        .filter(|seg| !seg.script.is_on_line())
+        .map(|seg| seg.text.as_str())
+        .collect();
+    assert_eq!(raised, ["\u{2212}1"]);
+    assert_eq!(segs[0].text, "Undefined sin");
+    assert!(segs[0].script.is_on_line());
+    assert_eq!(
+        segs.iter().map(|seg| seg.text.as_str()).collect::<String>(),
+        CalcError::AsinDomain.as_str()
+    );
+
+    // Folded onto one line it borrows Unicode's raised glyphs, the
+    // same fallback a history row's exponent takes.
+    assert_eq!(
+        error_line(CalcError::AcoshDomain.as_str()),
+        "Undefined cosh\u{207B}\u{00B9}(x) must be 1 or more"
+    );
+
+    // Every message with an inverse function in it raises exactly one
+    // `−1`, and the ones without raise none.
+    for error in CalcError::ALL {
+        let message = error.as_str();
+        let segs = error_segments(message);
+        let raised = segs.iter().filter(|seg| !seg.script.is_on_line()).count();
+        let names_an_inverse = [
+            "sin\u{2212}1",
+            "cos\u{2212}1",
+            "cosh\u{2212}1",
+            "tanh\u{2212}1",
+            "coth\u{2212}1",
+        ]
+        .iter()
+        .any(|name| message.contains(name));
+        assert_eq!(raised, usize::from(names_an_inverse), "{message}");
+        assert_eq!(
+            segs.iter().map(|seg| seg.text.as_str()).collect::<String>(),
+            message
+        );
+    }
+}
+
+#[test]
+fn a_result_that_is_not_an_error_comes_back_untouched() {
+    // Everything else on the error path — a plain number in the
+    // history panel — goes through the same helper and is handed
+    // straight back.
+    assert_eq!(error_line("-1.5e-7"), "-1.5e-7");
+    assert_eq!(error_line("Overflow"), "Overflow");
+}
+
+#[test]
+fn the_raw_notation_writes_the_configured_decimal_separator() {
+    // The ASCII form drops the grouping — that is what the tokenizer
+    // would have to unpick — but the separator between the digits is
+    // the one the user's region writes, not always a `.`.
+    let items = digits("1234.5");
+    assert_eq!(
+        render_expression_string(&items, DecimalSeparator::Comma, Some('.'), Notation::Raw),
+        "1234,5"
+    );
+    assert_eq!(
+        render_expression_string(&items, DecimalSeparator::Dot, Some(','), Notation::Raw),
+        "1234.5"
+    );
+
+    // And the comma a call's arguments are separated by is not a
+    // number's, so it is unaffected either way.
+    let items = vec![
+        InputItem::BinaryFunc(BinaryFunc::Root),
+        InputItem::Digit('1'),
+        InputItem::Digit('6'),
+        InputItem::Comma,
+        InputItem::Digit('4'),
+        InputItem::RightParen,
+    ];
+    assert_eq!(
+        render_expression_string(&items, DecimalSeparator::Comma, None, Notation::Raw),
+        "root(16,4)"
     );
 }

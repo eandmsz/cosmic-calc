@@ -139,3 +139,64 @@ fn the_readout_keeps_only_as_much_leading_as_it_needs() {
         .fold(0.0f32, |acc, r| acc.max((r - ratios[0]).abs()));
     assert!(spread < 0.02, "the tiers disagree about their leading");
 }
+
+// --- the row under the display ---------------------------------------
+
+#[test]
+fn the_memory_register_is_named_rather_than_lettered() {
+    use crate::ui::app::memory_readout;
+
+    // A bare `M` is a letter; the row says what it is holding.
+    assert_eq!(memory_readout(""), "Memory:");
+    // And the space between the word and the number is a no-break
+    // one, so wrapping the row can never put the two on different
+    // lines.
+    assert_eq!(memory_readout("1 234.5"), "Memory:\u{00A0}1 234.5");
+}
+
+#[test]
+fn a_long_memory_value_moves_under_the_property_labels() {
+    use crate::ui::app::{memory_readout, status_row_lines};
+
+    // Wide enough for both, and the register sits beside the labels.
+    let register = memory_readout("42");
+    assert_eq!(status_row_lines(true, Some(&register), 500.0), 1);
+
+    // The two grow towards each other from either end: fifteen digits
+    // of stored value, or a window dragged in, and the register would
+    // be drawn over the `fibonacci` at the end of the row. It goes
+    // under it instead.
+    let long = memory_readout("123 456 789 012 345");
+    assert_eq!(status_row_lines(true, Some(&long), 500.0), 2);
+    assert_eq!(status_row_lines(true, Some(&register), 300.0), 2);
+
+    // Either half on its own always fits: there is nothing for it to
+    // collide with.
+    assert_eq!(status_row_lines(false, Some(&long), 100.0), 1);
+    assert_eq!(status_row_lines(true, None, 100.0), 1);
+    // And with both switched off the row is not drawn at all.
+    assert_eq!(status_row_lines(false, None, 400.0), 0);
+}
+
+#[test]
+fn a_heavier_face_is_fitted_to_a_narrower_window() {
+    use crate::config::FontWeight;
+    use crate::ui::display_metrics::char_width_factor;
+
+    // The regular face is what the per-character estimate is made
+    // against, so it is the one that costs nothing.
+    assert_eq!(char_width_factor(FontWeight::Regular), 1.0);
+    // Heavier draws wider, lighter narrower, and the steps are in
+    // order.
+    assert!(char_width_factor(FontWeight::Bold) > 1.0);
+    assert!(char_width_factor(FontWeight::Thin) < 1.0);
+    let mut previous = 0.0;
+    for weight in FontWeight::ALL {
+        let factor = char_width_factor(weight);
+        assert!(factor > previous, "{weight:?}");
+        previous = factor;
+    }
+    // A tenth or so across the whole range: enough to keep a Bold
+    // display inside its window, not so much that it is drawn small.
+    assert!(char_width_factor(FontWeight::Black) < 1.2);
+}

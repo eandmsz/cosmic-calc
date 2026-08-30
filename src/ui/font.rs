@@ -18,7 +18,10 @@
 use std::collections::HashMap;
 use std::sync::{OnceLock, RwLock};
 
+use cosmic::iced::font::Weight;
 use cosmic::iced::Font;
+
+use crate::config::FontWeight;
 
 /// The host's font database, loaded once. Shared by the family list
 /// below and by the label-centring metrics, which would otherwise scan
@@ -75,14 +78,105 @@ pub fn available_fonts() -> &'static Vec<String> {
 ///
 /// The read comes first so the common case — the family already in
 /// force — costs a shared lock rather than an exclusive one.
-pub fn apply_interface_font(family: &str) {
+pub fn apply_interface_font(family: &str, weight: FontWeight) {
+    let weight = iced_weight(resolved_weight(family, weight));
     if let Ok(tk) = cosmic::config::COSMIC_TK.read() {
-        if tk.interface_font.family == family {
+        if tk.interface_font.family == family && tk.interface_font.weight == weight {
             return;
         }
     }
     if let Ok(mut tk) = cosmic::config::COSMIC_TK.write() {
         tk.interface_font.family = family.to_string();
+        tk.interface_font.weight = weight;
+    }
+}
+
+/// Every family's weights, worked out once from the host's font
+/// database — one pass over every face installed, which is the same
+/// walk [`available_fonts`] makes.
+///
+/// Only upright faces count. An italic Black in a family whose
+/// upright faces stop at Bold is not a weight the user can be given
+/// without also being given the slant, and the settings panel is
+/// choosing a weight.
+fn family_weights() -> &'static HashMap<String, Vec<FontWeight>> {
+    static CACHE: OnceLock<HashMap<String, Vec<FontWeight>>> = OnceLock::new();
+    CACHE.get_or_init(|| {
+        let mut map: HashMap<String, Vec<FontWeight>> = HashMap::new();
+        for face in system_db().faces() {
+            if face.style != fontdb::Style::Normal {
+                continue;
+            }
+            let Some((family, _)) = face.families.first() else {
+                continue;
+            };
+            let weight = FontWeight::nearest(face.weight.0);
+            let weights = map.entry(family.clone()).or_default();
+            if !weights.contains(&weight) {
+                weights.push(weight);
+            }
+        }
+        for weights in map.values_mut() {
+            weights.sort_unstable();
+        }
+        map
+    })
+}
+
+/// The weights `family` has faces for, lightest first.
+///
+/// Always at least one: a family the host does not have — or one whose
+/// every face is slanted — answers with the regular weight, which is
+/// what the renderer falls back to for it anyway.
+pub fn weights_for(family: &str) -> &'static [FontWeight] {
+    static REGULAR: [FontWeight; 1] = [FontWeight::Regular];
+    match family_weights().get(family) {
+        Some(weights) if !weights.is_empty() => weights.as_slice(),
+        _ => &REGULAR,
+    }
+}
+
+/// The weight `family` is actually drawn in: the one the user picked
+/// where the family has a face for it, and the nearest it does have
+/// otherwise.
+///
+/// The stored choice is left as it stands rather than snapped to what
+/// the family offers, so picking a family without a Bold and going
+/// back to one with a Bold gets the Bold again.
+pub fn resolved_weight(family: &str, wanted: FontWeight) -> FontWeight {
+    let weights = weights_for(family);
+    if weights.contains(&wanted) {
+        return wanted;
+    }
+    weights
+        .iter()
+        .copied()
+        .min_by_key(|weight| weight.value().abs_diff(wanted.value()))
+        .unwrap_or_default()
+}
+
+/// The renderer's spelling of a weight.
+fn iced_weight(weight: FontWeight) -> Weight {
+    match weight {
+        FontWeight::Thin => Weight::Thin,
+        FontWeight::ExtraLight => Weight::ExtraLight,
+        FontWeight::Light => Weight::Light,
+        FontWeight::Regular => Weight::Normal,
+        FontWeight::Medium => Weight::Medium,
+        FontWeight::SemiBold => Weight::Semibold,
+        FontWeight::Bold => Weight::Bold,
+        FontWeight::ExtraBold => Weight::ExtraBold,
+        FontWeight::Black => Weight::Black,
+    }
+}
+
+/// [`font_for_name`] at a weight: what the main display and the
+/// window's default font are built from, since those name their font
+/// explicitly rather than taking the interface one.
+pub fn font_for(name: &str, weight: FontWeight) -> Font {
+    Font {
+        weight: iced_weight(resolved_weight(name, weight)),
+        ..font_for_name(name)
     }
 }
 

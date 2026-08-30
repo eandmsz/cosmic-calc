@@ -5,6 +5,8 @@
 //! lines around it, and it is much easier to reason about (and already
 //! easier to test) on its own.
 
+use crate::config::FontWeight;
+
 /// Pick a (font size, line height) pair for the main display so a
 /// long expression shrinks rather than wrapping. The thresholds are
 /// tuned to the default 300px window: the title1 preset (35sp) fits
@@ -66,6 +68,21 @@ fn window_width_scale_factor(window_width: f32) -> f32 {
     const REFERENCE_WIDTH: f32 = 480.0;
     let raw = window_width / REFERENCE_WIDTH;
     raw.clamp(0.7, 2.0)
+}
+
+/// How much wider than the regular face a weight draws, as a
+/// multiplier on the per-character width estimate every fit here is
+/// made with.
+///
+/// A heavier face carries more ink per glyph and a little more
+/// advance with it — around a fifteenth between Regular and Bold on
+/// the faces this was measured against. Without the allowance a
+/// display fitted at the regular estimate ran past its window once
+/// the user picked a Bold, and the long error messages lost their
+/// last word off the right-hand edge.
+pub fn char_width_factor(weight: FontWeight) -> f32 {
+    const PER_STEP: f32 = 0.12;
+    1.0 + (weight.value() as f32 - FontWeight::Regular.value() as f32) / 500.0 * PER_STEP
 }
 
 /// Horizontal space for right-aligned display text after column padding.
@@ -166,4 +183,45 @@ fn fit_text_to_line_height(max_line_h: f32, size: &mut f32, line_h: &mut f32) {
     }
     *line_h = (*line_h).min(max_line_h);
     *size = (*size).min(*line_h);
+}
+
+/// Text size the row under the display is drawn at — libcosmic's
+/// caption preset, which both the property labels and the memory
+/// register wear.
+pub const STATUS_TEXT_SIZE: f32 = 12.0;
+
+/// Gap between the pieces of that row, in logical pixels. The row
+/// sets it as its widget spacing, and the fit below has to count the
+/// same one.
+pub const STATUS_SPACING: f32 = 8.0;
+
+/// Ratio of character width to font size used for the row's fit: the
+/// keypad's own estimate, which measures the shipped UI face's
+/// property labels to within a few pixels at this size.
+///
+/// Being a shade wide is the safe direction here. Where the estimate
+/// is wrong the register goes on a line of its own, and a register on
+/// its own line is legible whether or not it would also have fitted
+/// beside the labels.
+const STATUS_CHAR_WIDTH_RATIO: f32 = crate::ui::keypad::LABEL_CHAR_WIDTH_RATIO;
+
+/// Whether the property labels and the memory register still fit on
+/// one line.
+///
+/// The two grow towards each other: a narrower window shortens the
+/// space between them and a longer stored value lengthens the
+/// register, so past some point the register would be drawn over the
+/// `fibonacci` at the end of the labels. It goes to a line of its own
+/// instead, and this is the question both the layout arithmetic and
+/// the renderer ask so the height reserved and the height drawn
+/// cannot disagree.
+///
+/// `units` is every piece of the row measured in character widths
+/// (see `keypad::label_width_units`) and `gaps` how many spacings
+/// stand between them. The character estimate runs deliberately wide,
+/// so where it is wrong it is wrong towards the second line, which is
+/// legible either way.
+pub fn status_row_fits(units: f32, gaps: usize, available_width: f32) -> bool {
+    let text = units * STATUS_TEXT_SIZE * STATUS_CHAR_WIDTH_RATIO;
+    text + gaps as f32 * STATUS_SPACING <= available_width
 }
