@@ -424,11 +424,11 @@ make check                         # fmt + clippy + the whole workspace
   | `Undefined: Tangent` | `tan(90)` in DEG, `tan(π÷2)` in RAD |
   | `Undefined: Cotangent` | `cot(0)`, `cot(180)` in DEG, `cot(π)` in RAD |
   | `Undefined: Hyperbolic cotangent` | `coth(0)` |
-  | `Undefined sin⁻¹(x) must be between −1 and 1` | `sin⁻¹(5)` |
-  | `Undefined cos⁻¹(x) must be between −1 and 1` | `cos⁻¹(5)` |
-  | `Undefined cosh⁻¹(x) must be 1 or more` | `cosh⁻¹(0.5)` |
-  | `Undefined tanh⁻¹(x) must be between −1 and 1` | `tanh⁻¹(2)` |
-  | `Undefined coth⁻¹(x) must be less than −1 or more than 1` | `coth⁻¹(0.5)` |
+  | `Undefined: sin⁻¹(x) must be between −1 and 1` | `sin⁻¹(5)` |
+  | `Undefined: cos⁻¹(x) must be between −1 and 1` | `cos⁻¹(5)` |
+  | `Undefined: cosh⁻¹(x) must be 1 or more` | `cosh⁻¹(0.5)` |
+  | `Undefined: tanh⁻¹(x) must be between −1 and 1` | `tanh⁻¹(2)` |
+  | `Undefined: coth⁻¹(x) must be less than −1 or more than 1` | `coth⁻¹(0.5)` |
 
 	- `0^-2` used to report Overflow, which said the answer was too
 	  big rather than that there is none

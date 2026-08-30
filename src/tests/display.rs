@@ -1508,7 +1508,7 @@ fn an_inverse_function_in_an_error_wears_its_raised_minus_one() {
         .map(|seg| seg.text.as_str())
         .collect();
     assert_eq!(raised, ["\u{2212}1"]);
-    assert_eq!(segs[0].text, "Undefined sin");
+    assert_eq!(segs[0].text, "Undefined: sin");
     assert!(segs[0].script.is_on_line());
     assert_eq!(
         segs.iter().map(|seg| seg.text.as_str()).collect::<String>(),
@@ -1519,7 +1519,7 @@ fn an_inverse_function_in_an_error_wears_its_raised_minus_one() {
     // same fallback a history row's exponent takes.
     assert_eq!(
         error_line(CalcError::AcoshDomain.as_str()),
-        "Undefined cosh\u{207B}\u{00B9}(x) must be 1 or more"
+        "Undefined: cosh\u{207B}\u{00B9}(x) must be 1 or more"
     );
 
     // Every message with an inverse function in it raises exactly one
