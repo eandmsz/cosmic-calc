@@ -58,11 +58,10 @@ impl Memory {
     /// Formatted representation for the side panel. Empty string when
     /// nothing is stored.
     ///
-    /// Takes the precision rather than reaching for the default, so the
-    /// memory readout honours the user's setting like every other
-    /// number the app shows. It used to be pinned to the default, so
-    /// lowering the precision left the side panel disagreeing with the
-    /// main display about the same value.
+    /// Takes the precision rather than reaching for the default, so
+    /// the memory readout honours the user's setting like every other
+    /// number the app shows — otherwise lowering the precision leaves
+    /// this readout and the main display disagreeing about one value.
     pub fn display(&self, significant_digits: u8) -> String {
         if !self.has_value {
             return String::new();

@@ -91,30 +91,7 @@ pub enum InputItem {
     Comma,
 }
 
-/// Arity (operand count) of an item. Numbers, constants and structural
-/// tokens are classified as leaves (0). The tokenizer does not rely on
-/// this directly; it is used by the state machine for input validation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Arity {
-    Leaf,
-    Unary,
-    Binary,
-    Structural,
-}
-
 impl InputItem {
-    /// Classify the operand count of this item.
-    pub fn arity(&self) -> Arity {
-        match self {
-            InputItem::Digit(_) | InputItem::DecimalPoint | InputItem::Constant(_) => Arity::Leaf,
-            InputItem::BinOp(_) | InputItem::AutoMul | InputItem::Modulo => Arity::Binary,
-            InputItem::Percent | InputItem::Factorial | InputItem::FixedPow(_) => Arity::Unary,
-            InputItem::UnaryFunc(_) | InputItem::LogN(_) => Arity::Unary,
-            InputItem::BinaryFunc(_) => Arity::Binary,
-            InputItem::LeftParen | InputItem::RightParen | InputItem::Comma => Arity::Structural,
-        }
-    }
-
     /// True for an item that closes a value: what a binary operator
     /// can attach to, what a power can raise, what `C` takes back.
     /// Mirrors the tokenizer's `produces_value`, at the item level.

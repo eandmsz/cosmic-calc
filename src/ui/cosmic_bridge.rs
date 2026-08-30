@@ -8,10 +8,10 @@
 //! it and its border — so the Cosmic preset takes those verbatim
 //! rather than deriving hover and pressed from the base. The keys
 //! then hover the way the rest of the desktop's buttons hover, and an
-//! accent-coloured key wears the accent's *own* text colour, which is
-//! where the contrast used to be lost: the window's text colour is
-//! chosen to read against the window, and it was being lifted onto a
-//! bright accent fill where it had nothing to spare.
+//! accent-coloured key wears the accent's *own* text colour. That
+//! last part is where contrast is won or lost: the window's text
+//! colour is chosen to read against the window, and on a bright
+//! accent fill it has nothing to spare.
 //!
 //! The mapping:
 //!

@@ -15,6 +15,7 @@ pub mod config;
 pub mod engine;
 pub mod history;
 pub mod layout;
+mod lenient;
 pub mod locale;
 pub mod memory;
 pub mod props;

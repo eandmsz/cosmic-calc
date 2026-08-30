@@ -316,10 +316,9 @@ fn on_line_text(parts: &[LabelPart]) -> String {
 ///     baseline the digits beside it sit on — centring the dot's ink
 ///     floats it halfway up the key, which reads as a bullet.
 ///
-/// `⁺⁄₋` used to be here too, so it would sit where `¹⁄ₓ` sat. Both
-/// faces are now drawn from pieces with the same fraction slash alone
-/// on the line, so they are centred on the same ink by construction
-/// and the special case has nothing left to say.
+/// `⁺⁄₋` and `¹⁄ₓ` need no entry: both are drawn from pieces with the
+/// same fraction slash alone on the line, so they are centred on the
+/// same ink by construction.
 fn centring_for(button: Button) -> Centring {
     match button {
         Button::Decimal => Centring::CapBand,

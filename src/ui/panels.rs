@@ -11,10 +11,10 @@
 //! Every scrollbar here is embedded rather than floating, so it sits
 //! beside what it scrolls instead of over the right-hand end of it.
 //!
-//! The rows the user clicks – history entries, font names, and the
-//! choices that used to be drop-downs – are drawn in the keypad's own
-//! palette and corner radius, so the settings look like the thing they
-//! configure and every choice is visible without opening a menu.
+//! The rows the user clicks – history entries, font names, every
+//! choice in the panel – are drawn in the keypad's own palette and
+//! corner radius, so the settings look like the thing they configure
+//! and every choice is visible without opening a menu.
 
 use cosmic::iced::{Alignment, Length};
 use cosmic::widget;
@@ -145,10 +145,10 @@ fn option_buttons<'a, T: Copy + PartialEq>(
     radius: f32,
     options: &[T],
     selected: T,
-    label: impl Fn(T) -> &'static str,
+    label: impl Fn(T) -> String,
     on_press: impl Fn(T) -> Message,
 ) -> Element<'a, Message> {
-    let widths: Vec<f32> = options.iter().map(|o| option_width(label(*o))).collect();
+    let widths: Vec<f32> = options.iter().map(|o| option_width(&label(*o))).collect();
     let lines = option_lines(&widths);
     let mut column = widget::column::with_capacity(lines.len())
         .spacing(OPTION_SPACING)
@@ -398,8 +398,7 @@ pub fn history_panel<'a>(
             };
             // The result is a number the app is showing, so it wears
             // the same grouping and decimal glyph the display gives
-            // one. It used to be the formatter's plain ASCII, which
-            // read as a different locale from the expression above it.
+            // one, rather than the formatter's plain ASCII.
             //
             // A row whose result is an error goes through the same
             // raising the display gives one, folded onto the single
@@ -426,13 +425,11 @@ pub fn history_panel<'a>(
         }
     }
 
-    // The list scrolls; the header stays put. Before this, entry
-    // number N pushed the oldest entry out through the bottom of the
-    // window, one row at a time, as the history grew.
-    //
-    // The memory register used to be a line under that header, where
-    // it could only be read with this panel open. It is under the
-    // main display now — see `AppModel::render_status_bar`.
+    // The list scrolls; the header stays put, so a growing history
+    // does not push its own oldest rows out through the bottom of the
+    // window. The memory register is not here at all: it lives under
+    // the main display, where it can be read with this panel shut —
+    // see `AppModel::render_status_bar`.
     widget::column::with_capacity(2)
         .push(header)
         .push(
@@ -501,9 +498,11 @@ pub fn settings_panel<'a>(
     let theme_buttons = option_buttons(
         theme,
         radius,
-        &ThemeKind::all(),
+        &ThemeKind::ALL,
         config.theme_kind,
-        |k: ThemeKind| k.display_name(),
+        // The name is the palette's own, so a theme renamed in
+        // `config.toml` is renamed on its button too.
+        |k: ThemeKind| config.theme_display_name(k).to_string(),
         Message::SetTheme,
     );
 
@@ -520,10 +519,12 @@ pub fn settings_panel<'a>(
         radius,
         &decimal_options,
         config.decimal_separator,
-        |d| match d {
-            DecimalSeparator::Auto => "System",
-            DecimalSeparator::Dot => "Dot .",
-            DecimalSeparator::Comma => "Comma ,",
+        |d| {
+            String::from(match d {
+                DecimalSeparator::Auto => "System",
+                DecimalSeparator::Dot => "Dot .",
+                DecimalSeparator::Comma => "Comma ,",
+            })
         },
         Message::SetDecimalSeparator,
     );
@@ -552,12 +553,14 @@ pub fn settings_panel<'a>(
         radius,
         &thousands_options,
         config.thousands_separator,
-        |t| match t {
-            ThousandsSeparator::Auto => "System",
-            ThousandsSeparator::Space => "Space",
-            ThousandsSeparator::Comma => "Comma ,",
-            ThousandsSeparator::Dot => "Dot .",
-            ThousandsSeparator::None => "None",
+        |t| {
+            String::from(match t {
+                ThousandsSeparator::Auto => "System",
+                ThousandsSeparator::Space => "Space",
+                ThousandsSeparator::Comma => "Comma ,",
+                ThousandsSeparator::Dot => "Dot .",
+                ThousandsSeparator::None => "None",
+            })
         },
         Message::SetThousandsSeparator,
     );
@@ -573,7 +576,7 @@ pub fn settings_panel<'a>(
         radius,
         &ButtonShape::ALL,
         config.button_shape,
-        |s: ButtonShape| s.display_name(),
+        |s: ButtonShape| s.display_name().to_string(),
         Message::SetButtonShape,
     );
 
@@ -662,7 +665,7 @@ pub fn settings_panel<'a>(
         radius,
         weights,
         crate::ui::font::resolved_weight(&config.font, config.font_weight),
-        FontWeight::display_name,
+        |w: FontWeight| w.display_name().to_string(),
         Message::SetFontWeight,
     );
 
@@ -701,9 +704,8 @@ pub fn settings_panel<'a>(
     )
     .class(slider_class(theme));
     let rand_decimals_label = widget::text::caption(format!(
-        "Random decimals: {} (max {})",
-        config.rand_decimals.min(max_decimals),
-        max_decimals
+        "Random decimals: {}",
+        config.rand_decimals.min(max_decimals)
     ));
 
     // Display precision. The config field existed and the message was
