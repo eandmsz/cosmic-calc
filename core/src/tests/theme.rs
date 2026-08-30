@@ -139,15 +139,36 @@ fn the_delete_keys_start_out_looking_like_the_top_row() {
 }
 
 #[test]
-fn every_preset_ships_without_borders() {
-    // A border is opt-in per theme, so the shipped look is unchanged
-    // — and a thickness of zero is no border at all whatever height
-    // it is asked about.
+fn every_preset_asks_for_a_border_the_renderer_can_draw() {
+    // A border is opt-in per theme. Most palettes leave it at zero,
+    // and zero is no border at all whatever height it is asked
+    // about; the ones that do ask get a whole pixel of it at the
+    // sizes a button is actually drawn at, however thin the setting.
+    // No palette may ask for one so heavy it swallows the label.
+    let mut with_a_border = 0;
     for kind in ThemeKind::ALL {
         let t = kind.get();
-        assert_eq!(t.button_border_thickness, 0.0, "{}", t.name);
-        assert_eq!(t.border_width(80.0), 0.0, "{}", t.name);
+        let name = &t.name;
+        assert!(
+            (0.0..=MAX_BORDER_THICKNESS).contains(&t.button_border_thickness),
+            "{name} asks for {}",
+            t.button_border_thickness
+        );
+        if t.button_border_thickness == 0.0 {
+            assert_eq!(t.border_width(80.0), 0.0, "{name}");
+            continue;
+        }
+        with_a_border += 1;
+        for height in [20.0, 80.0, 300.0] {
+            let w = t.border_width(height);
+            assert!(w >= 1.0, "{name} at {height} gave {w}");
+            assert!(w <= height * MAX_BORDER_THICKNESS / 100.0, "{name} {w}");
+        }
     }
+    // Cupertino Dark and Cyberpunk carry one; the rest do not. A
+    // count rather than a list, so turning one on or off in a
+    // palette is a one-line change here rather than a hunt.
+    assert_eq!(with_a_border, 2);
 }
 
 #[test]

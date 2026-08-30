@@ -37,9 +37,11 @@
 //! [`ButtonFace`] per state, so a palette that wants its label to
 //! change under the pointer can say so with [`ButtonColors::new`].
 //!
-//! Borders are off in every shipped palette
-//! ([`Theme::button_border_thickness`] is `0`), so the border colour
-//! is written down and waiting rather than on screen.
+//! Borders are opt-in per palette
+//! ([`Theme::button_border_thickness`], a percentage of the button's
+//! height). Most palettes leave it at zero and their border colour is
+//! written down and waiting rather than on screen; Cupertino Dark and
+//! Cyberpunk ask for one, and wear the colour their groups name.
 //!
 //! Colours are written as `#RRGGBBAA`, the same spelling `config.toml`
 //! uses — see [`crate::color`]. The alpha channel is live: a fill of
@@ -64,10 +66,10 @@ pub struct ButtonFace {
     /// What its label — the digit, the operator, the function name —
     /// is drawn in. The font colour.
     pub text: Rgba,
-    /// What its outline is drawn in, where the theme asks for one.
-    /// See [`Theme::button_border_thickness`], which every shipped
-    /// palette leaves at zero, so this colour is written down and
-    /// waiting rather than on screen.
+    /// What its outline is drawn in, where the palette asks for one
+    /// — see [`Theme::button_border_thickness`]. Most leave that at
+    /// zero, and then this colour is written down and waiting rather
+    /// than on screen.
     pub border: Rgba,
 }
 
@@ -159,7 +161,7 @@ pub struct KeyColors {
     pub fill_pressed: Rgba,
     /// The label — the font colour — in all three states.
     pub label: Rgba,
-    /// The outline in all three states, drawn only where the theme
+    /// The outline in all three states, drawn only where the palette
     /// asks for a border. See [`ButtonFace::border`].
     pub border: Rgba,
 }
@@ -199,7 +201,7 @@ pub struct Theme {
     pub accent: Rgba,
     /// How thick a button's border is drawn, as a percentage of the
     /// button's height — see [`Theme::border_width`]. `0` is no
-    /// border at all, which is what every shipped theme asks for.
+    /// border at all, which is what most shipped palettes ask for.
     pub button_border_thickness: f32,
     pub science: ButtonColors,
     pub second: ButtonColors,
@@ -381,7 +383,7 @@ impl ThemeKind {
                 text_active: rgba("#D4D4D4FF"),
                 text_inactive: rgba("#D4D4D44D"),
                 accent: rgba("#FF9600FF"),
-                button_border_thickness: 0.0,
+                button_border_thickness: 1.0,
                 science: ButtonColors::spread(KeyColors {
                     fill: rgba("#3E4247FF"),
                     fill_hover: rgba("#52575EFF"),
@@ -1038,7 +1040,7 @@ impl ThemeKind {
                 text_active: rgba("#D4D4D4FF"),
                 text_inactive: rgba("#D4D4D44D"),
                 accent: rgba("#FF9600FF"),
-                button_border_thickness: 0.0,
+                button_border_thickness: 0.1,
                 science: ButtonColors::spread(KeyColors {
                     fill: rgba("#3E4247FF"),
                     fill_hover: rgba("#52575EFF"),

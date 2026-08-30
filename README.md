@@ -325,9 +325,11 @@ make check                         # fmt + clippy + the whole workspace
 	  translating it, and the alpha channel is live everywhere: a
 	  button filled with `#00000000` shows the background through it
 	  and is drawn by its border alone
-	- Borders are off by default (`button_border_thickness = 0`) and
-	  are a percentage of the button's height rather than a pixel
-	  count, so an outline keeps its proportion as the window grows
+	- Borders are opt-in per palette — `button_border_thickness`,
+	  zero in most of them and non-zero in Cupertino Dark and
+	  Cyberpunk — and are a percentage of the button's height
+	  rather than a pixel count, so an outline keeps its
+	  proportion as the window grows
 	  and a settings row does not wear the same heavy line as a
 	  keypad key three times its size. The width is rounded to a
 	  whole logical pixel — a border is a hairline of solid colour,
