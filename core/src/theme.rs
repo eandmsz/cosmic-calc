@@ -174,13 +174,15 @@ impl Theme {
 /// a second copy of every theme to keep in step with the shipped one.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum ThemeKind {
-    #[default]
     CupertinoDark,
     CupertinoLight,
     RedmondDark,
     RedmondLight,
     HighContrastDark,
     HighContrastLight,
+    /// The palette a fresh `config.toml` starts on, wherever it sits
+    /// in the list the settings panel offers.
+    #[default]
     Cosmic,
     Texas,
     Tokyo,

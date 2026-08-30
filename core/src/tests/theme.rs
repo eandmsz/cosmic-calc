@@ -97,7 +97,8 @@ fn a_border_is_a_whole_pixel_that_follows_the_button() {
 #[test]
 fn all_presets_enumerate_in_order() {
     let names: Vec<_> = ThemeKind::all().iter().map(|k| k.display_name()).collect();
-    assert_eq!(names[0], "Cosmic");
+    assert_eq!(names[0], "Cupertino Dark");
+    assert_eq!(names[6], "Cosmic");
     assert_eq!(names[7], "Texas");
     assert_eq!(names[names.len() - 1], "Flat Green Light");
     assert_eq!(names.len(), ThemeKind::ALL.len());
@@ -109,6 +110,14 @@ fn all_presets_enumerate_in_order() {
     for kind in ThemeKind::ALL {
         assert_eq!(kind.get().name, kind.display_name());
     }
+}
+
+#[test]
+fn a_fresh_config_starts_on_cosmic() {
+    // Where a palette sits in the settings list and which one a fresh
+    // `config.toml` starts on are separate questions: reordering the
+    // enum moves the first, and must not quietly move the second.
+    assert_eq!(ThemeKind::default(), ThemeKind::Cosmic);
 }
 
 #[test]
