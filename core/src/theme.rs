@@ -11,6 +11,36 @@
 //! spare. A formula cannot know that; a table can, so the table is
 //! what a theme is now.
 //!
+//! # Reading a palette
+//!
+//! Each of the nineteen arms of [`ThemeKind::get`] is one palette,
+//! and each names three window surfaces, two text colours, an accent,
+//! a border thickness, and then nine button categories — the science
+//! keys, `2nd`, the top row, the delete keys, the basic operators,
+//! `=`, `±`, the decimal point and the digits.
+//!
+//! A category is five colours, written with their names:
+//!
+//! ```text
+//! science: ButtonColors::spread(KeyColors {
+//!     fill: rgba("#3E4247FF"),         // at rest
+//!     fill_hover: rgba("#52575EFF"),   // under the pointer
+//!     fill_pressed: rgba("#383B40FF"), // held down
+//!     label: rgba("#D4D4D4FF"),        // the font colour
+//!     border: rgba("#D4D4D4FF"),       // the outline, when one is on
+//! }),
+//! ```
+//!
+//! Only the fill changes between the three states in any shipped
+//! palette, which is why [`KeyColors`] writes the label and the
+//! border once. The underlying [`ButtonColors`] still carries a whole
+//! [`ButtonFace`] per state, so a palette that wants its label to
+//! change under the pointer can say so with [`ButtonColors::new`].
+//!
+//! Borders are off in every shipped palette
+//! ([`Theme::button_border_thickness`] is `0`), so the border colour
+//! is written down and waiting rather than on screen.
+//!
 //! Colours are written as `#RRGGBBAA`, the same spelling `config.toml`
 //! uses — see [`crate::color`]. The alpha channel is live: a fill of
 //! `#00000000` is a button drawn by its border alone over whatever is
@@ -26,16 +56,23 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::color::{rgba, Rgba};
 
-/// One button in one state: what it is filled with, what its label is
-/// drawn in, and what its border is drawn in.
+/// One button in one state: the three colours it is drawn with.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ButtonFace {
+    /// What the button is filled with.
     pub background: Rgba,
+    /// What its label — the digit, the operator, the function name —
+    /// is drawn in. The font colour.
     pub text: Rgba,
+    /// What its outline is drawn in, where the theme asks for one.
+    /// See [`Theme::button_border_thickness`], which every shipped
+    /// palette leaves at zero, so this colour is written down and
+    /// waiting rather than on screen.
     pub border: Rgba,
 }
 
 impl ButtonFace {
+    /// In the order the fields are declared: fill, label, border.
     pub const fn new(background: Rgba, text: Rgba, border: Rgba) -> Self {
         Self {
             background,
@@ -49,15 +86,25 @@ impl ButtonFace {
 ///
 /// Nothing is derived from anything: a theme that wants its hover to
 /// be darker than its base, or its pressed label a different colour
-/// from its resting one, simply says so.
+/// from its resting one, simply says so. That is why each state is a
+/// whole [`ButtonFace`] rather than a fill alone.
+///
+/// No shipped palette needs that freedom yet — every one of them
+/// changes only the fill between states — so the tables are written
+/// with [`ButtonColors::spread`] and a [`KeyColors`], which names the
+/// five colours it takes instead of spelling out nine.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ButtonColors {
+    /// At rest.
     pub normal: ButtonFace,
+    /// Under the pointer.
     pub hover: ButtonFace,
+    /// While the button is held down.
     pub pressed: ButtonFace,
 }
 
 impl ButtonColors {
+    /// In the order the fields are declared: resting, hover, pressed.
     pub const fn new(normal: ButtonFace, hover: ButtonFace, pressed: ButtonFace) -> Self {
         Self {
             normal,
@@ -66,12 +113,55 @@ impl ButtonColors {
         }
     }
 
+    /// The three faces a [`KeyColors`] stands for: each of its fills
+    /// wearing the one label and the one border it names.
+    pub const fn spread(key: KeyColors) -> Self {
+        Self::new(
+            ButtonFace::new(key.fill, key.label, key.border),
+            ButtonFace::new(key.fill_hover, key.label, key.border),
+            ButtonFace::new(key.fill_pressed, key.label, key.border),
+        )
+    }
+
     /// Every state drawn the same way, for a button whose appearance
     /// does not answer to the pointer — the latched `2nd` key, a
     /// selected row in the settings panel.
     pub const fn flat(face: ButtonFace) -> Self {
         Self::new(face, face, face)
     }
+}
+
+/// One button category, written the way the palette tables need it:
+/// a fill for each of the three states, and the label and border it
+/// wears in all three.
+///
+/// Which colour is which is the whole point of the name. A group
+/// spelled out as three [`ButtonFace`]s is nine colours in a row,
+/// six of them repeats, and nothing on the page says whether the
+/// second one is the hover fill or the label. Here the fills are the
+/// three that differ, and the two that do not are written once.
+///
+/// It is also the shape the running COSMIC desktop publishes for its
+/// own components — a base, a hover, a pressed, the text on them and
+/// their border — which is why the Cosmic preset can take those
+/// straight across. See [`CosmicComponent`].
+///
+/// A palette that does want a label or a border to change with the
+/// state is not shut out: [`ButtonColors::new`] takes the three
+/// faces directly and always has.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct KeyColors {
+    /// The fill at rest.
+    pub fill: Rgba,
+    /// The fill under the pointer.
+    pub fill_hover: Rgba,
+    /// The fill while the key is held down.
+    pub fill_pressed: Rgba,
+    /// The label — the font colour — in all three states.
+    pub label: Rgba,
+    /// The outline in all three states, drawn only where the theme
+    /// asks for a border. See [`ButtonFace::border`].
+    pub border: Rgba,
 }
 
 /// Largest border a theme may ask for, as a percentage of the
@@ -292,51 +382,69 @@ impl ThemeKind {
                 text_inactive: rgba("#D4D4D44D"),
                 accent: rgba("#FF9600FF"),
                 button_border_thickness: 0.0,
-                science: ButtonColors::new(
-                    ButtonFace::new(rgba("#3E4247FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#52575EFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#383B40FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                second: ButtonColors::new(
-                    ButtonFace::new(rgba("#3E4247FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#52575EFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#383B40FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                toprow: ButtonColors::new(
-                    ButtonFace::new(rgba("#888A8BFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#9EA1A2FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#7A7C7DFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                delete: ButtonColors::new(
-                    ButtonFace::new(rgba("#888A8BFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#9EA1A2FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#7A7C7DFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                basicop: ButtonColors::new(
-                    ButtonFace::new(rgba("#FF9600FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#FFB000FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#E68700FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                equals: ButtonColors::new(
-                    ButtonFace::new(rgba("#FF9600FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#FFB000FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#E68700FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                negate: ButtonColors::new(
-                    ButtonFace::new(rgba("#888A8BFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#9EA1A2FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#7A7C7DFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                decimal: ButtonColors::new(
-                    ButtonFace::new(rgba("#585E60FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#6D7477FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#4F5556FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                number: ButtonColors::new(
-                    ButtonFace::new(rgba("#585E60FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#6D7477FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#4F5556FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
+                science: ButtonColors::spread(KeyColors {
+                    fill: rgba("#3E4247FF"),
+                    fill_hover: rgba("#52575EFF"),
+                    fill_pressed: rgba("#383B40FF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                second: ButtonColors::spread(KeyColors {
+                    fill: rgba("#3E4247FF"),
+                    fill_hover: rgba("#52575EFF"),
+                    fill_pressed: rgba("#383B40FF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                toprow: ButtonColors::spread(KeyColors {
+                    fill: rgba("#888A8BFF"),
+                    fill_hover: rgba("#9EA1A2FF"),
+                    fill_pressed: rgba("#7A7C7DFF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                delete: ButtonColors::spread(KeyColors {
+                    fill: rgba("#888A8BFF"),
+                    fill_hover: rgba("#9EA1A2FF"),
+                    fill_pressed: rgba("#7A7C7DFF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                basicop: ButtonColors::spread(KeyColors {
+                    fill: rgba("#FF9600FF"),
+                    fill_hover: rgba("#FFB000FF"),
+                    fill_pressed: rgba("#E68700FF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                equals: ButtonColors::spread(KeyColors {
+                    fill: rgba("#FF9600FF"),
+                    fill_hover: rgba("#FFB000FF"),
+                    fill_pressed: rgba("#E68700FF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                negate: ButtonColors::spread(KeyColors {
+                    fill: rgba("#888A8BFF"),
+                    fill_hover: rgba("#9EA1A2FF"),
+                    fill_pressed: rgba("#7A7C7DFF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                decimal: ButtonColors::spread(KeyColors {
+                    fill: rgba("#585E60FF"),
+                    fill_hover: rgba("#6D7477FF"),
+                    fill_pressed: rgba("#4F5556FF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                number: ButtonColors::spread(KeyColors {
+                    fill: rgba("#585E60FF"),
+                    fill_hover: rgba("#6D7477FF"),
+                    fill_pressed: rgba("#4F5556FF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
             },
             ThemeKind::CupertinoLight => Theme {
                 name: "Cupertino Light".to_string(),
@@ -347,51 +455,69 @@ impl ThemeKind {
                 text_inactive: rgba("#FFFFFF4D"),
                 accent: rgba("#00525AFF"),
                 button_border_thickness: 0.0,
-                science: ButtonColors::new(
-                    ButtonFace::new(rgba("#D6D6D6FF"), rgba("#FFFFFFFF"), rgba("#FFFFFFFF")),
-                    ButtonFace::new(rgba("#EDEDEDFF"), rgba("#FFFFFFFF"), rgba("#FFFFFFFF")),
-                    ButtonFace::new(rgba("#C1C1C1FF"), rgba("#FFFFFFFF"), rgba("#FFFFFFFF")),
-                ),
-                second: ButtonColors::new(
-                    ButtonFace::new(rgba("#D6D6D6FF"), rgba("#FFFFFFFF"), rgba("#FFFFFFFF")),
-                    ButtonFace::new(rgba("#EDEDEDFF"), rgba("#FFFFFFFF"), rgba("#FFFFFFFF")),
-                    ButtonFace::new(rgba("#C1C1C1FF"), rgba("#FFFFFFFF"), rgba("#FFFFFFFF")),
-                ),
-                toprow: ButtonColors::new(
-                    ButtonFace::new(rgba("#D6D6D6FF"), rgba("#FFFFFFFF"), rgba("#FFFFFFFF")),
-                    ButtonFace::new(rgba("#EDEDEDFF"), rgba("#FFFFFFFF"), rgba("#FFFFFFFF")),
-                    ButtonFace::new(rgba("#C1C1C1FF"), rgba("#FFFFFFFF"), rgba("#FFFFFFFF")),
-                ),
-                delete: ButtonColors::new(
-                    ButtonFace::new(rgba("#D6D6D6FF"), rgba("#FFFFFFFF"), rgba("#FFFFFFFF")),
-                    ButtonFace::new(rgba("#EDEDEDFF"), rgba("#FFFFFFFF"), rgba("#FFFFFFFF")),
-                    ButtonFace::new(rgba("#C1C1C1FF"), rgba("#FFFFFFFF"), rgba("#FFFFFFFF")),
-                ),
-                basicop: ButtonColors::new(
-                    ButtonFace::new(rgba("#F5923DFF"), rgba("#FFFFFFFF"), rgba("#FFFFFFFF")),
-                    ButtonFace::new(rgba("#FFA03FFF"), rgba("#FFFFFFFF"), rgba("#FFFFFFFF")),
-                    ButtonFace::new(rgba("#DD8337FF"), rgba("#FFFFFFFF"), rgba("#FFFFFFFF")),
-                ),
-                equals: ButtonColors::new(
-                    ButtonFace::new(rgba("#00525AFF"), rgba("#FFFFFFFF"), rgba("#FFFFFFFF")),
-                    ButtonFace::new(rgba("#006771FF"), rgba("#FFFFFFFF"), rgba("#FFFFFFFF")),
-                    ButtonFace::new(rgba("#004A51FF"), rgba("#FFFFFFFF"), rgba("#FFFFFFFF")),
-                ),
-                negate: ButtonColors::new(
-                    ButtonFace::new(rgba("#D6D6D6FF"), rgba("#FFFFFFFF"), rgba("#FFFFFFFF")),
-                    ButtonFace::new(rgba("#EDEDEDFF"), rgba("#FFFFFFFF"), rgba("#FFFFFFFF")),
-                    ButtonFace::new(rgba("#C1C1C1FF"), rgba("#FFFFFFFF"), rgba("#FFFFFFFF")),
-                ),
-                decimal: ButtonColors::new(
-                    ButtonFace::new(rgba("#E0E0E0FF"), rgba("#FFFFFFFF"), rgba("#FFFFFFFF")),
-                    ButtonFace::new(rgba("#F7F7F7FF"), rgba("#FFFFFFFF"), rgba("#FFFFFFFF")),
-                    ButtonFace::new(rgba("#CACACAFF"), rgba("#FFFFFFFF"), rgba("#FFFFFFFF")),
-                ),
-                number: ButtonColors::new(
-                    ButtonFace::new(rgba("#E0E0E0FF"), rgba("#FFFFFFFF"), rgba("#FFFFFFFF")),
-                    ButtonFace::new(rgba("#F7F7F7FF"), rgba("#FFFFFFFF"), rgba("#FFFFFFFF")),
-                    ButtonFace::new(rgba("#CACACAFF"), rgba("#FFFFFFFF"), rgba("#FFFFFFFF")),
-                ),
+                science: ButtonColors::spread(KeyColors {
+                    fill: rgba("#D6D6D6FF"),
+                    fill_hover: rgba("#EDEDEDFF"),
+                    fill_pressed: rgba("#C1C1C1FF"),
+                    label: rgba("#FFFFFFFF"),
+                    border: rgba("#FFFFFFFF"),
+                }),
+                second: ButtonColors::spread(KeyColors {
+                    fill: rgba("#D6D6D6FF"),
+                    fill_hover: rgba("#EDEDEDFF"),
+                    fill_pressed: rgba("#C1C1C1FF"),
+                    label: rgba("#FFFFFFFF"),
+                    border: rgba("#FFFFFFFF"),
+                }),
+                toprow: ButtonColors::spread(KeyColors {
+                    fill: rgba("#D6D6D6FF"),
+                    fill_hover: rgba("#EDEDEDFF"),
+                    fill_pressed: rgba("#C1C1C1FF"),
+                    label: rgba("#FFFFFFFF"),
+                    border: rgba("#FFFFFFFF"),
+                }),
+                delete: ButtonColors::spread(KeyColors {
+                    fill: rgba("#D6D6D6FF"),
+                    fill_hover: rgba("#EDEDEDFF"),
+                    fill_pressed: rgba("#C1C1C1FF"),
+                    label: rgba("#FFFFFFFF"),
+                    border: rgba("#FFFFFFFF"),
+                }),
+                basicop: ButtonColors::spread(KeyColors {
+                    fill: rgba("#F5923DFF"),
+                    fill_hover: rgba("#FFA03FFF"),
+                    fill_pressed: rgba("#DD8337FF"),
+                    label: rgba("#FFFFFFFF"),
+                    border: rgba("#FFFFFFFF"),
+                }),
+                equals: ButtonColors::spread(KeyColors {
+                    fill: rgba("#00525AFF"),
+                    fill_hover: rgba("#006771FF"),
+                    fill_pressed: rgba("#004A51FF"),
+                    label: rgba("#FFFFFFFF"),
+                    border: rgba("#FFFFFFFF"),
+                }),
+                negate: ButtonColors::spread(KeyColors {
+                    fill: rgba("#D6D6D6FF"),
+                    fill_hover: rgba("#EDEDEDFF"),
+                    fill_pressed: rgba("#C1C1C1FF"),
+                    label: rgba("#FFFFFFFF"),
+                    border: rgba("#FFFFFFFF"),
+                }),
+                decimal: ButtonColors::spread(KeyColors {
+                    fill: rgba("#E0E0E0FF"),
+                    fill_hover: rgba("#F7F7F7FF"),
+                    fill_pressed: rgba("#CACACAFF"),
+                    label: rgba("#FFFFFFFF"),
+                    border: rgba("#FFFFFFFF"),
+                }),
+                number: ButtonColors::spread(KeyColors {
+                    fill: rgba("#E0E0E0FF"),
+                    fill_hover: rgba("#F7F7F7FF"),
+                    fill_pressed: rgba("#CACACAFF"),
+                    label: rgba("#FFFFFFFF"),
+                    border: rgba("#FFFFFFFF"),
+                }),
             },
             ThemeKind::RedmondDark => Theme {
                 name: "Redmond Dark".to_string(),
@@ -402,51 +528,69 @@ impl ThemeKind {
                 text_inactive: rgba("#FFFFFF4D"),
                 accent: rgba("#4CC2FFFF"),
                 button_border_thickness: 0.0,
-                science: ButtonColors::new(
-                    ButtonFace::new(rgba("#333333FF"), rgba("#FFFFFFFF"), rgba("#FFFFFFFF")),
-                    ButtonFace::new(rgba("#4A4A4AFF"), rgba("#FFFFFFFF"), rgba("#FFFFFFFF")),
-                    ButtonFace::new(rgba("#2E2E2EFF"), rgba("#FFFFFFFF"), rgba("#FFFFFFFF")),
-                ),
-                second: ButtonColors::new(
-                    ButtonFace::new(rgba("#333333FF"), rgba("#FFFFFFFF"), rgba("#FFFFFFFF")),
-                    ButtonFace::new(rgba("#4A4A4AFF"), rgba("#FFFFFFFF"), rgba("#FFFFFFFF")),
-                    ButtonFace::new(rgba("#2E2E2EFF"), rgba("#FFFFFFFF"), rgba("#FFFFFFFF")),
-                ),
-                toprow: ButtonColors::new(
-                    ButtonFace::new(rgba("#333333FF"), rgba("#FFFFFFFF"), rgba("#FFFFFFFF")),
-                    ButtonFace::new(rgba("#4A4A4AFF"), rgba("#FFFFFFFF"), rgba("#FFFFFFFF")),
-                    ButtonFace::new(rgba("#2E2E2EFF"), rgba("#FFFFFFFF"), rgba("#FFFFFFFF")),
-                ),
-                delete: ButtonColors::new(
-                    ButtonFace::new(rgba("#333333FF"), rgba("#FFFFFFFF"), rgba("#FFFFFFFF")),
-                    ButtonFace::new(rgba("#4A4A4AFF"), rgba("#FFFFFFFF"), rgba("#FFFFFFFF")),
-                    ButtonFace::new(rgba("#2E2E2EFF"), rgba("#FFFFFFFF"), rgba("#FFFFFFFF")),
-                ),
-                basicop: ButtonColors::new(
-                    ButtonFace::new(rgba("#333333FF"), rgba("#FFFFFFFF"), rgba("#FFFFFFFF")),
-                    ButtonFace::new(rgba("#4A4A4AFF"), rgba("#FFFFFFFF"), rgba("#FFFFFFFF")),
-                    ButtonFace::new(rgba("#2E2E2EFF"), rgba("#FFFFFFFF"), rgba("#FFFFFFFF")),
-                ),
-                equals: ButtonColors::new(
-                    ButtonFace::new(rgba("#4CC2FFFF"), rgba("#FFFFFFFF"), rgba("#FFFFFFFF")),
-                    ButtonFace::new(rgba("#4CCFFFFF"), rgba("#FFFFFFFF"), rgba("#FFFFFFFF")),
-                    ButtonFace::new(rgba("#44AFE6FF"), rgba("#FFFFFFFF"), rgba("#FFFFFFFF")),
-                ),
-                negate: ButtonColors::new(
-                    ButtonFace::new(rgba("#3C3C3CFF"), rgba("#FFFFFFFF"), rgba("#FFFFFFFF")),
-                    ButtonFace::new(rgba("#535353FF"), rgba("#FFFFFFFF"), rgba("#FFFFFFFF")),
-                    ButtonFace::new(rgba("#363636FF"), rgba("#FFFFFFFF"), rgba("#FFFFFFFF")),
-                ),
-                decimal: ButtonColors::new(
-                    ButtonFace::new(rgba("#3C3C3CFF"), rgba("#FFFFFFFF"), rgba("#FFFFFFFF")),
-                    ButtonFace::new(rgba("#535353FF"), rgba("#FFFFFFFF"), rgba("#FFFFFFFF")),
-                    ButtonFace::new(rgba("#363636FF"), rgba("#FFFFFFFF"), rgba("#FFFFFFFF")),
-                ),
-                number: ButtonColors::new(
-                    ButtonFace::new(rgba("#3C3C3CFF"), rgba("#FFFFFFFF"), rgba("#FFFFFFFF")),
-                    ButtonFace::new(rgba("#535353FF"), rgba("#FFFFFFFF"), rgba("#FFFFFFFF")),
-                    ButtonFace::new(rgba("#363636FF"), rgba("#FFFFFFFF"), rgba("#FFFFFFFF")),
-                ),
+                science: ButtonColors::spread(KeyColors {
+                    fill: rgba("#333333FF"),
+                    fill_hover: rgba("#4A4A4AFF"),
+                    fill_pressed: rgba("#2E2E2EFF"),
+                    label: rgba("#FFFFFFFF"),
+                    border: rgba("#FFFFFFFF"),
+                }),
+                second: ButtonColors::spread(KeyColors {
+                    fill: rgba("#333333FF"),
+                    fill_hover: rgba("#4A4A4AFF"),
+                    fill_pressed: rgba("#2E2E2EFF"),
+                    label: rgba("#FFFFFFFF"),
+                    border: rgba("#FFFFFFFF"),
+                }),
+                toprow: ButtonColors::spread(KeyColors {
+                    fill: rgba("#333333FF"),
+                    fill_hover: rgba("#4A4A4AFF"),
+                    fill_pressed: rgba("#2E2E2EFF"),
+                    label: rgba("#FFFFFFFF"),
+                    border: rgba("#FFFFFFFF"),
+                }),
+                delete: ButtonColors::spread(KeyColors {
+                    fill: rgba("#333333FF"),
+                    fill_hover: rgba("#4A4A4AFF"),
+                    fill_pressed: rgba("#2E2E2EFF"),
+                    label: rgba("#FFFFFFFF"),
+                    border: rgba("#FFFFFFFF"),
+                }),
+                basicop: ButtonColors::spread(KeyColors {
+                    fill: rgba("#333333FF"),
+                    fill_hover: rgba("#4A4A4AFF"),
+                    fill_pressed: rgba("#2E2E2EFF"),
+                    label: rgba("#FFFFFFFF"),
+                    border: rgba("#FFFFFFFF"),
+                }),
+                equals: ButtonColors::spread(KeyColors {
+                    fill: rgba("#4CC2FFFF"),
+                    fill_hover: rgba("#4CCFFFFF"),
+                    fill_pressed: rgba("#44AFE6FF"),
+                    label: rgba("#FFFFFFFF"),
+                    border: rgba("#FFFFFFFF"),
+                }),
+                negate: ButtonColors::spread(KeyColors {
+                    fill: rgba("#3C3C3CFF"),
+                    fill_hover: rgba("#535353FF"),
+                    fill_pressed: rgba("#363636FF"),
+                    label: rgba("#FFFFFFFF"),
+                    border: rgba("#FFFFFFFF"),
+                }),
+                decimal: ButtonColors::spread(KeyColors {
+                    fill: rgba("#3C3C3CFF"),
+                    fill_hover: rgba("#535353FF"),
+                    fill_pressed: rgba("#363636FF"),
+                    label: rgba("#FFFFFFFF"),
+                    border: rgba("#FFFFFFFF"),
+                }),
+                number: ButtonColors::spread(KeyColors {
+                    fill: rgba("#3C3C3CFF"),
+                    fill_hover: rgba("#535353FF"),
+                    fill_pressed: rgba("#363636FF"),
+                    label: rgba("#FFFFFFFF"),
+                    border: rgba("#FFFFFFFF"),
+                }),
             },
             ThemeKind::RedmondLight => Theme {
                 name: "Redmond Light".to_string(),
@@ -457,51 +601,69 @@ impl ThemeKind {
                 text_inactive: rgba("#0000004D"),
                 accent: rgba("#0067C0FF"),
                 button_border_thickness: 0.0,
-                science: ButtonColors::new(
-                    ButtonFace::new(rgba("#F9F9F9FF"), rgba("#000000FF"), rgba("#000000FF")),
-                    ButtonFace::new(rgba("#FFFFFFFF"), rgba("#000000FF"), rgba("#000000FF")),
-                    ButtonFace::new(rgba("#E0E0E0FF"), rgba("#000000FF"), rgba("#000000FF")),
-                ),
-                second: ButtonColors::new(
-                    ButtonFace::new(rgba("#F9F9F9FF"), rgba("#000000FF"), rgba("#000000FF")),
-                    ButtonFace::new(rgba("#FFFFFFFF"), rgba("#000000FF"), rgba("#000000FF")),
-                    ButtonFace::new(rgba("#E0E0E0FF"), rgba("#000000FF"), rgba("#000000FF")),
-                ),
-                toprow: ButtonColors::new(
-                    ButtonFace::new(rgba("#F9F9F9FF"), rgba("#000000FF"), rgba("#000000FF")),
-                    ButtonFace::new(rgba("#FFFFFFFF"), rgba("#000000FF"), rgba("#000000FF")),
-                    ButtonFace::new(rgba("#E0E0E0FF"), rgba("#000000FF"), rgba("#000000FF")),
-                ),
-                delete: ButtonColors::new(
-                    ButtonFace::new(rgba("#F9F9F9FF"), rgba("#000000FF"), rgba("#000000FF")),
-                    ButtonFace::new(rgba("#FFFFFFFF"), rgba("#000000FF"), rgba("#000000FF")),
-                    ButtonFace::new(rgba("#E0E0E0FF"), rgba("#000000FF"), rgba("#000000FF")),
-                ),
-                basicop: ButtonColors::new(
-                    ButtonFace::new(rgba("#F9F9F9FF"), rgba("#000000FF"), rgba("#000000FF")),
-                    ButtonFace::new(rgba("#FFFFFFFF"), rgba("#000000FF"), rgba("#000000FF")),
-                    ButtonFace::new(rgba("#E0E0E0FF"), rgba("#000000FF"), rgba("#000000FF")),
-                ),
-                equals: ButtonColors::new(
-                    ButtonFace::new(rgba("#0067C0FF"), rgba("#000000FF"), rgba("#000000FF")),
-                    ButtonFace::new(rgba("#0073D7FF"), rgba("#000000FF"), rgba("#000000FF")),
-                    ButtonFace::new(rgba("#005DADFF"), rgba("#000000FF"), rgba("#000000FF")),
-                ),
-                negate: ButtonColors::new(
-                    ButtonFace::new(rgba("#FFFFFFFF"), rgba("#000000FF"), rgba("#000000FF")),
-                    ButtonFace::new(rgba("#FFFFFFFF"), rgba("#000000FF"), rgba("#000000FF")),
-                    ButtonFace::new(rgba("#E6E6E6FF"), rgba("#000000FF"), rgba("#000000FF")),
-                ),
-                decimal: ButtonColors::new(
-                    ButtonFace::new(rgba("#FFFFFFFF"), rgba("#000000FF"), rgba("#000000FF")),
-                    ButtonFace::new(rgba("#FFFFFFFF"), rgba("#000000FF"), rgba("#000000FF")),
-                    ButtonFace::new(rgba("#E6E6E6FF"), rgba("#000000FF"), rgba("#000000FF")),
-                ),
-                number: ButtonColors::new(
-                    ButtonFace::new(rgba("#FFFFFFFF"), rgba("#000000FF"), rgba("#000000FF")),
-                    ButtonFace::new(rgba("#FFFFFFFF"), rgba("#000000FF"), rgba("#000000FF")),
-                    ButtonFace::new(rgba("#E6E6E6FF"), rgba("#000000FF"), rgba("#000000FF")),
-                ),
+                science: ButtonColors::spread(KeyColors {
+                    fill: rgba("#F9F9F9FF"),
+                    fill_hover: rgba("#FFFFFFFF"),
+                    fill_pressed: rgba("#E0E0E0FF"),
+                    label: rgba("#000000FF"),
+                    border: rgba("#000000FF"),
+                }),
+                second: ButtonColors::spread(KeyColors {
+                    fill: rgba("#F9F9F9FF"),
+                    fill_hover: rgba("#FFFFFFFF"),
+                    fill_pressed: rgba("#E0E0E0FF"),
+                    label: rgba("#000000FF"),
+                    border: rgba("#000000FF"),
+                }),
+                toprow: ButtonColors::spread(KeyColors {
+                    fill: rgba("#F9F9F9FF"),
+                    fill_hover: rgba("#FFFFFFFF"),
+                    fill_pressed: rgba("#E0E0E0FF"),
+                    label: rgba("#000000FF"),
+                    border: rgba("#000000FF"),
+                }),
+                delete: ButtonColors::spread(KeyColors {
+                    fill: rgba("#F9F9F9FF"),
+                    fill_hover: rgba("#FFFFFFFF"),
+                    fill_pressed: rgba("#E0E0E0FF"),
+                    label: rgba("#000000FF"),
+                    border: rgba("#000000FF"),
+                }),
+                basicop: ButtonColors::spread(KeyColors {
+                    fill: rgba("#F9F9F9FF"),
+                    fill_hover: rgba("#FFFFFFFF"),
+                    fill_pressed: rgba("#E0E0E0FF"),
+                    label: rgba("#000000FF"),
+                    border: rgba("#000000FF"),
+                }),
+                equals: ButtonColors::spread(KeyColors {
+                    fill: rgba("#0067C0FF"),
+                    fill_hover: rgba("#0073D7FF"),
+                    fill_pressed: rgba("#005DADFF"),
+                    label: rgba("#000000FF"),
+                    border: rgba("#000000FF"),
+                }),
+                negate: ButtonColors::spread(KeyColors {
+                    fill: rgba("#FFFFFFFF"),
+                    fill_hover: rgba("#FFFFFFFF"),
+                    fill_pressed: rgba("#E6E6E6FF"),
+                    label: rgba("#000000FF"),
+                    border: rgba("#000000FF"),
+                }),
+                decimal: ButtonColors::spread(KeyColors {
+                    fill: rgba("#FFFFFFFF"),
+                    fill_hover: rgba("#FFFFFFFF"),
+                    fill_pressed: rgba("#E6E6E6FF"),
+                    label: rgba("#000000FF"),
+                    border: rgba("#000000FF"),
+                }),
+                number: ButtonColors::spread(KeyColors {
+                    fill: rgba("#FFFFFFFF"),
+                    fill_hover: rgba("#FFFFFFFF"),
+                    fill_pressed: rgba("#E6E6E6FF"),
+                    label: rgba("#000000FF"),
+                    border: rgba("#000000FF"),
+                }),
             },
             ThemeKind::HighContrastDark => Theme {
                 name: "High Contrast Dark".to_string(),
@@ -512,51 +674,69 @@ impl ThemeKind {
                 text_inactive: rgba("#FFFFFF4D"),
                 accent: rgba("#FFFFFFFF"),
                 button_border_thickness: 0.0,
-                science: ButtonColors::new(
-                    ButtonFace::new(rgba("#1A1A1AFF"), rgba("#FFFFFFFF"), rgba("#FFFFFFFF")),
-                    ButtonFace::new(rgba("#313131FF"), rgba("#FFFFFFFF"), rgba("#FFFFFFFF")),
-                    ButtonFace::new(rgba("#171717FF"), rgba("#FFFFFFFF"), rgba("#FFFFFFFF")),
-                ),
-                second: ButtonColors::new(
-                    ButtonFace::new(rgba("#1A1A1AFF"), rgba("#FFFFFFFF"), rgba("#FFFFFFFF")),
-                    ButtonFace::new(rgba("#313131FF"), rgba("#FFFFFFFF"), rgba("#FFFFFFFF")),
-                    ButtonFace::new(rgba("#171717FF"), rgba("#FFFFFFFF"), rgba("#FFFFFFFF")),
-                ),
-                toprow: ButtonColors::new(
-                    ButtonFace::new(rgba("#1A1A1AFF"), rgba("#FFFFFFFF"), rgba("#FFFFFFFF")),
-                    ButtonFace::new(rgba("#313131FF"), rgba("#FFFFFFFF"), rgba("#FFFFFFFF")),
-                    ButtonFace::new(rgba("#171717FF"), rgba("#FFFFFFFF"), rgba("#FFFFFFFF")),
-                ),
-                delete: ButtonColors::new(
-                    ButtonFace::new(rgba("#1A1A1AFF"), rgba("#FFFFFFFF"), rgba("#FFFFFFFF")),
-                    ButtonFace::new(rgba("#313131FF"), rgba("#FFFFFFFF"), rgba("#FFFFFFFF")),
-                    ButtonFace::new(rgba("#171717FF"), rgba("#FFFFFFFF"), rgba("#FFFFFFFF")),
-                ),
-                basicop: ButtonColors::new(
-                    ButtonFace::new(rgba("#1A1A1AFF"), rgba("#FFFFFFFF"), rgba("#FFFFFFFF")),
-                    ButtonFace::new(rgba("#313131FF"), rgba("#FFFFFFFF"), rgba("#FFFFFFFF")),
-                    ButtonFace::new(rgba("#171717FF"), rgba("#FFFFFFFF"), rgba("#FFFFFFFF")),
-                ),
-                equals: ButtonColors::new(
-                    ButtonFace::new(rgba("#1A1A1AFF"), rgba("#FFFFFFFF"), rgba("#FFFFFFFF")),
-                    ButtonFace::new(rgba("#313131FF"), rgba("#FFFFFFFF"), rgba("#FFFFFFFF")),
-                    ButtonFace::new(rgba("#171717FF"), rgba("#FFFFFFFF"), rgba("#FFFFFFFF")),
-                ),
-                negate: ButtonColors::new(
-                    ButtonFace::new(rgba("#1A1A1AFF"), rgba("#FFFFFFFF"), rgba("#FFFFFFFF")),
-                    ButtonFace::new(rgba("#313131FF"), rgba("#FFFFFFFF"), rgba("#FFFFFFFF")),
-                    ButtonFace::new(rgba("#171717FF"), rgba("#FFFFFFFF"), rgba("#FFFFFFFF")),
-                ),
-                decimal: ButtonColors::new(
-                    ButtonFace::new(rgba("#1A1A1AFF"), rgba("#FFFFFFFF"), rgba("#FFFFFFFF")),
-                    ButtonFace::new(rgba("#313131FF"), rgba("#FFFFFFFF"), rgba("#FFFFFFFF")),
-                    ButtonFace::new(rgba("#171717FF"), rgba("#FFFFFFFF"), rgba("#FFFFFFFF")),
-                ),
-                number: ButtonColors::new(
-                    ButtonFace::new(rgba("#0F0E0EFF"), rgba("#FFFFFFFF"), rgba("#FFFFFFFF")),
-                    ButtonFace::new(rgba("#262323FF"), rgba("#FFFFFFFF"), rgba("#FFFFFFFF")),
-                    ButtonFace::new(rgba("#0E0D0DFF"), rgba("#FFFFFFFF"), rgba("#FFFFFFFF")),
-                ),
+                science: ButtonColors::spread(KeyColors {
+                    fill: rgba("#1A1A1AFF"),
+                    fill_hover: rgba("#313131FF"),
+                    fill_pressed: rgba("#171717FF"),
+                    label: rgba("#FFFFFFFF"),
+                    border: rgba("#FFFFFFFF"),
+                }),
+                second: ButtonColors::spread(KeyColors {
+                    fill: rgba("#1A1A1AFF"),
+                    fill_hover: rgba("#313131FF"),
+                    fill_pressed: rgba("#171717FF"),
+                    label: rgba("#FFFFFFFF"),
+                    border: rgba("#FFFFFFFF"),
+                }),
+                toprow: ButtonColors::spread(KeyColors {
+                    fill: rgba("#1A1A1AFF"),
+                    fill_hover: rgba("#313131FF"),
+                    fill_pressed: rgba("#171717FF"),
+                    label: rgba("#FFFFFFFF"),
+                    border: rgba("#FFFFFFFF"),
+                }),
+                delete: ButtonColors::spread(KeyColors {
+                    fill: rgba("#1A1A1AFF"),
+                    fill_hover: rgba("#313131FF"),
+                    fill_pressed: rgba("#171717FF"),
+                    label: rgba("#FFFFFFFF"),
+                    border: rgba("#FFFFFFFF"),
+                }),
+                basicop: ButtonColors::spread(KeyColors {
+                    fill: rgba("#1A1A1AFF"),
+                    fill_hover: rgba("#313131FF"),
+                    fill_pressed: rgba("#171717FF"),
+                    label: rgba("#FFFFFFFF"),
+                    border: rgba("#FFFFFFFF"),
+                }),
+                equals: ButtonColors::spread(KeyColors {
+                    fill: rgba("#1A1A1AFF"),
+                    fill_hover: rgba("#313131FF"),
+                    fill_pressed: rgba("#171717FF"),
+                    label: rgba("#FFFFFFFF"),
+                    border: rgba("#FFFFFFFF"),
+                }),
+                negate: ButtonColors::spread(KeyColors {
+                    fill: rgba("#1A1A1AFF"),
+                    fill_hover: rgba("#313131FF"),
+                    fill_pressed: rgba("#171717FF"),
+                    label: rgba("#FFFFFFFF"),
+                    border: rgba("#FFFFFFFF"),
+                }),
+                decimal: ButtonColors::spread(KeyColors {
+                    fill: rgba("#1A1A1AFF"),
+                    fill_hover: rgba("#313131FF"),
+                    fill_pressed: rgba("#171717FF"),
+                    label: rgba("#FFFFFFFF"),
+                    border: rgba("#FFFFFFFF"),
+                }),
+                number: ButtonColors::spread(KeyColors {
+                    fill: rgba("#0F0E0EFF"),
+                    fill_hover: rgba("#262323FF"),
+                    fill_pressed: rgba("#0E0D0DFF"),
+                    label: rgba("#FFFFFFFF"),
+                    border: rgba("#FFFFFFFF"),
+                }),
             },
             ThemeKind::HighContrastLight => Theme {
                 name: "High Contrast Light".to_string(),
@@ -567,51 +747,69 @@ impl ThemeKind {
                 text_inactive: rgba("#0000004D"),
                 accent: rgba("#000000FF"),
                 button_border_thickness: 0.0,
-                science: ButtonColors::new(
-                    ButtonFace::new(rgba("#E5E5E5FF"), rgba("#000000FF"), rgba("#000000FF")),
-                    ButtonFace::new(rgba("#FCFCFCFF"), rgba("#000000FF"), rgba("#000000FF")),
-                    ButtonFace::new(rgba("#CECECEFF"), rgba("#000000FF"), rgba("#000000FF")),
-                ),
-                second: ButtonColors::new(
-                    ButtonFace::new(rgba("#E5E5E5FF"), rgba("#000000FF"), rgba("#000000FF")),
-                    ButtonFace::new(rgba("#FCFCFCFF"), rgba("#000000FF"), rgba("#000000FF")),
-                    ButtonFace::new(rgba("#CECECEFF"), rgba("#000000FF"), rgba("#000000FF")),
-                ),
-                toprow: ButtonColors::new(
-                    ButtonFace::new(rgba("#E5E5E5FF"), rgba("#000000FF"), rgba("#000000FF")),
-                    ButtonFace::new(rgba("#FCFCFCFF"), rgba("#000000FF"), rgba("#000000FF")),
-                    ButtonFace::new(rgba("#CECECEFF"), rgba("#000000FF"), rgba("#000000FF")),
-                ),
-                delete: ButtonColors::new(
-                    ButtonFace::new(rgba("#E5E5E5FF"), rgba("#000000FF"), rgba("#000000FF")),
-                    ButtonFace::new(rgba("#FCFCFCFF"), rgba("#000000FF"), rgba("#000000FF")),
-                    ButtonFace::new(rgba("#CECECEFF"), rgba("#000000FF"), rgba("#000000FF")),
-                ),
-                basicop: ButtonColors::new(
-                    ButtonFace::new(rgba("#E5E5E5FF"), rgba("#000000FF"), rgba("#000000FF")),
-                    ButtonFace::new(rgba("#FCFCFCFF"), rgba("#000000FF"), rgba("#000000FF")),
-                    ButtonFace::new(rgba("#CECECEFF"), rgba("#000000FF"), rgba("#000000FF")),
-                ),
-                equals: ButtonColors::new(
-                    ButtonFace::new(rgba("#E5E5E5FF"), rgba("#000000FF"), rgba("#000000FF")),
-                    ButtonFace::new(rgba("#FCFCFCFF"), rgba("#000000FF"), rgba("#000000FF")),
-                    ButtonFace::new(rgba("#CECECEFF"), rgba("#000000FF"), rgba("#000000FF")),
-                ),
-                negate: ButtonColors::new(
-                    ButtonFace::new(rgba("#E5E5E5FF"), rgba("#000000FF"), rgba("#000000FF")),
-                    ButtonFace::new(rgba("#FCFCFCFF"), rgba("#000000FF"), rgba("#000000FF")),
-                    ButtonFace::new(rgba("#CECECEFF"), rgba("#000000FF"), rgba("#000000FF")),
-                ),
-                decimal: ButtonColors::new(
-                    ButtonFace::new(rgba("#E5E5E5FF"), rgba("#000000FF"), rgba("#000000FF")),
-                    ButtonFace::new(rgba("#FCFCFCFF"), rgba("#000000FF"), rgba("#000000FF")),
-                    ButtonFace::new(rgba("#CECECEFF"), rgba("#000000FF"), rgba("#000000FF")),
-                ),
-                number: ButtonColors::new(
-                    ButtonFace::new(rgba("#F0F1F1FF"), rgba("#000000FF"), rgba("#000000FF")),
-                    ButtonFace::new(rgba("#FEFFFFFF"), rgba("#000000FF"), rgba("#000000FF")),
-                    ButtonFace::new(rgba("#D8D9D9FF"), rgba("#000000FF"), rgba("#000000FF")),
-                ),
+                science: ButtonColors::spread(KeyColors {
+                    fill: rgba("#E5E5E5FF"),
+                    fill_hover: rgba("#FCFCFCFF"),
+                    fill_pressed: rgba("#CECECEFF"),
+                    label: rgba("#000000FF"),
+                    border: rgba("#000000FF"),
+                }),
+                second: ButtonColors::spread(KeyColors {
+                    fill: rgba("#E5E5E5FF"),
+                    fill_hover: rgba("#FCFCFCFF"),
+                    fill_pressed: rgba("#CECECEFF"),
+                    label: rgba("#000000FF"),
+                    border: rgba("#000000FF"),
+                }),
+                toprow: ButtonColors::spread(KeyColors {
+                    fill: rgba("#E5E5E5FF"),
+                    fill_hover: rgba("#FCFCFCFF"),
+                    fill_pressed: rgba("#CECECEFF"),
+                    label: rgba("#000000FF"),
+                    border: rgba("#000000FF"),
+                }),
+                delete: ButtonColors::spread(KeyColors {
+                    fill: rgba("#E5E5E5FF"),
+                    fill_hover: rgba("#FCFCFCFF"),
+                    fill_pressed: rgba("#CECECEFF"),
+                    label: rgba("#000000FF"),
+                    border: rgba("#000000FF"),
+                }),
+                basicop: ButtonColors::spread(KeyColors {
+                    fill: rgba("#E5E5E5FF"),
+                    fill_hover: rgba("#FCFCFCFF"),
+                    fill_pressed: rgba("#CECECEFF"),
+                    label: rgba("#000000FF"),
+                    border: rgba("#000000FF"),
+                }),
+                equals: ButtonColors::spread(KeyColors {
+                    fill: rgba("#E5E5E5FF"),
+                    fill_hover: rgba("#FCFCFCFF"),
+                    fill_pressed: rgba("#CECECEFF"),
+                    label: rgba("#000000FF"),
+                    border: rgba("#000000FF"),
+                }),
+                negate: ButtonColors::spread(KeyColors {
+                    fill: rgba("#E5E5E5FF"),
+                    fill_hover: rgba("#FCFCFCFF"),
+                    fill_pressed: rgba("#CECECEFF"),
+                    label: rgba("#000000FF"),
+                    border: rgba("#000000FF"),
+                }),
+                decimal: ButtonColors::spread(KeyColors {
+                    fill: rgba("#E5E5E5FF"),
+                    fill_hover: rgba("#FCFCFCFF"),
+                    fill_pressed: rgba("#CECECEFF"),
+                    label: rgba("#000000FF"),
+                    border: rgba("#000000FF"),
+                }),
+                number: ButtonColors::spread(KeyColors {
+                    fill: rgba("#F0F1F1FF"),
+                    fill_hover: rgba("#FEFFFFFF"),
+                    fill_pressed: rgba("#D8D9D9FF"),
+                    label: rgba("#000000FF"),
+                    border: rgba("#000000FF"),
+                }),
             },
             ThemeKind::Cosmic => Theme {
                 name: "Cosmic".to_string(),
@@ -622,51 +820,69 @@ impl ThemeKind {
                 text_inactive: rgba("#E7E7E74D"),
                 accent: rgba("#61CDDCFF"),
                 button_border_thickness: 0.0,
-                science: ButtonColors::new(
-                    ButtonFace::new(rgba("#636363FF"), rgba("#E7E7E7FF"), rgba("#E7E7E7FF")),
-                    ButtonFace::new(rgba("#7A7A7AFF"), rgba("#E7E7E7FF"), rgba("#E7E7E7FF")),
-                    ButtonFace::new(rgba("#595959FF"), rgba("#E7E7E7FF"), rgba("#E7E7E7FF")),
-                ),
-                second: ButtonColors::new(
-                    ButtonFace::new(rgba("#636363FF"), rgba("#E7E7E7FF"), rgba("#E7E7E7FF")),
-                    ButtonFace::new(rgba("#7A7A7AFF"), rgba("#E7E7E7FF"), rgba("#E7E7E7FF")),
-                    ButtonFace::new(rgba("#595959FF"), rgba("#E7E7E7FF"), rgba("#E7E7E7FF")),
-                ),
-                toprow: ButtonColors::new(
-                    ButtonFace::new(rgba("#636363FF"), rgba("#E7E7E7FF"), rgba("#E7E7E7FF")),
-                    ButtonFace::new(rgba("#7A7A7AFF"), rgba("#E7E7E7FF"), rgba("#E7E7E7FF")),
-                    ButtonFace::new(rgba("#595959FF"), rgba("#E7E7E7FF"), rgba("#E7E7E7FF")),
-                ),
-                delete: ButtonColors::new(
-                    ButtonFace::new(rgba("#636363FF"), rgba("#E7E7E7FF"), rgba("#E7E7E7FF")),
-                    ButtonFace::new(rgba("#7A7A7AFF"), rgba("#E7E7E7FF"), rgba("#E7E7E7FF")),
-                    ButtonFace::new(rgba("#595959FF"), rgba("#E7E7E7FF"), rgba("#E7E7E7FF")),
-                ),
-                basicop: ButtonColors::new(
-                    ButtonFace::new(rgba("#61CDDCFF"), rgba("#E7E7E7FF"), rgba("#E7E7E7FF")),
-                    ButtonFace::new(rgba("#6BE2F3FF"), rgba("#E7E7E7FF"), rgba("#E7E7E7FF")),
-                    ButtonFace::new(rgba("#57B9C6FF"), rgba("#E7E7E7FF"), rgba("#E7E7E7FF")),
-                ),
-                equals: ButtonColors::new(
-                    ButtonFace::new(rgba("#61CDDCFF"), rgba("#E7E7E7FF"), rgba("#E7E7E7FF")),
-                    ButtonFace::new(rgba("#6BE2F3FF"), rgba("#E7E7E7FF"), rgba("#E7E7E7FF")),
-                    ButtonFace::new(rgba("#57B9C6FF"), rgba("#E7E7E7FF"), rgba("#E7E7E7FF")),
-                ),
-                negate: ButtonColors::new(
-                    ButtonFace::new(rgba("#636363FF"), rgba("#E7E7E7FF"), rgba("#E7E7E7FF")),
-                    ButtonFace::new(rgba("#7A7A7AFF"), rgba("#E7E7E7FF"), rgba("#E7E7E7FF")),
-                    ButtonFace::new(rgba("#595959FF"), rgba("#E7E7E7FF"), rgba("#E7E7E7FF")),
-                ),
-                decimal: ButtonColors::new(
-                    ButtonFace::new(rgba("#4F4F4FFF"), rgba("#E7E7E7FF"), rgba("#E7E7E7FF")),
-                    ButtonFace::new(rgba("#666666FF"), rgba("#E7E7E7FF"), rgba("#E7E7E7FF")),
-                    ButtonFace::new(rgba("#474747FF"), rgba("#E7E7E7FF"), rgba("#E7E7E7FF")),
-                ),
-                number: ButtonColors::new(
-                    ButtonFace::new(rgba("#4F4F4FFF"), rgba("#E7E7E7FF"), rgba("#E7E7E7FF")),
-                    ButtonFace::new(rgba("#666666FF"), rgba("#E7E7E7FF"), rgba("#E7E7E7FF")),
-                    ButtonFace::new(rgba("#474747FF"), rgba("#E7E7E7FF"), rgba("#E7E7E7FF")),
-                ),
+                science: ButtonColors::spread(KeyColors {
+                    fill: rgba("#636363FF"),
+                    fill_hover: rgba("#7A7A7AFF"),
+                    fill_pressed: rgba("#595959FF"),
+                    label: rgba("#E7E7E7FF"),
+                    border: rgba("#E7E7E7FF"),
+                }),
+                second: ButtonColors::spread(KeyColors {
+                    fill: rgba("#636363FF"),
+                    fill_hover: rgba("#7A7A7AFF"),
+                    fill_pressed: rgba("#595959FF"),
+                    label: rgba("#E7E7E7FF"),
+                    border: rgba("#E7E7E7FF"),
+                }),
+                toprow: ButtonColors::spread(KeyColors {
+                    fill: rgba("#636363FF"),
+                    fill_hover: rgba("#7A7A7AFF"),
+                    fill_pressed: rgba("#595959FF"),
+                    label: rgba("#E7E7E7FF"),
+                    border: rgba("#E7E7E7FF"),
+                }),
+                delete: ButtonColors::spread(KeyColors {
+                    fill: rgba("#636363FF"),
+                    fill_hover: rgba("#7A7A7AFF"),
+                    fill_pressed: rgba("#595959FF"),
+                    label: rgba("#E7E7E7FF"),
+                    border: rgba("#E7E7E7FF"),
+                }),
+                basicop: ButtonColors::spread(KeyColors {
+                    fill: rgba("#61CDDCFF"),
+                    fill_hover: rgba("#6BE2F3FF"),
+                    fill_pressed: rgba("#57B9C6FF"),
+                    label: rgba("#E7E7E7FF"),
+                    border: rgba("#E7E7E7FF"),
+                }),
+                equals: ButtonColors::spread(KeyColors {
+                    fill: rgba("#61CDDCFF"),
+                    fill_hover: rgba("#6BE2F3FF"),
+                    fill_pressed: rgba("#57B9C6FF"),
+                    label: rgba("#E7E7E7FF"),
+                    border: rgba("#E7E7E7FF"),
+                }),
+                negate: ButtonColors::spread(KeyColors {
+                    fill: rgba("#636363FF"),
+                    fill_hover: rgba("#7A7A7AFF"),
+                    fill_pressed: rgba("#595959FF"),
+                    label: rgba("#E7E7E7FF"),
+                    border: rgba("#E7E7E7FF"),
+                }),
+                decimal: ButtonColors::spread(KeyColors {
+                    fill: rgba("#4F4F4FFF"),
+                    fill_hover: rgba("#666666FF"),
+                    fill_pressed: rgba("#474747FF"),
+                    label: rgba("#E7E7E7FF"),
+                    border: rgba("#E7E7E7FF"),
+                }),
+                number: ButtonColors::spread(KeyColors {
+                    fill: rgba("#4F4F4FFF"),
+                    fill_hover: rgba("#666666FF"),
+                    fill_pressed: rgba("#474747FF"),
+                    label: rgba("#E7E7E7FF"),
+                    border: rgba("#E7E7E7FF"),
+                }),
             },
             ThemeKind::Texas => Theme {
                 name: "Texas".to_string(),
@@ -677,51 +893,69 @@ impl ThemeKind {
                 text_inactive: rgba("#0000004D"),
                 accent: rgba("#324C67FF"),
                 button_border_thickness: 0.0,
-                science: ButtonColors::new(
-                    ButtonFace::new(rgba("#1C1F27FF"), rgba("#000000FF"), rgba("#000000FF")),
-                    ButtonFace::new(rgba("#2C313EFF"), rgba("#000000FF"), rgba("#000000FF")),
-                    ButtonFace::new(rgba("#191C23FF"), rgba("#000000FF"), rgba("#000000FF")),
-                ),
-                second: ButtonColors::new(
-                    ButtonFace::new(rgba("#687B99FF"), rgba("#000000FF"), rgba("#000000FF")),
-                    ButtonFace::new(rgba("#788DB0FF"), rgba("#000000FF"), rgba("#000000FF")),
-                    ButtonFace::new(rgba("#5E6F8AFF"), rgba("#000000FF"), rgba("#000000FF")),
-                ),
-                toprow: ButtonColors::new(
-                    ButtonFace::new(rgba("#1C1F27FF"), rgba("#000000FF"), rgba("#000000FF")),
-                    ButtonFace::new(rgba("#2C313EFF"), rgba("#000000FF"), rgba("#000000FF")),
-                    ButtonFace::new(rgba("#191C23FF"), rgba("#000000FF"), rgba("#000000FF")),
-                ),
-                delete: ButtonColors::new(
-                    ButtonFace::new(rgba("#1C1F27FF"), rgba("#000000FF"), rgba("#000000FF")),
-                    ButtonFace::new(rgba("#2C313EFF"), rgba("#000000FF"), rgba("#000000FF")),
-                    ButtonFace::new(rgba("#191C23FF"), rgba("#000000FF"), rgba("#000000FF")),
-                ),
-                basicop: ButtonColors::new(
-                    ButtonFace::new(rgba("#324C67FF"), rgba("#000000FF"), rgba("#000000FF")),
-                    ButtonFace::new(rgba("#3D5D7EFF"), rgba("#000000FF"), rgba("#000000FF")),
-                    ButtonFace::new(rgba("#2D445DFF"), rgba("#000000FF"), rgba("#000000FF")),
-                ),
-                equals: ButtonColors::new(
-                    ButtonFace::new(rgba("#324C67FF"), rgba("#000000FF"), rgba("#000000FF")),
-                    ButtonFace::new(rgba("#3D5D7EFF"), rgba("#000000FF"), rgba("#000000FF")),
-                    ButtonFace::new(rgba("#2D445DFF"), rgba("#000000FF"), rgba("#000000FF")),
-                ),
-                negate: ButtonColors::new(
-                    ButtonFace::new(rgba("#707070FF"), rgba("#000000FF"), rgba("#000000FF")),
-                    ButtonFace::new(rgba("#878787FF"), rgba("#000000FF"), rgba("#000000FF")),
-                    ButtonFace::new(rgba("#656565FF"), rgba("#000000FF"), rgba("#000000FF")),
-                ),
-                decimal: ButtonColors::new(
-                    ButtonFace::new(rgba("#707070FF"), rgba("#000000FF"), rgba("#000000FF")),
-                    ButtonFace::new(rgba("#878787FF"), rgba("#000000FF"), rgba("#000000FF")),
-                    ButtonFace::new(rgba("#656565FF"), rgba("#000000FF"), rgba("#000000FF")),
-                ),
-                number: ButtonColors::new(
-                    ButtonFace::new(rgba("#707070FF"), rgba("#000000FF"), rgba("#000000FF")),
-                    ButtonFace::new(rgba("#878787FF"), rgba("#000000FF"), rgba("#000000FF")),
-                    ButtonFace::new(rgba("#656565FF"), rgba("#000000FF"), rgba("#000000FF")),
-                ),
+                science: ButtonColors::spread(KeyColors {
+                    fill: rgba("#1C1F27FF"),
+                    fill_hover: rgba("#2C313EFF"),
+                    fill_pressed: rgba("#191C23FF"),
+                    label: rgba("#000000FF"),
+                    border: rgba("#000000FF"),
+                }),
+                second: ButtonColors::spread(KeyColors {
+                    fill: rgba("#687B99FF"),
+                    fill_hover: rgba("#788DB0FF"),
+                    fill_pressed: rgba("#5E6F8AFF"),
+                    label: rgba("#000000FF"),
+                    border: rgba("#000000FF"),
+                }),
+                toprow: ButtonColors::spread(KeyColors {
+                    fill: rgba("#1C1F27FF"),
+                    fill_hover: rgba("#2C313EFF"),
+                    fill_pressed: rgba("#191C23FF"),
+                    label: rgba("#000000FF"),
+                    border: rgba("#000000FF"),
+                }),
+                delete: ButtonColors::spread(KeyColors {
+                    fill: rgba("#1C1F27FF"),
+                    fill_hover: rgba("#2C313EFF"),
+                    fill_pressed: rgba("#191C23FF"),
+                    label: rgba("#000000FF"),
+                    border: rgba("#000000FF"),
+                }),
+                basicop: ButtonColors::spread(KeyColors {
+                    fill: rgba("#324C67FF"),
+                    fill_hover: rgba("#3D5D7EFF"),
+                    fill_pressed: rgba("#2D445DFF"),
+                    label: rgba("#000000FF"),
+                    border: rgba("#000000FF"),
+                }),
+                equals: ButtonColors::spread(KeyColors {
+                    fill: rgba("#324C67FF"),
+                    fill_hover: rgba("#3D5D7EFF"),
+                    fill_pressed: rgba("#2D445DFF"),
+                    label: rgba("#000000FF"),
+                    border: rgba("#000000FF"),
+                }),
+                negate: ButtonColors::spread(KeyColors {
+                    fill: rgba("#707070FF"),
+                    fill_hover: rgba("#878787FF"),
+                    fill_pressed: rgba("#656565FF"),
+                    label: rgba("#000000FF"),
+                    border: rgba("#000000FF"),
+                }),
+                decimal: ButtonColors::spread(KeyColors {
+                    fill: rgba("#707070FF"),
+                    fill_hover: rgba("#878787FF"),
+                    fill_pressed: rgba("#656565FF"),
+                    label: rgba("#000000FF"),
+                    border: rgba("#000000FF"),
+                }),
+                number: ButtonColors::spread(KeyColors {
+                    fill: rgba("#707070FF"),
+                    fill_hover: rgba("#878787FF"),
+                    fill_pressed: rgba("#656565FF"),
+                    label: rgba("#000000FF"),
+                    border: rgba("#000000FF"),
+                }),
             },
             ThemeKind::Tokyo => Theme {
                 name: "Tokyo".to_string(),
@@ -732,51 +966,69 @@ impl ThemeKind {
                 text_inactive: rgba("#D4D4D44D"),
                 accent: rgba("#FF9600FF"),
                 button_border_thickness: 0.0,
-                science: ButtonColors::new(
-                    ButtonFace::new(rgba("#3E4247FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#52575EFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#383B40FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                second: ButtonColors::new(
-                    ButtonFace::new(rgba("#3E4247FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#52575EFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#383B40FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                toprow: ButtonColors::new(
-                    ButtonFace::new(rgba("#888A8BFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#9EA1A2FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#7A7C7DFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                delete: ButtonColors::new(
-                    ButtonFace::new(rgba("#888A8BFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#9EA1A2FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#7A7C7DFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                basicop: ButtonColors::new(
-                    ButtonFace::new(rgba("#FF9600FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#FFB000FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#E68700FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                equals: ButtonColors::new(
-                    ButtonFace::new(rgba("#FF9600FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#FFB000FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#E68700FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                negate: ButtonColors::new(
-                    ButtonFace::new(rgba("#888A8BFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#9EA1A2FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#7A7C7DFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                decimal: ButtonColors::new(
-                    ButtonFace::new(rgba("#585E60FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#6D7477FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#4F5556FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                number: ButtonColors::new(
-                    ButtonFace::new(rgba("#585E60FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#6D7477FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#4F5556FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
+                science: ButtonColors::spread(KeyColors {
+                    fill: rgba("#3E4247FF"),
+                    fill_hover: rgba("#52575EFF"),
+                    fill_pressed: rgba("#383B40FF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                second: ButtonColors::spread(KeyColors {
+                    fill: rgba("#3E4247FF"),
+                    fill_hover: rgba("#52575EFF"),
+                    fill_pressed: rgba("#383B40FF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                toprow: ButtonColors::spread(KeyColors {
+                    fill: rgba("#888A8BFF"),
+                    fill_hover: rgba("#9EA1A2FF"),
+                    fill_pressed: rgba("#7A7C7DFF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                delete: ButtonColors::spread(KeyColors {
+                    fill: rgba("#888A8BFF"),
+                    fill_hover: rgba("#9EA1A2FF"),
+                    fill_pressed: rgba("#7A7C7DFF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                basicop: ButtonColors::spread(KeyColors {
+                    fill: rgba("#FF9600FF"),
+                    fill_hover: rgba("#FFB000FF"),
+                    fill_pressed: rgba("#E68700FF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                equals: ButtonColors::spread(KeyColors {
+                    fill: rgba("#FF9600FF"),
+                    fill_hover: rgba("#FFB000FF"),
+                    fill_pressed: rgba("#E68700FF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                negate: ButtonColors::spread(KeyColors {
+                    fill: rgba("#888A8BFF"),
+                    fill_hover: rgba("#9EA1A2FF"),
+                    fill_pressed: rgba("#7A7C7DFF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                decimal: ButtonColors::spread(KeyColors {
+                    fill: rgba("#585E60FF"),
+                    fill_hover: rgba("#6D7477FF"),
+                    fill_pressed: rgba("#4F5556FF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                number: ButtonColors::spread(KeyColors {
+                    fill: rgba("#585E60FF"),
+                    fill_hover: rgba("#6D7477FF"),
+                    fill_pressed: rgba("#4F5556FF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
             },
             ThemeKind::Cyberpunk => Theme {
                 name: "Cyberpunk".to_string(),
@@ -787,51 +1039,69 @@ impl ThemeKind {
                 text_inactive: rgba("#D4D4D44D"),
                 accent: rgba("#FF9600FF"),
                 button_border_thickness: 0.0,
-                science: ButtonColors::new(
-                    ButtonFace::new(rgba("#3E4247FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#52575EFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#383B40FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                second: ButtonColors::new(
-                    ButtonFace::new(rgba("#3E4247FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#52575EFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#383B40FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                toprow: ButtonColors::new(
-                    ButtonFace::new(rgba("#888A8BFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#9EA1A2FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#7A7C7DFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                delete: ButtonColors::new(
-                    ButtonFace::new(rgba("#888A8BFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#9EA1A2FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#7A7C7DFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                basicop: ButtonColors::new(
-                    ButtonFace::new(rgba("#FF9600FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#FFB000FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#E68700FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                equals: ButtonColors::new(
-                    ButtonFace::new(rgba("#FF9600FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#FFB000FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#E68700FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                negate: ButtonColors::new(
-                    ButtonFace::new(rgba("#888A8BFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#9EA1A2FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#7A7C7DFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                decimal: ButtonColors::new(
-                    ButtonFace::new(rgba("#585E60FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#6D7477FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#4F5556FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                number: ButtonColors::new(
-                    ButtonFace::new(rgba("#585E60FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#6D7477FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#4F5556FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
+                science: ButtonColors::spread(KeyColors {
+                    fill: rgba("#3E4247FF"),
+                    fill_hover: rgba("#52575EFF"),
+                    fill_pressed: rgba("#383B40FF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                second: ButtonColors::spread(KeyColors {
+                    fill: rgba("#3E4247FF"),
+                    fill_hover: rgba("#52575EFF"),
+                    fill_pressed: rgba("#383B40FF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                toprow: ButtonColors::spread(KeyColors {
+                    fill: rgba("#888A8BFF"),
+                    fill_hover: rgba("#9EA1A2FF"),
+                    fill_pressed: rgba("#7A7C7DFF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                delete: ButtonColors::spread(KeyColors {
+                    fill: rgba("#888A8BFF"),
+                    fill_hover: rgba("#9EA1A2FF"),
+                    fill_pressed: rgba("#7A7C7DFF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                basicop: ButtonColors::spread(KeyColors {
+                    fill: rgba("#FF9600FF"),
+                    fill_hover: rgba("#FFB000FF"),
+                    fill_pressed: rgba("#E68700FF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                equals: ButtonColors::spread(KeyColors {
+                    fill: rgba("#FF9600FF"),
+                    fill_hover: rgba("#FFB000FF"),
+                    fill_pressed: rgba("#E68700FF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                negate: ButtonColors::spread(KeyColors {
+                    fill: rgba("#888A8BFF"),
+                    fill_hover: rgba("#9EA1A2FF"),
+                    fill_pressed: rgba("#7A7C7DFF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                decimal: ButtonColors::spread(KeyColors {
+                    fill: rgba("#585E60FF"),
+                    fill_hover: rgba("#6D7477FF"),
+                    fill_pressed: rgba("#4F5556FF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                number: ButtonColors::spread(KeyColors {
+                    fill: rgba("#585E60FF"),
+                    fill_hover: rgba("#6D7477FF"),
+                    fill_pressed: rgba("#4F5556FF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
             },
             ThemeKind::Plastic => Theme {
                 name: "Plastic".to_string(),
@@ -842,51 +1112,69 @@ impl ThemeKind {
                 text_inactive: rgba("#D4D4D44D"),
                 accent: rgba("#FF9600FF"),
                 button_border_thickness: 0.0,
-                science: ButtonColors::new(
-                    ButtonFace::new(rgba("#3E4247FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#52575EFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#383B40FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                second: ButtonColors::new(
-                    ButtonFace::new(rgba("#3E4247FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#52575EFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#383B40FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                toprow: ButtonColors::new(
-                    ButtonFace::new(rgba("#888A8BFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#9EA1A2FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#7A7C7DFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                delete: ButtonColors::new(
-                    ButtonFace::new(rgba("#888A8BFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#9EA1A2FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#7A7C7DFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                basicop: ButtonColors::new(
-                    ButtonFace::new(rgba("#FF9600FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#FFB000FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#E68700FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                equals: ButtonColors::new(
-                    ButtonFace::new(rgba("#FF9600FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#FFB000FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#E68700FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                negate: ButtonColors::new(
-                    ButtonFace::new(rgba("#888A8BFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#9EA1A2FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#7A7C7DFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                decimal: ButtonColors::new(
-                    ButtonFace::new(rgba("#585E60FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#6D7477FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#4F5556FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                number: ButtonColors::new(
-                    ButtonFace::new(rgba("#585E60FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#6D7477FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#4F5556FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
+                science: ButtonColors::spread(KeyColors {
+                    fill: rgba("#3E4247FF"),
+                    fill_hover: rgba("#52575EFF"),
+                    fill_pressed: rgba("#383B40FF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                second: ButtonColors::spread(KeyColors {
+                    fill: rgba("#3E4247FF"),
+                    fill_hover: rgba("#52575EFF"),
+                    fill_pressed: rgba("#383B40FF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                toprow: ButtonColors::spread(KeyColors {
+                    fill: rgba("#888A8BFF"),
+                    fill_hover: rgba("#9EA1A2FF"),
+                    fill_pressed: rgba("#7A7C7DFF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                delete: ButtonColors::spread(KeyColors {
+                    fill: rgba("#888A8BFF"),
+                    fill_hover: rgba("#9EA1A2FF"),
+                    fill_pressed: rgba("#7A7C7DFF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                basicop: ButtonColors::spread(KeyColors {
+                    fill: rgba("#FF9600FF"),
+                    fill_hover: rgba("#FFB000FF"),
+                    fill_pressed: rgba("#E68700FF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                equals: ButtonColors::spread(KeyColors {
+                    fill: rgba("#FF9600FF"),
+                    fill_hover: rgba("#FFB000FF"),
+                    fill_pressed: rgba("#E68700FF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                negate: ButtonColors::spread(KeyColors {
+                    fill: rgba("#888A8BFF"),
+                    fill_hover: rgba("#9EA1A2FF"),
+                    fill_pressed: rgba("#7A7C7DFF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                decimal: ButtonColors::spread(KeyColors {
+                    fill: rgba("#585E60FF"),
+                    fill_hover: rgba("#6D7477FF"),
+                    fill_pressed: rgba("#4F5556FF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                number: ButtonColors::spread(KeyColors {
+                    fill: rgba("#585E60FF"),
+                    fill_hover: rgba("#6D7477FF"),
+                    fill_pressed: rgba("#4F5556FF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
             },
             ThemeKind::Crystal => Theme {
                 name: "Crystal".to_string(),
@@ -897,51 +1185,69 @@ impl ThemeKind {
                 text_inactive: rgba("#D4D4D44D"),
                 accent: rgba("#FF9600FF"),
                 button_border_thickness: 0.0,
-                science: ButtonColors::new(
-                    ButtonFace::new(rgba("#3E4247FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#52575EFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#383B40FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                second: ButtonColors::new(
-                    ButtonFace::new(rgba("#3E4247FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#52575EFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#383B40FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                toprow: ButtonColors::new(
-                    ButtonFace::new(rgba("#888A8BFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#9EA1A2FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#7A7C7DFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                delete: ButtonColors::new(
-                    ButtonFace::new(rgba("#888A8BFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#9EA1A2FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#7A7C7DFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                basicop: ButtonColors::new(
-                    ButtonFace::new(rgba("#FF9600FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#FFB000FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#E68700FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                equals: ButtonColors::new(
-                    ButtonFace::new(rgba("#FF9600FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#FFB000FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#E68700FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                negate: ButtonColors::new(
-                    ButtonFace::new(rgba("#888A8BFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#9EA1A2FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#7A7C7DFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                decimal: ButtonColors::new(
-                    ButtonFace::new(rgba("#585E60FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#6D7477FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#4F5556FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                number: ButtonColors::new(
-                    ButtonFace::new(rgba("#585E60FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#6D7477FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#4F5556FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
+                science: ButtonColors::spread(KeyColors {
+                    fill: rgba("#3E4247FF"),
+                    fill_hover: rgba("#52575EFF"),
+                    fill_pressed: rgba("#383B40FF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                second: ButtonColors::spread(KeyColors {
+                    fill: rgba("#3E4247FF"),
+                    fill_hover: rgba("#52575EFF"),
+                    fill_pressed: rgba("#383B40FF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                toprow: ButtonColors::spread(KeyColors {
+                    fill: rgba("#888A8BFF"),
+                    fill_hover: rgba("#9EA1A2FF"),
+                    fill_pressed: rgba("#7A7C7DFF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                delete: ButtonColors::spread(KeyColors {
+                    fill: rgba("#888A8BFF"),
+                    fill_hover: rgba("#9EA1A2FF"),
+                    fill_pressed: rgba("#7A7C7DFF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                basicop: ButtonColors::spread(KeyColors {
+                    fill: rgba("#FF9600FF"),
+                    fill_hover: rgba("#FFB000FF"),
+                    fill_pressed: rgba("#E68700FF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                equals: ButtonColors::spread(KeyColors {
+                    fill: rgba("#FF9600FF"),
+                    fill_hover: rgba("#FFB000FF"),
+                    fill_pressed: rgba("#E68700FF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                negate: ButtonColors::spread(KeyColors {
+                    fill: rgba("#888A8BFF"),
+                    fill_hover: rgba("#9EA1A2FF"),
+                    fill_pressed: rgba("#7A7C7DFF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                decimal: ButtonColors::spread(KeyColors {
+                    fill: rgba("#585E60FF"),
+                    fill_hover: rgba("#6D7477FF"),
+                    fill_pressed: rgba("#4F5556FF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                number: ButtonColors::spread(KeyColors {
+                    fill: rgba("#585E60FF"),
+                    fill_hover: rgba("#6D7477FF"),
+                    fill_pressed: rgba("#4F5556FF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
             },
             ThemeKind::Barbie => Theme {
                 name: "Barbie".to_string(),
@@ -952,51 +1258,69 @@ impl ThemeKind {
                 text_inactive: rgba("#D4D4D44D"),
                 accent: rgba("#FF9600FF"),
                 button_border_thickness: 0.0,
-                science: ButtonColors::new(
-                    ButtonFace::new(rgba("#3E4247FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#52575EFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#383B40FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                second: ButtonColors::new(
-                    ButtonFace::new(rgba("#3E4247FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#52575EFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#383B40FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                toprow: ButtonColors::new(
-                    ButtonFace::new(rgba("#888A8BFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#9EA1A2FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#7A7C7DFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                delete: ButtonColors::new(
-                    ButtonFace::new(rgba("#888A8BFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#9EA1A2FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#7A7C7DFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                basicop: ButtonColors::new(
-                    ButtonFace::new(rgba("#FF9600FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#FFB000FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#E68700FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                equals: ButtonColors::new(
-                    ButtonFace::new(rgba("#FF9600FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#FFB000FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#E68700FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                negate: ButtonColors::new(
-                    ButtonFace::new(rgba("#888A8BFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#9EA1A2FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#7A7C7DFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                decimal: ButtonColors::new(
-                    ButtonFace::new(rgba("#585E60FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#6D7477FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#4F5556FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                number: ButtonColors::new(
-                    ButtonFace::new(rgba("#585E60FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#6D7477FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#4F5556FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
+                science: ButtonColors::spread(KeyColors {
+                    fill: rgba("#3E4247FF"),
+                    fill_hover: rgba("#52575EFF"),
+                    fill_pressed: rgba("#383B40FF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                second: ButtonColors::spread(KeyColors {
+                    fill: rgba("#3E4247FF"),
+                    fill_hover: rgba("#52575EFF"),
+                    fill_pressed: rgba("#383B40FF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                toprow: ButtonColors::spread(KeyColors {
+                    fill: rgba("#888A8BFF"),
+                    fill_hover: rgba("#9EA1A2FF"),
+                    fill_pressed: rgba("#7A7C7DFF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                delete: ButtonColors::spread(KeyColors {
+                    fill: rgba("#888A8BFF"),
+                    fill_hover: rgba("#9EA1A2FF"),
+                    fill_pressed: rgba("#7A7C7DFF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                basicop: ButtonColors::spread(KeyColors {
+                    fill: rgba("#FF9600FF"),
+                    fill_hover: rgba("#FFB000FF"),
+                    fill_pressed: rgba("#E68700FF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                equals: ButtonColors::spread(KeyColors {
+                    fill: rgba("#FF9600FF"),
+                    fill_hover: rgba("#FFB000FF"),
+                    fill_pressed: rgba("#E68700FF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                negate: ButtonColors::spread(KeyColors {
+                    fill: rgba("#888A8BFF"),
+                    fill_hover: rgba("#9EA1A2FF"),
+                    fill_pressed: rgba("#7A7C7DFF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                decimal: ButtonColors::spread(KeyColors {
+                    fill: rgba("#585E60FF"),
+                    fill_hover: rgba("#6D7477FF"),
+                    fill_pressed: rgba("#4F5556FF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                number: ButtonColors::spread(KeyColors {
+                    fill: rgba("#585E60FF"),
+                    fill_hover: rgba("#6D7477FF"),
+                    fill_pressed: rgba("#4F5556FF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
             },
             ThemeKind::TouchLight => Theme {
                 name: "Touch Light".to_string(),
@@ -1007,51 +1331,69 @@ impl ThemeKind {
                 text_inactive: rgba("#D4D4D44D"),
                 accent: rgba("#FF9600FF"),
                 button_border_thickness: 0.0,
-                science: ButtonColors::new(
-                    ButtonFace::new(rgba("#3E4247FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#52575EFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#383B40FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                second: ButtonColors::new(
-                    ButtonFace::new(rgba("#3E4247FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#52575EFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#383B40FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                toprow: ButtonColors::new(
-                    ButtonFace::new(rgba("#888A8BFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#9EA1A2FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#7A7C7DFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                delete: ButtonColors::new(
-                    ButtonFace::new(rgba("#888A8BFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#9EA1A2FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#7A7C7DFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                basicop: ButtonColors::new(
-                    ButtonFace::new(rgba("#FF9600FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#FFB000FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#E68700FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                equals: ButtonColors::new(
-                    ButtonFace::new(rgba("#FF9600FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#FFB000FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#E68700FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                negate: ButtonColors::new(
-                    ButtonFace::new(rgba("#888A8BFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#9EA1A2FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#7A7C7DFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                decimal: ButtonColors::new(
-                    ButtonFace::new(rgba("#585E60FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#6D7477FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#4F5556FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                number: ButtonColors::new(
-                    ButtonFace::new(rgba("#585E60FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#6D7477FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#4F5556FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
+                science: ButtonColors::spread(KeyColors {
+                    fill: rgba("#3E4247FF"),
+                    fill_hover: rgba("#52575EFF"),
+                    fill_pressed: rgba("#383B40FF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                second: ButtonColors::spread(KeyColors {
+                    fill: rgba("#3E4247FF"),
+                    fill_hover: rgba("#52575EFF"),
+                    fill_pressed: rgba("#383B40FF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                toprow: ButtonColors::spread(KeyColors {
+                    fill: rgba("#888A8BFF"),
+                    fill_hover: rgba("#9EA1A2FF"),
+                    fill_pressed: rgba("#7A7C7DFF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                delete: ButtonColors::spread(KeyColors {
+                    fill: rgba("#888A8BFF"),
+                    fill_hover: rgba("#9EA1A2FF"),
+                    fill_pressed: rgba("#7A7C7DFF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                basicop: ButtonColors::spread(KeyColors {
+                    fill: rgba("#FF9600FF"),
+                    fill_hover: rgba("#FFB000FF"),
+                    fill_pressed: rgba("#E68700FF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                equals: ButtonColors::spread(KeyColors {
+                    fill: rgba("#FF9600FF"),
+                    fill_hover: rgba("#FFB000FF"),
+                    fill_pressed: rgba("#E68700FF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                negate: ButtonColors::spread(KeyColors {
+                    fill: rgba("#888A8BFF"),
+                    fill_hover: rgba("#9EA1A2FF"),
+                    fill_pressed: rgba("#7A7C7DFF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                decimal: ButtonColors::spread(KeyColors {
+                    fill: rgba("#585E60FF"),
+                    fill_hover: rgba("#6D7477FF"),
+                    fill_pressed: rgba("#4F5556FF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                number: ButtonColors::spread(KeyColors {
+                    fill: rgba("#585E60FF"),
+                    fill_hover: rgba("#6D7477FF"),
+                    fill_pressed: rgba("#4F5556FF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
             },
             ThemeKind::TouchDark => Theme {
                 name: "Touch Dark".to_string(),
@@ -1062,51 +1404,69 @@ impl ThemeKind {
                 text_inactive: rgba("#D4D4D44D"),
                 accent: rgba("#FF9600FF"),
                 button_border_thickness: 0.0,
-                science: ButtonColors::new(
-                    ButtonFace::new(rgba("#3E4247FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#52575EFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#383B40FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                second: ButtonColors::new(
-                    ButtonFace::new(rgba("#3E4247FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#52575EFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#383B40FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                toprow: ButtonColors::new(
-                    ButtonFace::new(rgba("#888A8BFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#9EA1A2FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#7A7C7DFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                delete: ButtonColors::new(
-                    ButtonFace::new(rgba("#888A8BFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#9EA1A2FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#7A7C7DFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                basicop: ButtonColors::new(
-                    ButtonFace::new(rgba("#FF9600FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#FFB000FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#E68700FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                equals: ButtonColors::new(
-                    ButtonFace::new(rgba("#FF9600FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#FFB000FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#E68700FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                negate: ButtonColors::new(
-                    ButtonFace::new(rgba("#888A8BFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#9EA1A2FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#7A7C7DFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                decimal: ButtonColors::new(
-                    ButtonFace::new(rgba("#585E60FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#6D7477FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#4F5556FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                number: ButtonColors::new(
-                    ButtonFace::new(rgba("#585E60FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#6D7477FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#4F5556FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
+                science: ButtonColors::spread(KeyColors {
+                    fill: rgba("#3E4247FF"),
+                    fill_hover: rgba("#52575EFF"),
+                    fill_pressed: rgba("#383B40FF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                second: ButtonColors::spread(KeyColors {
+                    fill: rgba("#3E4247FF"),
+                    fill_hover: rgba("#52575EFF"),
+                    fill_pressed: rgba("#383B40FF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                toprow: ButtonColors::spread(KeyColors {
+                    fill: rgba("#888A8BFF"),
+                    fill_hover: rgba("#9EA1A2FF"),
+                    fill_pressed: rgba("#7A7C7DFF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                delete: ButtonColors::spread(KeyColors {
+                    fill: rgba("#888A8BFF"),
+                    fill_hover: rgba("#9EA1A2FF"),
+                    fill_pressed: rgba("#7A7C7DFF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                basicop: ButtonColors::spread(KeyColors {
+                    fill: rgba("#FF9600FF"),
+                    fill_hover: rgba("#FFB000FF"),
+                    fill_pressed: rgba("#E68700FF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                equals: ButtonColors::spread(KeyColors {
+                    fill: rgba("#FF9600FF"),
+                    fill_hover: rgba("#FFB000FF"),
+                    fill_pressed: rgba("#E68700FF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                negate: ButtonColors::spread(KeyColors {
+                    fill: rgba("#888A8BFF"),
+                    fill_hover: rgba("#9EA1A2FF"),
+                    fill_pressed: rgba("#7A7C7DFF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                decimal: ButtonColors::spread(KeyColors {
+                    fill: rgba("#585E60FF"),
+                    fill_hover: rgba("#6D7477FF"),
+                    fill_pressed: rgba("#4F5556FF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                number: ButtonColors::spread(KeyColors {
+                    fill: rgba("#585E60FF"),
+                    fill_hover: rgba("#6D7477FF"),
+                    fill_pressed: rgba("#4F5556FF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
             },
             ThemeKind::EmeraldLight => Theme {
                 name: "Emerald Light".to_string(),
@@ -1117,51 +1477,69 @@ impl ThemeKind {
                 text_inactive: rgba("#D4D4D44D"),
                 accent: rgba("#FF9600FF"),
                 button_border_thickness: 0.0,
-                science: ButtonColors::new(
-                    ButtonFace::new(rgba("#3E4247FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#52575EFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#383B40FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                second: ButtonColors::new(
-                    ButtonFace::new(rgba("#3E4247FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#52575EFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#383B40FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                toprow: ButtonColors::new(
-                    ButtonFace::new(rgba("#888A8BFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#9EA1A2FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#7A7C7DFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                delete: ButtonColors::new(
-                    ButtonFace::new(rgba("#888A8BFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#9EA1A2FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#7A7C7DFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                basicop: ButtonColors::new(
-                    ButtonFace::new(rgba("#FF9600FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#FFB000FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#E68700FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                equals: ButtonColors::new(
-                    ButtonFace::new(rgba("#FF9600FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#FFB000FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#E68700FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                negate: ButtonColors::new(
-                    ButtonFace::new(rgba("#888A8BFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#9EA1A2FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#7A7C7DFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                decimal: ButtonColors::new(
-                    ButtonFace::new(rgba("#585E60FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#6D7477FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#4F5556FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                number: ButtonColors::new(
-                    ButtonFace::new(rgba("#585E60FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#6D7477FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#4F5556FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
+                science: ButtonColors::spread(KeyColors {
+                    fill: rgba("#3E4247FF"),
+                    fill_hover: rgba("#52575EFF"),
+                    fill_pressed: rgba("#383B40FF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                second: ButtonColors::spread(KeyColors {
+                    fill: rgba("#3E4247FF"),
+                    fill_hover: rgba("#52575EFF"),
+                    fill_pressed: rgba("#383B40FF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                toprow: ButtonColors::spread(KeyColors {
+                    fill: rgba("#888A8BFF"),
+                    fill_hover: rgba("#9EA1A2FF"),
+                    fill_pressed: rgba("#7A7C7DFF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                delete: ButtonColors::spread(KeyColors {
+                    fill: rgba("#888A8BFF"),
+                    fill_hover: rgba("#9EA1A2FF"),
+                    fill_pressed: rgba("#7A7C7DFF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                basicop: ButtonColors::spread(KeyColors {
+                    fill: rgba("#FF9600FF"),
+                    fill_hover: rgba("#FFB000FF"),
+                    fill_pressed: rgba("#E68700FF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                equals: ButtonColors::spread(KeyColors {
+                    fill: rgba("#FF9600FF"),
+                    fill_hover: rgba("#FFB000FF"),
+                    fill_pressed: rgba("#E68700FF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                negate: ButtonColors::spread(KeyColors {
+                    fill: rgba("#888A8BFF"),
+                    fill_hover: rgba("#9EA1A2FF"),
+                    fill_pressed: rgba("#7A7C7DFF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                decimal: ButtonColors::spread(KeyColors {
+                    fill: rgba("#585E60FF"),
+                    fill_hover: rgba("#6D7477FF"),
+                    fill_pressed: rgba("#4F5556FF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                number: ButtonColors::spread(KeyColors {
+                    fill: rgba("#585E60FF"),
+                    fill_hover: rgba("#6D7477FF"),
+                    fill_pressed: rgba("#4F5556FF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
             },
             ThemeKind::EmeraldDark => Theme {
                 name: "Emerald Dark".to_string(),
@@ -1172,51 +1550,69 @@ impl ThemeKind {
                 text_inactive: rgba("#D4D4D44D"),
                 accent: rgba("#FF9600FF"),
                 button_border_thickness: 0.0,
-                science: ButtonColors::new(
-                    ButtonFace::new(rgba("#3E4247FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#52575EFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#383B40FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                second: ButtonColors::new(
-                    ButtonFace::new(rgba("#3E4247FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#52575EFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#383B40FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                toprow: ButtonColors::new(
-                    ButtonFace::new(rgba("#888A8BFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#9EA1A2FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#7A7C7DFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                delete: ButtonColors::new(
-                    ButtonFace::new(rgba("#888A8BFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#9EA1A2FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#7A7C7DFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                basicop: ButtonColors::new(
-                    ButtonFace::new(rgba("#FF9600FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#FFB000FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#E68700FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                equals: ButtonColors::new(
-                    ButtonFace::new(rgba("#FF9600FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#FFB000FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#E68700FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                negate: ButtonColors::new(
-                    ButtonFace::new(rgba("#888A8BFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#9EA1A2FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#7A7C7DFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                decimal: ButtonColors::new(
-                    ButtonFace::new(rgba("#585E60FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#6D7477FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#4F5556FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                number: ButtonColors::new(
-                    ButtonFace::new(rgba("#585E60FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#6D7477FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#4F5556FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
+                science: ButtonColors::spread(KeyColors {
+                    fill: rgba("#3E4247FF"),
+                    fill_hover: rgba("#52575EFF"),
+                    fill_pressed: rgba("#383B40FF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                second: ButtonColors::spread(KeyColors {
+                    fill: rgba("#3E4247FF"),
+                    fill_hover: rgba("#52575EFF"),
+                    fill_pressed: rgba("#383B40FF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                toprow: ButtonColors::spread(KeyColors {
+                    fill: rgba("#888A8BFF"),
+                    fill_hover: rgba("#9EA1A2FF"),
+                    fill_pressed: rgba("#7A7C7DFF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                delete: ButtonColors::spread(KeyColors {
+                    fill: rgba("#888A8BFF"),
+                    fill_hover: rgba("#9EA1A2FF"),
+                    fill_pressed: rgba("#7A7C7DFF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                basicop: ButtonColors::spread(KeyColors {
+                    fill: rgba("#FF9600FF"),
+                    fill_hover: rgba("#FFB000FF"),
+                    fill_pressed: rgba("#E68700FF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                equals: ButtonColors::spread(KeyColors {
+                    fill: rgba("#FF9600FF"),
+                    fill_hover: rgba("#FFB000FF"),
+                    fill_pressed: rgba("#E68700FF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                negate: ButtonColors::spread(KeyColors {
+                    fill: rgba("#888A8BFF"),
+                    fill_hover: rgba("#9EA1A2FF"),
+                    fill_pressed: rgba("#7A7C7DFF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                decimal: ButtonColors::spread(KeyColors {
+                    fill: rgba("#585E60FF"),
+                    fill_hover: rgba("#6D7477FF"),
+                    fill_pressed: rgba("#4F5556FF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                number: ButtonColors::spread(KeyColors {
+                    fill: rgba("#585E60FF"),
+                    fill_hover: rgba("#6D7477FF"),
+                    fill_pressed: rgba("#4F5556FF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
             },
             ThemeKind::FlatOrangeDark => Theme {
                 name: "Flat Orange Dark".to_string(),
@@ -1227,51 +1623,69 @@ impl ThemeKind {
                 text_inactive: rgba("#D4D4D44D"),
                 accent: rgba("#FF9600FF"),
                 button_border_thickness: 0.0,
-                science: ButtonColors::new(
-                    ButtonFace::new(rgba("#3E4247FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#52575EFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#383B40FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                second: ButtonColors::new(
-                    ButtonFace::new(rgba("#3E4247FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#52575EFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#383B40FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                toprow: ButtonColors::new(
-                    ButtonFace::new(rgba("#888A8BFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#9EA1A2FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#7A7C7DFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                delete: ButtonColors::new(
-                    ButtonFace::new(rgba("#888A8BFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#9EA1A2FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#7A7C7DFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                basicop: ButtonColors::new(
-                    ButtonFace::new(rgba("#FF9600FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#FFB000FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#E68700FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                equals: ButtonColors::new(
-                    ButtonFace::new(rgba("#FF9600FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#FFB000FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#E68700FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                negate: ButtonColors::new(
-                    ButtonFace::new(rgba("#888A8BFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#9EA1A2FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#7A7C7DFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                decimal: ButtonColors::new(
-                    ButtonFace::new(rgba("#585E60FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#6D7477FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#4F5556FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                number: ButtonColors::new(
-                    ButtonFace::new(rgba("#585E60FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#6D7477FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#4F5556FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
+                science: ButtonColors::spread(KeyColors {
+                    fill: rgba("#3E4247FF"),
+                    fill_hover: rgba("#52575EFF"),
+                    fill_pressed: rgba("#383B40FF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                second: ButtonColors::spread(KeyColors {
+                    fill: rgba("#3E4247FF"),
+                    fill_hover: rgba("#52575EFF"),
+                    fill_pressed: rgba("#383B40FF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                toprow: ButtonColors::spread(KeyColors {
+                    fill: rgba("#888A8BFF"),
+                    fill_hover: rgba("#9EA1A2FF"),
+                    fill_pressed: rgba("#7A7C7DFF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                delete: ButtonColors::spread(KeyColors {
+                    fill: rgba("#888A8BFF"),
+                    fill_hover: rgba("#9EA1A2FF"),
+                    fill_pressed: rgba("#7A7C7DFF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                basicop: ButtonColors::spread(KeyColors {
+                    fill: rgba("#FF9600FF"),
+                    fill_hover: rgba("#FFB000FF"),
+                    fill_pressed: rgba("#E68700FF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                equals: ButtonColors::spread(KeyColors {
+                    fill: rgba("#FF9600FF"),
+                    fill_hover: rgba("#FFB000FF"),
+                    fill_pressed: rgba("#E68700FF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                negate: ButtonColors::spread(KeyColors {
+                    fill: rgba("#888A8BFF"),
+                    fill_hover: rgba("#9EA1A2FF"),
+                    fill_pressed: rgba("#7A7C7DFF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                decimal: ButtonColors::spread(KeyColors {
+                    fill: rgba("#585E60FF"),
+                    fill_hover: rgba("#6D7477FF"),
+                    fill_pressed: rgba("#4F5556FF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                number: ButtonColors::spread(KeyColors {
+                    fill: rgba("#585E60FF"),
+                    fill_hover: rgba("#6D7477FF"),
+                    fill_pressed: rgba("#4F5556FF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
             },
             ThemeKind::FlatGreenLight => Theme {
                 name: "Flat Green Light".to_string(),
@@ -1282,51 +1696,69 @@ impl ThemeKind {
                 text_inactive: rgba("#D4D4D44D"),
                 accent: rgba("#FF9600FF"),
                 button_border_thickness: 0.0,
-                science: ButtonColors::new(
-                    ButtonFace::new(rgba("#3E4247FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#52575EFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#383B40FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                second: ButtonColors::new(
-                    ButtonFace::new(rgba("#3E4247FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#52575EFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#383B40FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                toprow: ButtonColors::new(
-                    ButtonFace::new(rgba("#888A8BFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#9EA1A2FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#7A7C7DFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                delete: ButtonColors::new(
-                    ButtonFace::new(rgba("#888A8BFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#9EA1A2FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#7A7C7DFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                basicop: ButtonColors::new(
-                    ButtonFace::new(rgba("#FF9600FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#FFB000FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#E68700FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                equals: ButtonColors::new(
-                    ButtonFace::new(rgba("#FF9600FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#FFB000FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#E68700FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                negate: ButtonColors::new(
-                    ButtonFace::new(rgba("#888A8BFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#9EA1A2FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#7A7C7DFF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                decimal: ButtonColors::new(
-                    ButtonFace::new(rgba("#585E60FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#6D7477FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#4F5556FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
-                number: ButtonColors::new(
-                    ButtonFace::new(rgba("#585E60FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#6D7477FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                    ButtonFace::new(rgba("#4F5556FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")),
-                ),
+                science: ButtonColors::spread(KeyColors {
+                    fill: rgba("#3E4247FF"),
+                    fill_hover: rgba("#52575EFF"),
+                    fill_pressed: rgba("#383B40FF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                second: ButtonColors::spread(KeyColors {
+                    fill: rgba("#3E4247FF"),
+                    fill_hover: rgba("#52575EFF"),
+                    fill_pressed: rgba("#383B40FF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                toprow: ButtonColors::spread(KeyColors {
+                    fill: rgba("#888A8BFF"),
+                    fill_hover: rgba("#9EA1A2FF"),
+                    fill_pressed: rgba("#7A7C7DFF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                delete: ButtonColors::spread(KeyColors {
+                    fill: rgba("#888A8BFF"),
+                    fill_hover: rgba("#9EA1A2FF"),
+                    fill_pressed: rgba("#7A7C7DFF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                basicop: ButtonColors::spread(KeyColors {
+                    fill: rgba("#FF9600FF"),
+                    fill_hover: rgba("#FFB000FF"),
+                    fill_pressed: rgba("#E68700FF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                equals: ButtonColors::spread(KeyColors {
+                    fill: rgba("#FF9600FF"),
+                    fill_hover: rgba("#FFB000FF"),
+                    fill_pressed: rgba("#E68700FF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                negate: ButtonColors::spread(KeyColors {
+                    fill: rgba("#888A8BFF"),
+                    fill_hover: rgba("#9EA1A2FF"),
+                    fill_pressed: rgba("#7A7C7DFF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                decimal: ButtonColors::spread(KeyColors {
+                    fill: rgba("#585E60FF"),
+                    fill_hover: rgba("#6D7477FF"),
+                    fill_pressed: rgba("#4F5556FF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
+                number: ButtonColors::spread(KeyColors {
+                    fill: rgba("#585E60FF"),
+                    fill_hover: rgba("#6D7477FF"),
+                    fill_pressed: rgba("#4F5556FF"),
+                    label: rgba("#D4D4D4FF"),
+                    border: rgba("#D4D4D4FF"),
+                }),
             },
         }
     }
@@ -1391,12 +1823,18 @@ pub struct CosmicComponent {
 
 impl CosmicComponent {
     /// This component as a button category's three states.
+    ///
+    /// The desktop publishes exactly what a [`KeyColors`] holds — a
+    /// fill per state, one text colour, one border — so the preset
+    /// takes it across rather than deriving anything from it.
     pub fn colors(self) -> ButtonColors {
-        ButtonColors::new(
-            ButtonFace::new(self.base, self.text, self.border),
-            ButtonFace::new(self.hover, self.text, self.border),
-            ButtonFace::new(self.pressed, self.text, self.border),
-        )
+        ButtonColors::spread(KeyColors {
+            fill: self.base,
+            fill_hover: self.hover,
+            fill_pressed: self.pressed,
+            label: self.text,
+            border: self.border,
+        })
     }
 }
 

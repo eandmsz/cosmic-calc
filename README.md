@@ -286,6 +286,25 @@ make check                         # fmt + clippy + the whole workspace
 	  against the key it landed on. A formula cannot know that a
 	  bright accent key needs a different label from the window
 	  around it; a table can
+	- Each group is written with its colours named, so which one
+	  is the hover fill and which the font colour is on the page
+	  rather than in the argument order:
+
+	  ```rust
+	  science: ButtonColors::spread(KeyColors {
+	      fill: rgba("#3E4247FF"),         // at rest
+	      fill_hover: rgba("#52575EFF"),   // under the pointer
+	      fill_pressed: rgba("#383B40FF"), // held down
+	      label: rgba("#D4D4D4FF"),        // the font colour
+	      border: rgba("#D4D4D4FF"),       // the outline, when one is on
+	  }),
+	  ```
+
+	  Only the fill changes between the three states in any
+	  shipped palette, which is why the label and the border are
+	  written once. A palette that wants its label to change
+	  under the pointer still can — `ButtonColors::new` takes a
+	  whole face per state, which is what the type holds
 	- The groups are the science keys, `2nd`, the top row, the two
 	  delete keys (`AC`/`C` and backspace), the basic operators,
 	  `=`, `±`, the decimal point and the digits. `AC` and backspace

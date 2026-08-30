@@ -9,6 +9,40 @@ fn cosmic_preset_has_expected_colours() {
 }
 
 #[test]
+fn a_key_spreads_its_label_and_border_over_all_three_states() {
+    // What the palette tables are written in, pinned: the three
+    // fills land in the order they are named, and the one label and
+    // the one border go on all three of them. Swap two of the fills
+    // and every shipped palette would hover the wrong way round with
+    // nothing else to notice it.
+    let key = KeyColors {
+        fill: rgba("#111111FF"),
+        fill_hover: rgba("#222222FF"),
+        fill_pressed: rgba("#333333FF"),
+        label: rgba("#444444FF"),
+        border: rgba("#555555FF"),
+    };
+    let c = ButtonColors::spread(key);
+    assert_eq!(c.normal.background, key.fill);
+    assert_eq!(c.hover.background, key.fill_hover);
+    assert_eq!(c.pressed.background, key.fill_pressed);
+    for face in [c.normal, c.hover, c.pressed] {
+        assert_eq!(face.text, key.label);
+        assert_eq!(face.border, key.border);
+    }
+
+    // And it is the long form spelled out, not a separate rule.
+    assert_eq!(
+        c,
+        ButtonColors::new(
+            ButtonFace::new(key.fill, key.label, key.border),
+            ButtonFace::new(key.fill_hover, key.label, key.border),
+            ButtonFace::new(key.fill_pressed, key.label, key.border),
+        )
+    );
+}
+
+#[test]
 fn every_preset_spells_out_all_three_states() {
     // The point of the table is that nothing is derived, so every
     // group has to carry a colour of its own for each state rather
