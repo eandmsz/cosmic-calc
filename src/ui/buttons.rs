@@ -1952,7 +1952,11 @@ fn right_paren_target(engine: &Engine) -> Option<usize> {
             // it finishes the degree. Without this the cursor stayed
             // in the slot and `8 ʸ√x ( 2 ) + 2` read as
             // `root(8,(2)+2)` — the `+2` up in the degree.
-            None => leave_outer_slot_at(engine, cursor + 1).unwrap_or(cursor + 1),
+            // A base slot filled with a bracket group ends the same
+            // way: see [`leave_base_slot_at`].
+            None => leave_outer_slot_at(engine, cursor + 1)
+                .or_else(|| leave_base_slot_at(engine, cursor + 1))
+                .unwrap_or(cursor + 1),
         }),
         // A root's radicand ends at the call's comma — its degree is
         // drawn in front of the sign, so the `)` on screen there is the
@@ -1984,15 +1988,26 @@ fn right_paren_target(engine: &Engine) -> Option<usize> {
 /// builds. `None` anywhere else, including an empty slot — there is
 /// no base yet, so there is nothing to close over.
 fn pending_base_slot_end(engine: &Engine) -> Option<usize> {
+    leave_base_slot_at(engine, engine.input.cursor())
+}
+
+/// The same rule asked about an explicit position rather than about
+/// the cursor, so a `)` that has just stepped over a bracket of the
+/// user's own carries on out of the power rather than stopping in
+/// front of its caret. `5`, `yˣ`, `(`, `2`, `)` leaves the cursor
+/// past the whole `(2)⁵`, exactly where `5`, `yˣ`, `2`, `)` leaves
+/// it — otherwise the next digit landed between the base and the
+/// caret and took the base slot for itself, `(2)×7⁵` for a `7` that
+/// belonged after the power.
+fn leave_base_slot_at(engine: &Engine, at: usize) -> Option<usize> {
     let items = engine.input.items();
-    let cursor = engine.input.cursor();
-    if !matches!(items.get(cursor), Some(InputItem::BinOp(BinOp::Pow))) {
+    if !matches!(items.get(at), Some(InputItem::BinOp(BinOp::Pow))) {
         return None;
     }
-    if cursor == 0 || !items[cursor - 1].ends_operand() {
+    if at == 0 || !items[at - 1].ends_operand() {
         return None;
     }
-    Some(script::exponent_span(items, cursor).unwrap_or(items.len()))
+    Some(script::exponent_span(items, at).unwrap_or(items.len()))
 }
 
 /// Where `)` goes from a position that is the *end* of a call's outer

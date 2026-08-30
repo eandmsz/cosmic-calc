@@ -1110,6 +1110,92 @@ fn a_bracket_the_user_closed_in_an_exponent_finishes_it_too() {
 }
 
 #[test]
+fn a_bracket_the_user_closed_in_a_base_slot_finishes_it_too() {
+    // The same rule for the slot `yˣ` opens, which is a base rather
+    // than an exponent: a bracket group filling it is finished when
+    // its own `)` closes it, and the cursor comes out past the whole
+    // power instead of stopping in front of the caret.
+    //
+    // `%`, `!` and the operators always managed it — they step out of
+    // a pending base slot before they write. The digits and the
+    // carets do not, so they were the two that landed between the
+    // base and its caret: `5`, `yˣ`, `(`, `2`, `)`, `7` gave
+    // `(2)×7⁵`, where the `7` had taken the base slot for itself.
+    let (mut e, mut s, c) = fresh();
+    for b in [
+        Button::Num(5),
+        Button::YPowX,
+        Button::LeftParen,
+        Button::Num(2),
+        Button::RightParen,
+        Button::Num(7),
+    ] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert_eq!(e.input.ascii_expression(), "(2)^5*7");
+
+    // A caret raises the whole power rather than the base it ends
+    // in: `(2)^2^5` read as `(2)` raised to the thirty-second.
+    let (mut e, mut s, c) = fresh();
+    for b in [
+        Button::Num(5),
+        Button::YPowX,
+        Button::LeftParen,
+        Button::Num(2),
+        Button::RightParen,
+        Button::XPowY,
+        Button::Num(2),
+    ] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert_eq!(e.input.ascii_expression(), "((2)^5)^2");
+    assert_eq!(e.evaluate().expect("thirty-two squared").display, "1024");
+
+    // Both read the same way as the same keys without the bracket,
+    // which is the whole point: `5`, `yˣ`, `2`, `)`, `7` is `2⁵×7`.
+    let (mut e, mut s, c) = fresh();
+    for b in [
+        Button::Num(5),
+        Button::YPowX,
+        Button::Num(2),
+        Button::RightParen,
+        Button::Num(7),
+    ] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert_eq!(e.input.ascii_expression(), "2^5*7");
+
+    // A bracket still open is still the slot: the digit joins the
+    // base it is being typed into.
+    let (mut e, mut s, c) = fresh();
+    for b in [
+        Button::Num(5),
+        Button::YPowX,
+        Button::LeftParen,
+        Button::Num(2),
+        Button::Num(7),
+    ] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert_eq!(e.input.ascii_expression(), "(27)^5");
+
+    // And a closer with no power behind it is left alone: the
+    // bracket ends, and what follows multiplies it as it always did.
+    let (mut e, mut s, c) = fresh();
+    for b in [
+        Button::LeftParen,
+        Button::Num(2),
+        Button::Add,
+        Button::Num(3),
+        Button::RightParen,
+        Button::Num(7),
+    ] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert_eq!(e.input.ascii_expression(), "(2+3)*7");
+}
+
+#[test]
 fn closing_a_bracket_in_an_exponent_closes_the_exponent() {
     // An exponent typed straight after the caret is a slot the
     // display draws brackets round, and `)` is how the user says they
