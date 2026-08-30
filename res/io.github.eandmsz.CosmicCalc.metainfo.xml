@@ -34,6 +34,20 @@
   </categories>
 
   <releases>
+    <release version="0.2.1" date="2026-08-30">
+      <description>
+        <ul>
+          <li>A bracket you open at the head of an exponent closes the exponent when you close it, the way a ) with no bracket of yours to close already did. 𝑒ˣ, (, 2, ), % is (e^(2))% — a hundredth of e² — where the percent was left up in the exponent as e^(2)%, which is e to the one-fiftieth. ! reads the same way, and a second caret raises the whole power rather than adding a level to it: 2, xʸ, (, 3, ), xʸ, 2 is (2³)² and not 2⁹. Every key that opens an exponent is covered — xʸ, 10ˣ, 2ˣ, 𝑒ˣ and EE</li>
+          <li>The base slot yˣ opens finishes the same way. 5, yˣ, (, 2, ), 7 is (2)⁵×7, where the 7 landed between the base and its caret and took the slot for itself as (2)×7⁵; a caret there now raises the whole power. The operators and the postfixes always managed it, so this is the digits and the carets catching up with them</li>
+          <li>The five inverse-function domain messages are punctuated like every other named case: Undefined: sin⁻¹(x) must be between −1 and 1, where the colon was missing on those five alone</li>
+          <li>The Cosmic palette sits after High Contrast Light in the settings list, with the twelve newer palettes after it. It is still the palette a fresh install starts on, and still the one an unreadable theme name in config.toml falls back to</li>
+          <li>Auto is called System on the decimal separator, the thousands separator and the corner radius — the choice that is not a choice, where the separators take the region's and the radius the desktop's</li>
+          <li>Button shape is Button corner radius, and offers 50%, 25% and 0% rather than names. That is what the keypad draws: the radius is a fraction of the button's own height, so a 50% key is a pill at every window size where a fixed pixel count would stop being round as the buttons grew. What config.toml records is unchanged, so a file an older build wrote still loads</li>
+          <li>The font list opens at the family in force, with the families either side of it on screen to compare against, rather than at the top of an alphabetical list of every family on the machine</li>
+          <li>Cupertino Dark and Cyberpunk wear a button border. Every other palette leaves it off, and a palette that asks for one gets at least a whole pixel of it however thin the setting</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.2.0" date="2026-08-30">
       <description>
         <ul>
