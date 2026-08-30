@@ -236,6 +236,21 @@ make check                         # fmt + clippy + the whole workspace
 	  different number. A minus with something to subtract from is a
 	  subtraction and stays put, so `5-2` then `yˣ` then `3` is
 	  `5-3²`
+- `±` flips the sign of the operand it stands on, and a minus already
+  in front of that operand is the sign it flips rather than something
+  to put a second one inside. `5−3` then `±` is `5+3`: taking away a
+  negative three is adding three, and the `5−(−3)` it used to write
+  says the same thing in a way nobody reads at a glance
+	- `−4` then `±` is `4` — nothing on the left of that minus for
+	  it to subtract from, so the sign has only to come off. The
+	  same wherever a value begins: `sin(−3` is `sin(3`, and `2⁻³`
+	  is `2³`
+	- Anywhere else the operand is wrapped, as it always was: `5+6`
+	  then `±` is `5+(-6)`, and `2×5` is `2×(-5)`. A `+` is not a
+	  sign the key put there, and the brackets keep the negation
+	  bound to its own operand under chained operators, where a bare
+	  `2×-5` works arithmetically but reads as ambiguous. A press on
+	  an operand already wrapped unwraps it
 - A decimal separator with no digits behind it goes when you move on
   from it: `5`, `.`, `+` is `5+`. Backspace is the one press that
   leaves it, since deleting it is what you are asking for

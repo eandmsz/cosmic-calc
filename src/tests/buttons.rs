@@ -86,6 +86,87 @@ fn negate_wraps_operand_in_parens() {
     assert_eq!(e.input.display_string(), "4");
 }
 
+#[test]
+fn negate_flips_the_minus_it_is_standing_on() {
+    // `5−3` then `±` is the three being negated, and taking away a
+    // negative three is adding three. The `5−(−3)` it used to write
+    // says the same thing in a way nobody reads at a glance.
+    let (mut e, mut s, c) = run(&[Button::Num(5), Button::Sub, Button::Num(3), Button::Negate]);
+    assert_eq!(e.input.display_string(), "5+3");
+    assert_eq!(e.evaluate().expect("evaluates").display, "8");
+
+    // And the key keeps flipping the sign of that operand: the `+` is
+    // not a sign it put there, so the three is what gets wrapped.
+    apply_button(&mut e, &mut s, &c, Button::Negate);
+    assert_eq!(e.input.display_string(), "5+(-3)");
+    assert_eq!(e.evaluate().expect("evaluates").display, "2");
+    apply_button(&mut e, &mut s, &c, Button::Negate);
+    assert_eq!(e.input.display_string(), "5+3");
+}
+
+#[test]
+fn negate_takes_away_a_minus_with_nothing_to_subtract_from() {
+    // `−4` is a signed four rather than a subtraction, so negating it
+    // is the sign coming off — not a second one wrapped inside it.
+    let (e, _s, _c) = run(&[Button::Sub, Button::Num(4), Button::Negate]);
+    assert_eq!(e.input.display_string(), "4");
+    assert_eq!(e.evaluate().expect("evaluates").display, "4");
+
+    // The same wherever a value may start: inside a call, and after a
+    // caret, where the minus signs the exponent.
+    let (e, _s, _c) = run(&[Button::Sin, Button::Sub, Button::Num(3), Button::Negate]);
+    assert_eq!(e.input.display_string(), "sin(3)");
+    let (e, _s, _c) = run(&[
+        Button::Num(2),
+        Button::XPowY,
+        Button::Sub,
+        Button::Num(3),
+        Button::Negate,
+    ]);
+    assert_eq!(e.input.ascii_expression(), "2^3");
+}
+
+#[test]
+fn negate_leaves_the_other_operators_alone() {
+    // Only a minus in front of the operand is a sign to flip. A `+`
+    // is not, so the operand after one is wrapped as it always was —
+    // and so is the one after a `+` the calculator supplied itself.
+    let (e, _s, _c) = run(&[Button::Num(5), Button::Add, Button::Num(6), Button::Negate]);
+    assert_eq!(e.input.display_string(), "5+(-6)");
+    assert_eq!(e.evaluate().expect("evaluates").display, "-1");
+
+    let (e, _s, _c) = run(&[Button::Add, Button::Num(9), Button::Negate]);
+    assert_eq!(e.input.display_string(), "0+(-9)");
+    assert_eq!(e.evaluate().expect("evaluates").display, "-9");
+
+    for (op, wrapped) in [
+        (Button::Mul, "5*(-6)"),
+        (Button::Div, "5/(-6)"),
+        (Button::XPowY, "5^(-6)"),
+    ] {
+        let (e, _s, _c) = run(&[Button::Num(5), op, Button::Num(6), Button::Negate]);
+        assert_eq!(e.input.ascii_expression(), wrapped);
+    }
+}
+
+#[test]
+fn negate_flips_a_whole_bracketed_operand_the_same_way() {
+    // The operand a minus signs is not always a number: `5−(2+1)`
+    // negates to `5+(2+1)`, brackets and all.
+    let (e, _s, _c) = run(&[
+        Button::Num(5),
+        Button::Sub,
+        Button::LeftParen,
+        Button::Num(2),
+        Button::Add,
+        Button::Num(1),
+        Button::RightParen,
+        Button::Negate,
+    ]);
+    assert_eq!(e.input.display_string(), "5+(2+1)");
+    assert_eq!(e.evaluate().expect("evaluates").display, "8");
+}
+
 // --- clear / backspace ---------------------------------------------
 
 #[test]
