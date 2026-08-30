@@ -196,8 +196,13 @@ make check                         # fmt + clippy + the whole workspace
 	  where the digit used to run onto the end of the exponent and
 	  give `2` to the thirty-fifth; `!` there is `(2³)!` rather
 	  than `2` raised to `3!`; and a second `xʸ` is `(2³)^y`,
-	  where a bare `2^3^y` would have raised the `3`. Type into the
-	  slot instead of closing it and it is still the slot — that is
+	  where a bare `2^3^y` would have raised the `3`. A bracket
+	  of your own at the head of the exponent closes the slot as
+	  it closes itself, there being nothing of the exponent left
+	  after it: `𝑒ˣ`, `(`, `2`, `)`, `%` is `(e^(2))%`, a
+	  hundredth of `e²`, where `e^(2)%` used to come back and
+	  read as `e` raised to a fiftieth. Type into the slot
+	  instead of closing it and it is still the slot — that is
 	  what the brackets round it are saying
 	- An operator still waiting for its right operand has no value
 	  for the brackets to close over, so the press takes it back:
@@ -281,6 +286,25 @@ make check                         # fmt + clippy + the whole workspace
 	  against the key it landed on. A formula cannot know that a
 	  bright accent key needs a different label from the window
 	  around it; a table can
+	- Each group is written with its colours named, so which one
+	  is the hover fill and which the font colour is on the page
+	  rather than in the argument order:
+
+	  ```rust
+	  science: ButtonColors::spread(KeyColors {
+	      fill: rgba("#3E4247FF"),         // at rest
+	      fill_hover: rgba("#52575EFF"),   // under the pointer
+	      fill_pressed: rgba("#383B40FF"), // held down
+	      label: rgba("#D4D4D4FF"),        // the font colour
+	      border: rgba("#D4D4D4FF"),       // the outline, when one is on
+	  }),
+	  ```
+
+	  Only the fill changes between the three states in any
+	  shipped palette, which is why the label and the border are
+	  written once. A palette that wants its label to change
+	  under the pointer still can — `ButtonColors::new` takes a
+	  whole face per state, which is what the type holds
 	- The groups are the science keys, `2nd`, the top row, the two
 	  delete keys (`AC`/`C` and backspace), the basic operators,
 	  `=`, `±`, the decimal point and the digits. `AC` and backspace
@@ -301,9 +325,11 @@ make check                         # fmt + clippy + the whole workspace
 	  translating it, and the alpha channel is live everywhere: a
 	  button filled with `#00000000` shows the background through it
 	  and is drawn by its border alone
-	- Borders are off by default (`button_border_thickness = 0`) and
-	  are a percentage of the button's height rather than a pixel
-	  count, so an outline keeps its proportion as the window grows
+	- Borders are opt-in per palette — `button_border_thickness`,
+	  zero in most of them and non-zero in Cupertino Dark and
+	  Cyberpunk — and are a percentage of the button's height
+	  rather than a pixel count, so an outline keeps its
+	  proportion as the window grows
 	  and a settings row does not wear the same heavy line as a
 	  keypad key three times its size. The width is rounded to a
 	  whole logical pixel — a border is a hairline of solid colour,
@@ -424,11 +450,11 @@ make check                         # fmt + clippy + the whole workspace
   | `Undefined: Tangent` | `tan(90)` in DEG, `tan(π÷2)` in RAD |
   | `Undefined: Cotangent` | `cot(0)`, `cot(180)` in DEG, `cot(π)` in RAD |
   | `Undefined: Hyperbolic cotangent` | `coth(0)` |
-  | `Undefined sin⁻¹(x) must be between −1 and 1` | `sin⁻¹(5)` |
-  | `Undefined cos⁻¹(x) must be between −1 and 1` | `cos⁻¹(5)` |
-  | `Undefined cosh⁻¹(x) must be 1 or more` | `cosh⁻¹(0.5)` |
-  | `Undefined tanh⁻¹(x) must be between −1 and 1` | `tanh⁻¹(2)` |
-  | `Undefined coth⁻¹(x) must be less than −1 or more than 1` | `coth⁻¹(0.5)` |
+  | `Undefined: sin⁻¹(x) must be between −1 and 1` | `sin⁻¹(5)` |
+  | `Undefined: cos⁻¹(x) must be between −1 and 1` | `cos⁻¹(5)` |
+  | `Undefined: cosh⁻¹(x) must be 1 or more` | `cosh⁻¹(0.5)` |
+  | `Undefined: tanh⁻¹(x) must be between −1 and 1` | `tanh⁻¹(2)` |
+  | `Undefined: coth⁻¹(x) must be less than −1 or more than 1` | `coth⁻¹(0.5)` |
 
 	- `0^-2` used to report Overflow, which said the answer was too
 	  big rather than that there is none
@@ -480,12 +506,25 @@ make check                         # fmt + clippy + the whole workspace
 	  the keyboard, and either can be put on a keypad cell of your
 	  own
 	- Every choice that is a row of buttons rather than a switch —
-	  theme, the two separators, button shape, font weight — is
-	  stretched to the full width of the panel, so a choice between
-	  two ends at the same edge as a choice between four instead of
-	  trailing off in the middle. What each button gets of that
-	  width is its share of the names on its line, so a `Slightly
-	  Round` is drawn wider than the `Auto` beside it
+	  theme, the two separators, the corner radius, font weight —
+	  is stretched to the full width of the panel, so a choice
+	  between two ends at the same edge as a choice between four
+	  instead of trailing off in the middle. What each button gets
+	  of that width is its share of the names on its line, so a
+	  `High Contrast Light` is drawn wider than the `Texas` beside
+	  it
+	- "System" is what the two separators and the corner radius
+	  call the choice that is not a choice: the separators take
+	  the region's, and the radius the desktop's
+	- "Button corner radius" offers `50%`, `25%` and `0%` rather
+	  than names, because that is what the keypad draws: the
+	  radius is a fraction of the button's own height, so `50%`
+	  is a pill at every window size where a fixed pixel count
+	  would stop being round as the buttons grew
+	- The font list opens at the family in force rather than at
+	  the top of an alphabetical list of every family on the
+	  machine, with the rows either side of it on screen to
+	  compare against
 - The font's weight is a choice of its own, under the family: only the
   faces that family actually ships, so one with a Light and a Black
   offers both and one that comes in a single face offers just the one.

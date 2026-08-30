@@ -18,6 +18,41 @@ fn defaults_sit_in_valid_ranges() {
 }
 
 #[test]
+fn the_corner_radius_presets_are_offered_as_what_they_draw() {
+    // The settings panel offers these under "Button corner radius",
+    // so each one says what it rounds off. The two rounded presets
+    // are a fraction of the button's height on the keypad, not a
+    // pixel count, and a fixed number would stop being true the
+    // moment the window was dragged.
+    let names: Vec<_> = ButtonShape::ALL.iter().map(|s| s.display_name()).collect();
+    assert_eq!(names, ["System", "50%", "25%", "0%"]);
+
+    // The stored pair is a separate thing: the buttons outside the
+    // keypad have no height to scale against and take a fixed radius.
+    // `System` has none of its own — that is what defers to the
+    // desktop.
+    assert_eq!(ButtonShape::Auto.resolved(), None);
+    assert_eq!(ButtonShape::Square.resolved(), Some((0.0, 1.0)));
+    assert!(
+        ButtonShape::Round.resolved().unwrap().0 > ButtonShape::SlightlyRound.resolved().unwrap().0
+    );
+
+    // The key the file records is the variant's own, so renaming a
+    // label cannot orphan a config somebody already has.
+    #[derive(serde::Serialize, serde::Deserialize)]
+    struct Wrap {
+        shape: ButtonShape,
+    }
+    for shape in ButtonShape::ALL {
+        let toml = toml::to_string(&Wrap { shape }).unwrap();
+        let back: Wrap = toml::from_str(&toml).unwrap();
+        assert_eq!(back.shape, shape, "{toml}");
+    }
+    let back: Wrap = toml::from_str(r#"shape = "auto""#).unwrap();
+    assert_eq!(back.shape, ButtonShape::Auto);
+}
+
+#[test]
 fn the_debug_toggle_picks_the_notation_and_survives_a_save() {
     let mut c = Config::default();
     // Pretty by default: the toggle is a debugging aid, not the

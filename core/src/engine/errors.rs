@@ -37,12 +37,12 @@ pub const ERR_HYPERBOLIC_COTANGENT: &str = "Undefined: Hyperbolic cotangent";
 /// the minus sign the keypad and the display use — escaped rather
 /// than typed so it cannot be mistaken here for the ASCII hyphen it
 /// looks like.
-pub const ERR_ASIN_DOMAIN: &str = "Undefined sin\u{2212}1(x) must be between \u{2212}1 and 1";
-pub const ERR_ACOS_DOMAIN: &str = "Undefined cos\u{2212}1(x) must be between \u{2212}1 and 1";
-pub const ERR_ACOSH_DOMAIN: &str = "Undefined cosh\u{2212}1(x) must be 1 or more";
-pub const ERR_ATANH_DOMAIN: &str = "Undefined tanh\u{2212}1(x) must be between \u{2212}1 and 1";
+pub const ERR_ASIN_DOMAIN: &str = "Undefined: sin\u{2212}1(x) must be between \u{2212}1 and 1";
+pub const ERR_ACOS_DOMAIN: &str = "Undefined: cos\u{2212}1(x) must be between \u{2212}1 and 1";
+pub const ERR_ACOSH_DOMAIN: &str = "Undefined: cosh\u{2212}1(x) must be 1 or more";
+pub const ERR_ATANH_DOMAIN: &str = "Undefined: tanh\u{2212}1(x) must be between \u{2212}1 and 1";
 pub const ERR_ACOTH_DOMAIN: &str =
-    "Undefined coth\u{2212}1(x) must be less than \u{2212}1 or more than 1";
+    "Undefined: coth\u{2212}1(x) must be less than \u{2212}1 or more than 1";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CalcError {

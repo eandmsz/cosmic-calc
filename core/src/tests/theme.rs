@@ -9,6 +9,88 @@ fn cosmic_preset_has_expected_colours() {
 }
 
 #[test]
+fn a_group_can_still_carry_nine_colours_of_its_own() {
+    // The shorthand the tables are written in must not become the
+    // limit of what a palette can say. Nine distinct colours — a
+    // fill, a label and a border for each of the three states — go
+    // in, and all nine come back out, so a theme that wants its
+    // label to change under the pointer or its outline to darken on
+    // a press can still have it.
+    let group = ButtonColors::new(
+        ButtonFace::new(rgba("#010101FF"), rgba("#020202FF"), rgba("#030303FF")),
+        ButtonFace::new(rgba("#040404FF"), rgba("#050505FF"), rgba("#060606FF")),
+        ButtonFace::new(rgba("#070707FF"), rgba("#080808FF"), rgba("#090909FF")),
+    );
+    let seen = [
+        group.normal.background,
+        group.normal.text,
+        group.normal.border,
+        group.hover.background,
+        group.hover.text,
+        group.hover.border,
+        group.pressed.background,
+        group.pressed.text,
+        group.pressed.border,
+    ];
+    let wanted = [
+        "#010101FF",
+        "#020202FF",
+        "#030303FF",
+        "#040404FF",
+        "#050505FF",
+        "#060606FF",
+        "#070707FF",
+        "#080808FF",
+        "#090909FF",
+    ];
+    for (got, want) in seen.iter().zip(wanted) {
+        assert_eq!(*got, rgba(want));
+    }
+
+    // And it survives being put in a palette, which is where a hand
+    // -written theme would put it.
+    let mut t = ThemeKind::Cosmic.get();
+    t.science = group;
+    assert_eq!(t.science.hover.text, rgba("#050505FF"));
+    assert_ne!(t.science.normal.text, t.science.pressed.text);
+    assert_ne!(t.science.normal.border, t.science.hover.border);
+}
+
+#[test]
+fn a_key_spreads_its_label_and_border_over_all_three_states() {
+    // What the palette tables are written in, pinned: the three
+    // fills land in the order they are named, and the one label and
+    // the one border go on all three of them. Swap two of the fills
+    // and every shipped palette would hover the wrong way round with
+    // nothing else to notice it.
+    let key = KeyColors {
+        fill: rgba("#111111FF"),
+        fill_hover: rgba("#222222FF"),
+        fill_pressed: rgba("#333333FF"),
+        label: rgba("#444444FF"),
+        border: rgba("#555555FF"),
+    };
+    let c = ButtonColors::spread(key);
+    assert_eq!(c.normal.background, key.fill);
+    assert_eq!(c.hover.background, key.fill_hover);
+    assert_eq!(c.pressed.background, key.fill_pressed);
+    for face in [c.normal, c.hover, c.pressed] {
+        assert_eq!(face.text, key.label);
+        assert_eq!(face.border, key.border);
+    }
+
+    // And it is the long form spelled out, not a separate rule.
+    assert_eq!(
+        c,
+        ButtonColors::new(
+            ButtonFace::new(key.fill, key.label, key.border),
+            ButtonFace::new(key.fill_hover, key.label, key.border),
+            ButtonFace::new(key.fill_pressed, key.label, key.border),
+        )
+    );
+}
+
+#[test]
 fn every_preset_spells_out_all_three_states() {
     // The point of the table is that nothing is derived, so every
     // group has to carry a colour of its own for each state rather
@@ -57,15 +139,36 @@ fn the_delete_keys_start_out_looking_like_the_top_row() {
 }
 
 #[test]
-fn every_preset_ships_without_borders() {
-    // A border is opt-in per theme, so the shipped look is unchanged
-    // — and a thickness of zero is no border at all whatever height
-    // it is asked about.
+fn every_preset_asks_for_a_border_the_renderer_can_draw() {
+    // A border is opt-in per theme. Most palettes leave it at zero,
+    // and zero is no border at all whatever height it is asked
+    // about; the ones that do ask get a whole pixel of it at the
+    // sizes a button is actually drawn at, however thin the setting.
+    // No palette may ask for one so heavy it swallows the label.
+    let mut with_a_border = 0;
     for kind in ThemeKind::ALL {
         let t = kind.get();
-        assert_eq!(t.button_border_thickness, 0.0, "{}", t.name);
-        assert_eq!(t.border_width(80.0), 0.0, "{}", t.name);
+        let name = &t.name;
+        assert!(
+            (0.0..=MAX_BORDER_THICKNESS).contains(&t.button_border_thickness),
+            "{name} asks for {}",
+            t.button_border_thickness
+        );
+        if t.button_border_thickness == 0.0 {
+            assert_eq!(t.border_width(80.0), 0.0, "{name}");
+            continue;
+        }
+        with_a_border += 1;
+        for height in [20.0, 80.0, 300.0] {
+            let w = t.border_width(height);
+            assert!(w >= 1.0, "{name} at {height} gave {w}");
+            assert!(w <= height * MAX_BORDER_THICKNESS / 100.0, "{name} {w}");
+        }
     }
+    // Cupertino Dark and Cyberpunk carry one; the rest do not. A
+    // count rather than a list, so turning one on or off in a
+    // palette is a one-line change here rather than a hunt.
+    assert_eq!(with_a_border, 2);
 }
 
 #[test]
@@ -97,7 +200,8 @@ fn a_border_is_a_whole_pixel_that_follows_the_button() {
 #[test]
 fn all_presets_enumerate_in_order() {
     let names: Vec<_> = ThemeKind::all().iter().map(|k| k.display_name()).collect();
-    assert_eq!(names[0], "Cosmic");
+    assert_eq!(names[0], "Cupertino Dark");
+    assert_eq!(names[6], "Cosmic");
     assert_eq!(names[7], "Texas");
     assert_eq!(names[names.len() - 1], "Flat Green Light");
     assert_eq!(names.len(), ThemeKind::ALL.len());
@@ -109,6 +213,14 @@ fn all_presets_enumerate_in_order() {
     for kind in ThemeKind::ALL {
         assert_eq!(kind.get().name, kind.display_name());
     }
+}
+
+#[test]
+fn a_fresh_config_starts_on_cosmic() {
+    // Where a palette sits in the settings list and which one a fresh
+    // `config.toml` starts on are separate questions: reordering the
+    // enum moves the first, and must not quietly move the second.
+    assert_eq!(ThemeKind::default(), ThemeKind::Cosmic);
 }
 
 #[test]

@@ -74,6 +74,44 @@ fn row_class(theme: &Theme, radius: f32, selected: bool) -> ButtonClass {
     }
 }
 
+/// Gap between one font row and the next.
+const FONT_ROW_SPACING: f32 = 2.0;
+
+/// Height the font list is given: enough rows to browse by, and
+/// bounded so a host with hundreds of families cannot push the rest
+/// of the settings off the panel.
+const FONT_LIST_HEIGHT: f32 = 220.0;
+
+/// The scrollable holding the font list, so opening the panel can
+/// put the chosen family in view — see [`font_list_offset`].
+pub fn font_list_id() -> widget::Id {
+    widget::Id::new("settings-font-list")
+}
+
+/// How far to scroll the font list for the chosen family to sit in
+/// the middle of it.
+///
+/// The list is every family on the machine in alphabetical order, so
+/// a user whose font starts with S opens the panel a long way from
+/// the row that is actually in force. Every row is the same height,
+/// so where one sits is arithmetic rather than a measurement.
+///
+/// `0.0` for a family near the top, or one the machine no longer has
+/// — there is nothing to scroll to, and the top is where the list
+/// already is.
+pub fn font_list_offset(config: &Config) -> f32 {
+    let Some(index) = available_fonts_with_faces()
+        .iter()
+        .position(|(name, _)| name == &config.font)
+    else {
+        return 0.0;
+    };
+    let row_top = index as f32 * (ROW_HEIGHT + FONT_ROW_SPACING);
+    // Centre it rather than putting it at the top edge, so the
+    // families either side of it are on screen to compare against.
+    (row_top - (FONT_LIST_HEIGHT - ROW_HEIGHT) / 2.0).max(0.0)
+}
+
 /// Gap between the buttons of an option row, and between the lines of
 /// one that has to wrap.
 const OPTION_SPACING: f32 = 4.0;
@@ -483,7 +521,7 @@ pub fn settings_panel<'a>(
         &decimal_options,
         config.decimal_separator,
         |d| match d {
-            DecimalSeparator::Auto => "Auto",
+            DecimalSeparator::Auto => "System",
             DecimalSeparator::Dot => "Dot .",
             DecimalSeparator::Comma => "Comma ,",
         },
@@ -515,7 +553,7 @@ pub fn settings_panel<'a>(
         &thousands_options,
         config.thousands_separator,
         |t| match t {
-            ThousandsSeparator::Auto => "Auto",
+            ThousandsSeparator::Auto => "System",
             ThousandsSeparator::Space => "Space",
             ThousandsSeparator::Comma => "Comma ,",
             ThousandsSeparator::Dot => "Dot .",
@@ -524,10 +562,12 @@ pub fn settings_panel<'a>(
         Message::SetThousandsSeparator,
     );
 
-    // Button shape — Auto defers to manual fields / system theme; each
-    // named preset pins a (corner_radius, spacing) pair so the user can
-    // pick a look without juggling two sliders. The buttons wear the
-    // shape they set, so the choice previews itself.
+    // Button corner radius — System defers to manual fields / system
+    // theme; each preset pins a (corner_radius, spacing) pair so the
+    // user can pick a look without juggling two sliders. The keypad's
+    // two rounded presets are a fraction of the button's height, which
+    // is what they are offered as. The buttons wear the radius they
+    // set, so the choice previews itself.
     let shape_buttons = option_buttons(
         theme,
         radius,
@@ -592,7 +632,7 @@ pub fn settings_panel<'a>(
     // a host with hundreds of installed fonts doesn't push the rest of
     // the settings panel off-screen.
     let fonts = available_fonts_with_faces();
-    let mut font_list = widget::column::with_capacity(fonts.len()).spacing(2);
+    let mut font_list = widget::column::with_capacity(fonts.len()).spacing(FONT_ROW_SPACING);
     for (name, face) in fonts {
         let preview = widget::text(name.clone())
             .font(*face)
@@ -605,8 +645,9 @@ pub fn settings_panel<'a>(
         font_list = font_list.push(btn);
     }
     let font_selector = widget::scrollable(font_list)
+        .id(font_list_id())
         .spacing(SCROLLBAR_GAP)
-        .height(Length::Fixed(220.0));
+        .height(Length::Fixed(FONT_LIST_HEIGHT));
 
     // Weight — only the faces the chosen family actually ships, so a
     // family with a Light and a Black offers both and one that comes
@@ -691,7 +732,7 @@ pub fn settings_panel<'a>(
         .push(decimal_buttons)
         .push(widget::text::caption("Thousands separator"))
         .push(thousands_buttons)
-        .push(widget::text::caption("Button shape"))
+        .push(widget::text::caption("Button corner radius"))
         .push(shape_buttons)
         .push(significant_digits_label)
         .push(significant_digits_slider)

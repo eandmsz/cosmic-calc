@@ -46,6 +46,12 @@ pub enum Message {
     KeyboardReleased(Button),
 
     // --- settings panel -------------------------------------------------
+    /// Put the font list where the chosen family is. Sent when the
+    /// settings panel opens rather than done there and then: a widget
+    /// operation is applied to the view tree as it stands, and the
+    /// panel holding the list is only built once the press that
+    /// opened it has been handled.
+    ScrollFontListToSelection,
     SetTheme(ThemeKind),
     SetDecimalSeparator(DecimalSeparator),
     SetThousandsSeparator(ThousandsSeparator),
@@ -425,7 +431,17 @@ impl AppModel {
             }
             ButtonEffect::ToggleSettingsPanel => {
                 self.ui.settings_panel_open = !self.ui.settings_panel_open;
-                return self.request_panel_resize();
+                let resize = self.request_panel_resize();
+                if !self.ui.settings_panel_open {
+                    return resize;
+                }
+                // The panel opens with the font in force in view,
+                // rather than at the top of an alphabetical list of
+                // every family on the machine.
+                return Task::batch([
+                    resize,
+                    Task::done(cosmic::action::app(Message::ScrollFontListToSelection)),
+                ]);
             }
             ButtonEffect::ToggleMode => {
                 self.config.mode = toggled_layout(self.config.mode);
@@ -746,6 +762,18 @@ impl Application for AppModel {
                 }
             }
 
+            Message::ScrollFontListToSelection => {
+                return cosmic::iced::widget::scrollable::scroll_to(
+                    crate::ui::panels::font_list_id(),
+                    cosmic::iced::widget::scrollable::AbsoluteOffset {
+                        // Vertical only: the list has nothing to
+                        // scroll sideways, and `None` leaves the axis
+                        // alone rather than asserting a zero for it.
+                        x: None,
+                        y: Some(crate::ui::panels::font_list_offset(&self.config)),
+                    },
+                );
+            }
             Message::SetTheme(kind) => {
                 self.config.theme_kind = kind;
                 self.persist();

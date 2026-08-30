@@ -31,7 +31,7 @@ const CASES: &[(&str, &str, &str)] = &[
     (
         "√7 sin^-1(5)",
         "√(7)sin-1(5)",
-        "Undefined sin\u{2212}1(x) must be between \u{2212}1 and 1",
+        "Undefined: sin\u{2212}1(x) must be between \u{2212}1 and 1",
     ),
     ("√3", "√(3)", "1.73205080756888"),
     ("∛27", "∛(27)", "3"),
