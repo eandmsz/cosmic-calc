@@ -175,13 +175,13 @@ impl Theme {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum ThemeKind {
     #[default]
-    Cosmic,
     CupertinoDark,
     CupertinoLight,
     RedmondDark,
     RedmondLight,
     HighContrastDark,
     HighContrastLight,
+    Cosmic,
     Texas,
     Tokyo,
     Cyberpunk,
@@ -199,13 +199,13 @@ pub enum ThemeKind {
 impl ThemeKind {
     /// Every palette, in the order the settings panel offers them.
     pub const ALL: [ThemeKind; 19] = [
-        ThemeKind::Cosmic,
         ThemeKind::CupertinoDark,
         ThemeKind::CupertinoLight,
         ThemeKind::RedmondDark,
         ThemeKind::RedmondLight,
         ThemeKind::HighContrastDark,
         ThemeKind::HighContrastLight,
+        ThemeKind::Cosmic,
         ThemeKind::Texas,
         ThemeKind::Tokyo,
         ThemeKind::Cyberpunk,
@@ -224,13 +224,13 @@ impl ThemeKind {
     /// the resulting [`Theme`] carries.
     pub fn display_name(self) -> &'static str {
         match self {
-            ThemeKind::Cosmic => "Cosmic",
             ThemeKind::CupertinoDark => "Cupertino Dark",
             ThemeKind::CupertinoLight => "Cupertino Light",
             ThemeKind::RedmondDark => "Redmond Dark",
             ThemeKind::RedmondLight => "Redmond Light",
             ThemeKind::HighContrastDark => "High Contrast Dark",
             ThemeKind::HighContrastLight => "High Contrast Light",
+            ThemeKind::Cosmic => "Cosmic",
             ThemeKind::Texas => "Texas",
             ThemeKind::Tokyo => "Tokyo",
             ThemeKind::Cyberpunk => "Cyberpunk",
@@ -250,13 +250,13 @@ impl ThemeKind {
     /// unchanged from the files earlier versions wrote.
     pub fn key(self) -> &'static str {
         match self {
-            ThemeKind::Cosmic => "Cosmic",
             ThemeKind::CupertinoDark => "CupertinoDark",
             ThemeKind::CupertinoLight => "CupertinoLight",
             ThemeKind::RedmondDark => "RedmondDark",
             ThemeKind::RedmondLight => "RedmondLight",
             ThemeKind::HighContrastDark => "HighContrastDark",
             ThemeKind::HighContrastLight => "HighContrastLight",
+            ThemeKind::Cosmic => "Cosmic",
             ThemeKind::Texas => "Texas",
             ThemeKind::Tokyo => "Tokyo",
             ThemeKind::Cyberpunk => "Cyberpunk",
@@ -281,61 +281,6 @@ impl ThemeKind {
     /// The palette this preset stands for.
     pub fn get(self) -> Theme {
         match self {
-            ThemeKind::Cosmic => Theme {
-                name: "Cosmic".to_string(),
-                app_bg: rgba("#1B1B1BFF"),
-                display_bg: rgba("#1B1B1BFF"),
-                sidepanel_bg: rgba("#272727FF"),
-                text_active: rgba("#E7E7E7FF"),
-                text_inactive: rgba("#E7E7E74D"),
-                accent: rgba("#61CDDCFF"),
-                button_border_thickness: 0.0,
-                science: ButtonColors::new(
-                    ButtonFace::new(rgba("#636363FF"), rgba("#E7E7E7FF"), rgba("#E7E7E7FF")),
-                    ButtonFace::new(rgba("#7A7A7AFF"), rgba("#E7E7E7FF"), rgba("#E7E7E7FF")),
-                    ButtonFace::new(rgba("#595959FF"), rgba("#E7E7E7FF"), rgba("#E7E7E7FF")),
-                ),
-                second: ButtonColors::new(
-                    ButtonFace::new(rgba("#636363FF"), rgba("#E7E7E7FF"), rgba("#E7E7E7FF")),
-                    ButtonFace::new(rgba("#7A7A7AFF"), rgba("#E7E7E7FF"), rgba("#E7E7E7FF")),
-                    ButtonFace::new(rgba("#595959FF"), rgba("#E7E7E7FF"), rgba("#E7E7E7FF")),
-                ),
-                toprow: ButtonColors::new(
-                    ButtonFace::new(rgba("#636363FF"), rgba("#E7E7E7FF"), rgba("#E7E7E7FF")),
-                    ButtonFace::new(rgba("#7A7A7AFF"), rgba("#E7E7E7FF"), rgba("#E7E7E7FF")),
-                    ButtonFace::new(rgba("#595959FF"), rgba("#E7E7E7FF"), rgba("#E7E7E7FF")),
-                ),
-                delete: ButtonColors::new(
-                    ButtonFace::new(rgba("#636363FF"), rgba("#E7E7E7FF"), rgba("#E7E7E7FF")),
-                    ButtonFace::new(rgba("#7A7A7AFF"), rgba("#E7E7E7FF"), rgba("#E7E7E7FF")),
-                    ButtonFace::new(rgba("#595959FF"), rgba("#E7E7E7FF"), rgba("#E7E7E7FF")),
-                ),
-                basicop: ButtonColors::new(
-                    ButtonFace::new(rgba("#61CDDCFF"), rgba("#E7E7E7FF"), rgba("#E7E7E7FF")),
-                    ButtonFace::new(rgba("#6BE2F3FF"), rgba("#E7E7E7FF"), rgba("#E7E7E7FF")),
-                    ButtonFace::new(rgba("#57B9C6FF"), rgba("#E7E7E7FF"), rgba("#E7E7E7FF")),
-                ),
-                equals: ButtonColors::new(
-                    ButtonFace::new(rgba("#61CDDCFF"), rgba("#E7E7E7FF"), rgba("#E7E7E7FF")),
-                    ButtonFace::new(rgba("#6BE2F3FF"), rgba("#E7E7E7FF"), rgba("#E7E7E7FF")),
-                    ButtonFace::new(rgba("#57B9C6FF"), rgba("#E7E7E7FF"), rgba("#E7E7E7FF")),
-                ),
-                negate: ButtonColors::new(
-                    ButtonFace::new(rgba("#636363FF"), rgba("#E7E7E7FF"), rgba("#E7E7E7FF")),
-                    ButtonFace::new(rgba("#7A7A7AFF"), rgba("#E7E7E7FF"), rgba("#E7E7E7FF")),
-                    ButtonFace::new(rgba("#595959FF"), rgba("#E7E7E7FF"), rgba("#E7E7E7FF")),
-                ),
-                decimal: ButtonColors::new(
-                    ButtonFace::new(rgba("#4F4F4FFF"), rgba("#E7E7E7FF"), rgba("#E7E7E7FF")),
-                    ButtonFace::new(rgba("#666666FF"), rgba("#E7E7E7FF"), rgba("#E7E7E7FF")),
-                    ButtonFace::new(rgba("#474747FF"), rgba("#E7E7E7FF"), rgba("#E7E7E7FF")),
-                ),
-                number: ButtonColors::new(
-                    ButtonFace::new(rgba("#4F4F4FFF"), rgba("#E7E7E7FF"), rgba("#E7E7E7FF")),
-                    ButtonFace::new(rgba("#666666FF"), rgba("#E7E7E7FF"), rgba("#E7E7E7FF")),
-                    ButtonFace::new(rgba("#474747FF"), rgba("#E7E7E7FF"), rgba("#E7E7E7FF")),
-                ),
-            },
             ThemeKind::CupertinoDark => Theme {
                 name: "Cupertino Dark".to_string(),
                 app_bg: rgba("#283133FF"),
@@ -664,6 +609,61 @@ impl ThemeKind {
                     ButtonFace::new(rgba("#F0F1F1FF"), rgba("#000000FF"), rgba("#000000FF")),
                     ButtonFace::new(rgba("#FEFFFFFF"), rgba("#000000FF"), rgba("#000000FF")),
                     ButtonFace::new(rgba("#D8D9D9FF"), rgba("#000000FF"), rgba("#000000FF")),
+                ),
+            },
+            ThemeKind::Cosmic => Theme {
+                name: "Cosmic".to_string(),
+                app_bg: rgba("#1B1B1BFF"),
+                display_bg: rgba("#1B1B1BFF"),
+                sidepanel_bg: rgba("#272727FF"),
+                text_active: rgba("#E7E7E7FF"),
+                text_inactive: rgba("#E7E7E74D"),
+                accent: rgba("#61CDDCFF"),
+                button_border_thickness: 0.0,
+                science: ButtonColors::new(
+                    ButtonFace::new(rgba("#636363FF"), rgba("#E7E7E7FF"), rgba("#E7E7E7FF")),
+                    ButtonFace::new(rgba("#7A7A7AFF"), rgba("#E7E7E7FF"), rgba("#E7E7E7FF")),
+                    ButtonFace::new(rgba("#595959FF"), rgba("#E7E7E7FF"), rgba("#E7E7E7FF")),
+                ),
+                second: ButtonColors::new(
+                    ButtonFace::new(rgba("#636363FF"), rgba("#E7E7E7FF"), rgba("#E7E7E7FF")),
+                    ButtonFace::new(rgba("#7A7A7AFF"), rgba("#E7E7E7FF"), rgba("#E7E7E7FF")),
+                    ButtonFace::new(rgba("#595959FF"), rgba("#E7E7E7FF"), rgba("#E7E7E7FF")),
+                ),
+                toprow: ButtonColors::new(
+                    ButtonFace::new(rgba("#636363FF"), rgba("#E7E7E7FF"), rgba("#E7E7E7FF")),
+                    ButtonFace::new(rgba("#7A7A7AFF"), rgba("#E7E7E7FF"), rgba("#E7E7E7FF")),
+                    ButtonFace::new(rgba("#595959FF"), rgba("#E7E7E7FF"), rgba("#E7E7E7FF")),
+                ),
+                delete: ButtonColors::new(
+                    ButtonFace::new(rgba("#636363FF"), rgba("#E7E7E7FF"), rgba("#E7E7E7FF")),
+                    ButtonFace::new(rgba("#7A7A7AFF"), rgba("#E7E7E7FF"), rgba("#E7E7E7FF")),
+                    ButtonFace::new(rgba("#595959FF"), rgba("#E7E7E7FF"), rgba("#E7E7E7FF")),
+                ),
+                basicop: ButtonColors::new(
+                    ButtonFace::new(rgba("#61CDDCFF"), rgba("#E7E7E7FF"), rgba("#E7E7E7FF")),
+                    ButtonFace::new(rgba("#6BE2F3FF"), rgba("#E7E7E7FF"), rgba("#E7E7E7FF")),
+                    ButtonFace::new(rgba("#57B9C6FF"), rgba("#E7E7E7FF"), rgba("#E7E7E7FF")),
+                ),
+                equals: ButtonColors::new(
+                    ButtonFace::new(rgba("#61CDDCFF"), rgba("#E7E7E7FF"), rgba("#E7E7E7FF")),
+                    ButtonFace::new(rgba("#6BE2F3FF"), rgba("#E7E7E7FF"), rgba("#E7E7E7FF")),
+                    ButtonFace::new(rgba("#57B9C6FF"), rgba("#E7E7E7FF"), rgba("#E7E7E7FF")),
+                ),
+                negate: ButtonColors::new(
+                    ButtonFace::new(rgba("#636363FF"), rgba("#E7E7E7FF"), rgba("#E7E7E7FF")),
+                    ButtonFace::new(rgba("#7A7A7AFF"), rgba("#E7E7E7FF"), rgba("#E7E7E7FF")),
+                    ButtonFace::new(rgba("#595959FF"), rgba("#E7E7E7FF"), rgba("#E7E7E7FF")),
+                ),
+                decimal: ButtonColors::new(
+                    ButtonFace::new(rgba("#4F4F4FFF"), rgba("#E7E7E7FF"), rgba("#E7E7E7FF")),
+                    ButtonFace::new(rgba("#666666FF"), rgba("#E7E7E7FF"), rgba("#E7E7E7FF")),
+                    ButtonFace::new(rgba("#474747FF"), rgba("#E7E7E7FF"), rgba("#E7E7E7FF")),
+                ),
+                number: ButtonColors::new(
+                    ButtonFace::new(rgba("#4F4F4FFF"), rgba("#E7E7E7FF"), rgba("#E7E7E7FF")),
+                    ButtonFace::new(rgba("#666666FF"), rgba("#E7E7E7FF"), rgba("#E7E7E7FF")),
+                    ButtonFace::new(rgba("#474747FF"), rgba("#E7E7E7FF"), rgba("#E7E7E7FF")),
                 ),
             },
             ThemeKind::Texas => Theme {
