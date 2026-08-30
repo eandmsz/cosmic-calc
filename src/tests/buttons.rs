@@ -1015,6 +1015,101 @@ fn a_closed_exponent_slot_is_a_finished_value() {
 }
 
 #[test]
+fn a_bracket_the_user_closed_in_an_exponent_finishes_it_too() {
+    // The exponent can be opened with a bracket of the user's own,
+    // and closing that bracket closes the exponent with it: the
+    // cursor comes out past the last thing the caret raises, which is
+    // exactly where the same keys without the bracket leave it. What
+    // is keyed next therefore belongs to the power, the way it does
+    // after a `)` that had no pair of the user's to close.
+    //
+    // `𝑒ˣ`, `(`, `2`, `)`, `%` used to give `e^(2)%` — the percent up
+    // in the exponent, so `e` to the one-fiftieth rather than a
+    // hundredth of `e²`.
+    let (mut e, mut s, c) = fresh();
+    for b in [
+        Button::EPowX,
+        Button::LeftParen,
+        Button::Num(2),
+        Button::RightParen,
+        Button::Percent,
+    ] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert_eq!(e.input.ascii_expression(), "(e^(2))%");
+    assert_eq!(
+        e.evaluate().expect("a hundredth of e squared").display,
+        "0.0738905609893065"
+    );
+
+    // `!` reads the same way: it used to come back as `e` raised to
+    // `2!`, which is `e²` again and says nothing about the factorial
+    // the user asked for.
+    let (mut e, mut s, c) = fresh();
+    for b in [
+        Button::EPowX,
+        Button::LeftParen,
+        Button::Num(2),
+        Button::RightParen,
+        Button::Factorial,
+    ] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert_eq!(e.input.ascii_expression(), "(e^(2))!");
+
+    // And a caret raises the whole power rather than adding a level
+    // to it: `2^(3)^2` is 2⁹, not (2³)².
+    let (mut e, mut s, c) = fresh();
+    for b in [
+        Button::Num(2),
+        Button::XPowY,
+        Button::LeftParen,
+        Button::Num(3),
+        Button::RightParen,
+        Button::XPowY,
+        Button::Num(2),
+    ] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert_eq!(e.input.ascii_expression(), "(2^(3))^2");
+    assert_eq!(e.evaluate().expect("eight squared").display, "64");
+
+    // The brackets the user typed are still theirs: the pair that
+    // goes on is the one round the power, and the pair in the
+    // exponent is left exactly where they put it. A `)` keyed past
+    // their closer has no slot left to leave, so it closes over the
+    // last operand the way it would anywhere else.
+    let (mut e, mut s, c) = fresh();
+    for b in [
+        Button::Num(2),
+        Button::XPowY,
+        Button::LeftParen,
+        Button::Num(3),
+        Button::RightParen,
+        Button::RightParen,
+    ] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert_eq!(e.input.ascii_expression(), "(2^(3))");
+
+    // An exponent the bracket is still open in is untouched — the
+    // postfix stays in it, which is what the key is for.
+    let (mut e, mut s, c) = fresh();
+    for b in [
+        Button::Num(2),
+        Button::XPowY,
+        Button::LeftParen,
+        Button::Num(3),
+        Button::Factorial,
+        Button::RightParen,
+    ] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert_eq!(e.input.ascii_expression(), "2^(3!)");
+    assert_eq!(e.evaluate().expect("two to the six").display, "64");
+}
+
+#[test]
 fn closing_a_bracket_in_an_exponent_closes_the_exponent() {
     // An exponent typed straight after the caret is a slot the
     // display draws brackets round, and `)` is how the user says they

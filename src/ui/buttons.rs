@@ -186,14 +186,15 @@ pub struct UiState {
     /// non-cosmetic button press clears the message and lets the user
     /// resume editing.
     pub error_message: Option<String>,
-    /// Set by a `)` that closed a script slot the cursor was written
-    /// directly into — an exponent, the base slot `yˣ` opens — rather
-    /// than a bracket pair. Nothing in the buffer records that step,
-    /// because nothing was written: the cursor is already past the
-    /// slot's last item and the only difference is that the user has
-    /// said they are done with it. The display reads this to take the
-    /// placeholder brackets down; the next press that touches the
-    /// buffer clears it, and the brackets come back.
+    /// Set by a `)` that left a script slot the cursor was written
+    /// directly into — an exponent, the base slot `yˣ` opens. Nothing
+    /// in the buffer records that step, because the press wrote
+    /// nothing into the slot: the cursor is already past its last
+    /// item and the only difference is that the user has said they
+    /// are done with it. The display reads this to take the
+    /// placeholder brackets down and the dispatcher to tell a
+    /// finished power from one still being typed; the next press that
+    /// touches the buffer clears it, and the brackets come back.
     pub script_slot_closed: bool,
     /// Half-open item-index range covering the most recent `Rand`
     /// insertion, when one is still live (i.e. no buffer-mutating press
@@ -1418,9 +1419,12 @@ fn press_percent(engine: &mut Engine) {
 
 /// The caret whose exponent the cursor is written in directly — not
 /// inside a bracket group of its own, and not in a call's slot.
-/// `None` anywhere else, and `None` too for an exponent that begins
-/// with a bracket the user opened: that pair is the user's own, and
-/// `)` is there to close it rather than to leave the exponent.
+/// `None` anywhere else.
+///
+/// Whether the exponent begins with a bracket the user opened is no
+/// business of this question: the cursor is in that caret's exponent
+/// either way. What the bracket does change is where a `)` keyed
+/// there lands, which is [`right_paren_target`]'s to decide.
 fn enclosing_exponent(items: &[InputItem], cursor: usize) -> Option<usize> {
     let mut depth = 0usize;
     for j in (0..cursor.min(items.len())).rev() {
@@ -1437,7 +1441,7 @@ fn enclosing_exponent(items: &[InputItem], cursor: usize) -> Option<usize> {
             InputItem::Comma if depth == 0 => return None,
             InputItem::BinOp(BinOp::Pow) if depth == 0 => {
                 let span = script::exponent_span(items, j)?;
-                if cursor > span || matches!(items.get(j + 1), Some(InputItem::LeftParen)) {
+                if cursor > span {
                     return None;
                 }
                 return Some(j);
@@ -1962,6 +1966,14 @@ fn right_paren_target(engine: &Engine) -> Option<usize> {
         // the whole of gave `(e^8)`.
         _ => {
             let caret = enclosing_exponent(items, cursor)?;
+            // An exponent that begins with a bracket the user opened
+            // has no slot brackets of its own to dismiss: theirs are
+            // the pair on screen, and a `)` keyed past their closer
+            // closes over the last operand the way it would anywhere
+            // else rather than landing where it already is.
+            if matches!(items.get(caret + 1), Some(InputItem::LeftParen)) {
+                return None;
+            }
             script::exponent_span(items, caret)
         }
     }
@@ -2013,10 +2025,19 @@ fn leave_outer_slot_at(engine: &Engine, at: usize) -> Option<usize> {
     None
 }
 
-/// Whether a `)` that landed the cursor on `target` closed a script
-/// slot rather than a bracket pair: the cursor is now at the end of
-/// an exponent, or past a power whose base slot it was parked in.
-/// Only the display cares — see [`UiState::script_slot_closed`].
+/// Whether a `)` that landed the cursor on `target` left a script
+/// slot behind: the cursor is now at the end of an exponent, or past
+/// a power whose base slot it was parked in.
+///
+/// What the press wrote does not come into it, only where it left the
+/// cursor. A `)` that closed a bracket pair the user opened *inside*
+/// the exponent ends the exponent too when that pair was the whole of
+/// it: `𝑒ˣ`, `(`, `2`, `)` leaves the cursor past the last thing the
+/// caret raises, exactly as the same keys without the bracket do, and
+/// what is keyed next belongs to the power rather than to its
+/// exponent.
+///
+/// See [`UiState::script_slot_closed`] for what reads it.
 fn closes_a_script_slot(engine: &Engine, target: usize) -> bool {
     let items = engine.input.items();
     enclosing_exponent(items, target)

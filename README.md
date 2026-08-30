@@ -196,8 +196,13 @@ make check                         # fmt + clippy + the whole workspace
 	  where the digit used to run onto the end of the exponent and
 	  give `2` to the thirty-fifth; `!` there is `(2³)!` rather
 	  than `2` raised to `3!`; and a second `xʸ` is `(2³)^y`,
-	  where a bare `2^3^y` would have raised the `3`. Type into the
-	  slot instead of closing it and it is still the slot — that is
+	  where a bare `2^3^y` would have raised the `3`. A bracket
+	  of your own at the head of the exponent closes the slot as
+	  it closes itself, there being nothing of the exponent left
+	  after it: `𝑒ˣ`, `(`, `2`, `)`, `%` is `(e^(2))%`, a
+	  hundredth of `e²`, where `e^(2)%` used to come back and
+	  read as `e` raised to a fiftieth. Type into the slot
+	  instead of closing it and it is still the slot — that is
 	  what the brackets round it are saying
 	- An operator still waiting for its right operand has no value
 	  for the brackets to close over, so the press takes it back:
