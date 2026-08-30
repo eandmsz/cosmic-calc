@@ -610,7 +610,7 @@ impl Config {
         self.themes.get(self.theme_kind)
     }
 
-    /// What the settings panel writes on the button that selects
+    /// What the settings panel writes on the row that selects
     /// `kind` — the user's own name for it when they have renamed it.
     pub fn theme_display_name(&self, kind: ThemeKind) -> &str {
         self.themes.display_name(kind)

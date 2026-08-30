@@ -74,13 +74,17 @@ fn row_class(theme: &Theme, radius: f32, selected: bool) -> ButtonClass {
     }
 }
 
-/// Gap between one font row and the next.
-const FONT_ROW_SPACING: f32 = 2.0;
+/// Gap between one row of a scrolling list and the next.
+const LIST_ROW_SPACING: f32 = 2.0;
 
-/// Height the font list is given: enough rows to browse by, and
-/// bounded so a host with hundreds of families cannot push the rest
-/// of the settings off the panel.
-const FONT_LIST_HEIGHT: f32 = 220.0;
+/// Height each of the panel's two scrolling lists — the palettes and
+/// the font families — is given: enough rows to browse by, and
+/// bounded so nineteen palettes, or a host with hundreds of families,
+/// cannot push the rest of the settings off the panel.
+///
+/// One number for both, so the two read as the same kind of control
+/// rather than as one list and one taller list.
+const LIST_HEIGHT: f32 = 220.0;
 
 /// The scrollable holding the font list, so opening the panel can
 /// put the chosen family in view — see [`font_list_offset`].
@@ -88,28 +92,52 @@ pub fn font_list_id() -> widget::Id {
     widget::Id::new("settings-font-list")
 }
 
+/// The scrollable holding the palette list, for the same reason —
+/// see [`theme_list_offset`].
+pub fn theme_list_id() -> widget::Id {
+    widget::Id::new("settings-theme-list")
+}
+
+/// How far to scroll a list for the row at `index` to sit in the
+/// middle of it. Every row is the same height, so where one sits is
+/// arithmetic rather than a measurement.
+///
+/// Clamped at `0.0`: centring a row near the top asks for a negative
+/// offset, which is not somewhere a scrollable can go, and the top is
+/// where the list already is.
+fn list_offset(index: usize) -> f32 {
+    let row_top = index as f32 * (ROW_HEIGHT + LIST_ROW_SPACING);
+    (row_top - (LIST_HEIGHT - ROW_HEIGHT) / 2.0).max(0.0)
+}
+
 /// How far to scroll the font list for the chosen family to sit in
 /// the middle of it.
 ///
 /// The list is every family on the machine in alphabetical order, so
 /// a user whose font starts with S opens the panel a long way from
-/// the row that is actually in force. Every row is the same height,
-/// so where one sits is arithmetic rather than a measurement.
+/// the row that is actually in force.
 ///
 /// `0.0` for a family near the top, or one the machine no longer has
-/// — there is nothing to scroll to, and the top is where the list
-/// already is.
+/// — there is nothing to scroll to.
 pub fn font_list_offset(config: &Config) -> f32 {
-    let Some(index) = available_fonts_with_faces()
+    available_fonts_with_faces()
         .iter()
         .position(|(name, _)| name == &config.font)
-    else {
-        return 0.0;
-    };
-    let row_top = index as f32 * (ROW_HEIGHT + FONT_ROW_SPACING);
-    // Centre it rather than putting it at the top edge, so the
-    // families either side of it are on screen to compare against.
-    (row_top - (FONT_LIST_HEIGHT - ROW_HEIGHT) / 2.0).max(0.0)
+        .map(list_offset)
+        .unwrap_or(0.0)
+}
+
+/// How far to scroll the palette list for the palette in force to sit
+/// in the middle of it, with the ones either side of it on screen to
+/// compare against. Nineteen palettes are more than the box holds, so
+/// the one at the bottom of the list would otherwise open out of
+/// sight.
+pub fn theme_list_offset(config: &Config) -> f32 {
+    ThemeKind::ALL
+        .iter()
+        .position(|kind| *kind == config.theme_kind)
+        .map(list_offset)
+        .unwrap_or(0.0)
 }
 
 /// Gap between the buttons of an option row, and between the lines of
@@ -491,20 +519,30 @@ pub fn settings_panel<'a>(
     let radius = config.effective_button_corner_radius();
     let header = widget::text::title4("Settings");
 
-    // Theme — a row of buttons, like every other choice in this
-    // panel. It was the last drop-down left: a menu hides what is on
-    // offer behind a click, and the presets are short enough to wrap
-    // onto a couple of lines and be read at a glance.
-    let theme_buttons = option_buttons(
-        theme,
-        radius,
-        &ThemeKind::ALL,
-        config.theme_kind,
+    // Theme — a scrolling list of one palette per row, the same box
+    // the font families are browsed in. Nineteen of them wrapped
+    // across the panel as buttons took a third of its height and left
+    // the names in a ragged block that had to be read across and
+    // down; one to a line is a list, and it is bounded, so adding a
+    // palette no longer pushes the rest of the settings further away.
+    let mut theme_list =
+        widget::column::with_capacity(ThemeKind::ALL.len()).spacing(LIST_ROW_SPACING);
+    for kind in ThemeKind::ALL {
         // The name is the palette's own, so a theme renamed in
-        // `config.toml` is renamed on its button too.
-        |k: ThemeKind| config.theme_display_name(k).to_string(),
-        Message::SetTheme,
-    );
+        // `config.toml` is renamed on its row too.
+        let label = widget::text(config.theme_display_name(kind).to_string()).size(ROW_TEXT_SIZE);
+        theme_list = theme_list.push(
+            widget::button::custom(label)
+                .class(row_class(theme, radius, kind == config.theme_kind))
+                .width(Length::Fill)
+                .padding(ROW_PADDING)
+                .on_press(Message::SetTheme(kind)),
+        );
+    }
+    let theme_selector = widget::scrollable(theme_list)
+        .id(theme_list_id())
+        .spacing(SCROLLBAR_GAP)
+        .height(Length::Fixed(LIST_HEIGHT));
 
     // Decimal separator — one button per choice, so the three are
     // readable at a glance and switching is a single click rather than
@@ -635,7 +673,7 @@ pub fn settings_panel<'a>(
     // a host with hundreds of installed fonts doesn't push the rest of
     // the settings panel off-screen.
     let fonts = available_fonts_with_faces();
-    let mut font_list = widget::column::with_capacity(fonts.len()).spacing(FONT_ROW_SPACING);
+    let mut font_list = widget::column::with_capacity(fonts.len()).spacing(LIST_ROW_SPACING);
     for (name, face) in fonts {
         let preview = widget::text(name.clone())
             .font(*face)
@@ -650,7 +688,7 @@ pub fn settings_panel<'a>(
     let font_selector = widget::scrollable(font_list)
         .id(font_list_id())
         .spacing(SCROLLBAR_GAP)
-        .height(Length::Fixed(FONT_LIST_HEIGHT));
+        .height(Length::Fixed(LIST_HEIGHT));
 
     // Weight — only the faces the chosen family actually ships, so a
     // family with a Light and a Black offers both and one that comes
@@ -723,10 +761,10 @@ pub fn settings_panel<'a>(
     ));
 
     // Theme and font are the two longest controls in the panel — a
-    // wrapped row of presets and a scrolling list of every family on
-    // the machine — and they are the two a user sets once. They go
-    // last, so the settings that get changed are reachable without
-    // scrolling past them.
+    // list of every palette and a list of every family on the machine
+    // — and they are the two a user sets once. They go last, so the
+    // settings that get changed are reachable without scrolling past
+    // them.
     let content = widget::column::with_capacity(20)
         .push(header)
         .push(toggles)
@@ -745,7 +783,7 @@ pub fn settings_panel<'a>(
         .push(rand_decimals_label)
         .push(rand_decimals_slider)
         .push(widget::text::caption("Theme"))
-        .push(theme_buttons)
+        .push(theme_selector)
         .push(widget::text::caption("Font"))
         .push(font_selector)
         .push(widget::text::caption("Font weight"))
@@ -768,9 +806,9 @@ pub fn settings_panel<'a>(
     .padding([0, 12, 8, 12]);
 
     // The column is taller than the default window, so the panel
-    // scrolls as a whole; the font list keeps its own inner scrollable
-    // so it cannot dominate the height on a host with hundreds of
-    // families installed.
+    // scrolls as a whole; the palette and font lists keep their own
+    // inner scrollables, so neither the nineteen palettes nor a host
+    // with hundreds of families installed can dominate its height.
     widget::column::with_capacity(2)
         .push(
             widget::scrollable(content)

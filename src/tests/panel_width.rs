@@ -151,14 +151,14 @@ fn option_rows_pack_by_label_and_always_hold_one() {
 
     // A long set wraps, and no line is over the panel's width.
     let labels = [
-        "Cosmic",
-        "Cupertino Dark",
-        "Cupertino Light",
-        "Redmond Dark",
-        "Redmond Light",
-        "HighContrast Dark",
-        "HighContrast Light",
-        "Flat Orange Dark",
+        "System",
+        "Space",
+        "Comma ,",
+        "Dot .",
+        "None",
+        "Extra Light",
+        "Semi Bold",
+        "Extra Bold",
     ];
     let widths: Vec<f32> = labels.iter().map(|l| option_width(l)).collect();
     let lines = option_lines(&widths);
@@ -180,7 +180,50 @@ fn option_rows_pack_by_label_and_always_hold_one() {
     assert_eq!(option_lines(&[]), Vec::<usize>::new());
 }
 
-// --- font list scroll position ---------------------------------------
+// --- list scroll positions -------------------------------------------
+
+#[test]
+fn the_theme_list_opens_at_the_palette_in_force() {
+    use crate::config::Config;
+    use crate::theme::ThemeKind;
+    use crate::ui::font::available_fonts_with_faces;
+    use crate::ui::panels::{font_list_offset, theme_list_offset};
+
+    let at = |kind: ThemeKind| {
+        theme_list_offset(&Config {
+            theme_kind: kind,
+            ..Config::default()
+        })
+    };
+
+    // The first palette is at the top, and centring it would ask for
+    // a negative offset — clamped away rather than handed to a
+    // scrollable that cannot honour it.
+    assert_eq!(at(ThemeKind::ALL[0]), 0.0);
+
+    // Nineteen palettes are more than the box holds, so the ones
+    // further down are scrolled to, each by the same step.
+    let last = at(ThemeKind::ALL[ThemeKind::ALL.len() - 1]);
+    let before = at(ThemeKind::ALL[ThemeKind::ALL.len() - 2]);
+    assert!(last > 0.0, "{last}");
+    assert!(last > before, "{last} vs {before}");
+    assert!((last - before - (before - at(ThemeKind::ALL[ThemeKind::ALL.len() - 3]))).abs() < 0.01);
+
+    // Both lists are the same box: the same row in either scrolls to
+    // the same place, so the palettes are browsed in exactly the
+    // scroll box the font families are.
+    let families = available_fonts_with_faces();
+    for (index, kind) in ThemeKind::ALL.iter().enumerate() {
+        if index >= families.len() {
+            break;
+        }
+        let font = font_list_offset(&Config {
+            font: families[index].0.clone(),
+            ..Config::default()
+        });
+        assert!((at(*kind) - font).abs() < 0.01, "{index}");
+    }
+}
 
 #[test]
 fn the_font_list_opens_at_the_family_in_force() {

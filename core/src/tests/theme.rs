@@ -151,11 +151,11 @@ fn every_preset_asks_for_a_border_the_renderer_can_draw() {
         let t = kind.get();
         let name = &t.display_name;
         assert!(
-            (0.0..=MAX_BORDER_THICKNESS).contains(&t.button_border_thickness),
+            (0.0..=MAX_BORDER_PERCENT).contains(&t.button_border_percent),
             "{name} asks for {}",
-            t.button_border_thickness
+            t.button_border_percent
         );
-        if t.button_border_thickness == 0.0 {
+        if t.button_border_percent == 0.0 {
             assert_eq!(t.border_width(80.0), 0.0, "{name}");
             continue;
         }
@@ -163,7 +163,7 @@ fn every_preset_asks_for_a_border_the_renderer_can_draw() {
         for height in [20.0, 80.0, 300.0] {
             let w = t.border_width(height);
             assert!(w >= 1.0, "{name} at {height} gave {w}");
-            assert!(w <= height * MAX_BORDER_THICKNESS / 100.0, "{name} {w}");
+            assert!(w <= height * MAX_BORDER_PERCENT / 100.0, "{name} {w}");
         }
     }
     // Cupertino Dark and Cyberpunk carry one; the rest do not. A
@@ -175,7 +175,7 @@ fn every_preset_asks_for_a_border_the_renderer_can_draw() {
 #[test]
 fn a_border_is_a_whole_pixel_that_follows_the_button() {
     let mut t = ThemeKind::Cosmic.get();
-    t.button_border_thickness = 4.0;
+    t.button_border_percent = 4.0;
     // Four per cent of the button, rounded to a pixel it can be drawn
     // in: bigger buttons wear a proportionally bigger outline, and
     // every width is whole so the line stays crisp rather than
@@ -190,12 +190,12 @@ fn a_border_is_a_whole_pixel_that_follows_the_button() {
 
     // A theme that asks for a border always gets at least a pixel of
     // it, however small the button.
-    t.button_border_thickness = 0.5;
+    t.button_border_percent = 0.5;
     assert_eq!(t.border_width(20.0), 1.0);
 
     // And no thickness can swallow the label.
-    t.button_border_thickness = 500.0;
-    assert_eq!(t.border_width(80.0), 80.0 * MAX_BORDER_THICKNESS / 100.0);
+    t.button_border_percent = 500.0;
+    assert_eq!(t.border_width(80.0), 80.0 * MAX_BORDER_PERCENT / 100.0);
 }
 
 #[test]
@@ -205,10 +205,13 @@ fn all_presets_enumerate_in_order() {
         .map(|k| k.get().display_name)
         .collect();
     assert_eq!(names[0], "Cupertino Dark");
-    // The two-word spelling: the palette is "HighContrast", light or
-    // dark, rather than a contrast that is high.
-    assert_eq!(names[4], "HighContrast Dark");
-    assert_eq!(names[5], "HighContrast Light");
+    // Three words, spelled the way the setting is: a high contrast,
+    // dark or light. The id the file keys the palette by is still
+    // `HighContrastDark` — a name is the user's to change, an id is
+    // what the rest of the app addresses the palette by.
+    assert_eq!(names[4], "High Contrast Dark");
+    assert_eq!(names[5], "High Contrast Light");
+    assert_eq!(ThemeKind::ALL[4].key(), "HighContrastDark");
     assert_eq!(names[6], "Cosmic");
     assert_eq!(names[names.len() - 1], "Flat Green Light");
     assert_eq!(names.len(), ThemeKind::ALL.len());
@@ -296,16 +299,17 @@ fn the_table_round_trips_every_palette() {
 #[test]
 fn what_the_file_says_is_what_gets_painted() {
     // The whole point of carrying the palettes in the file: an edit
-    // there reaches the window without a rebuild.
+    // there reaches the window without a rebuild. Each palette is a
+    // table under its own id, so every line of it says which palette
+    // it belongs to.
     let table = table_from(
         r##"
-        [[themes]]
-        id = "Texas"
+        [themes.Texas]
         display_name = "My Texas"
         app_bg = "#010203FF"
-        button_border_thickness = 3.5
+        button_border_percent = 3.5
 
-        [themes.number]
+        [themes.Texas.number]
         fill = ["#111111FF", "#222222FF", "#333333FF"]
         label = ["#444444FF", "#555555FF", "#666666FF"]
         "##,
@@ -314,7 +318,7 @@ fn what_the_file_says_is_what_gets_painted() {
     assert_eq!(t.display_name, "My Texas");
     assert_eq!(table.display_name(ThemeKind::Texas), "My Texas");
     assert_eq!(t.app_bg, rgba("#010203FF"));
-    assert_eq!(t.button_border_thickness, 3.5);
+    assert_eq!(t.button_border_percent, 3.5);
     assert_eq!(t.number.fill_row().hover, rgba("#222222FF"));
     assert_eq!(t.number.label_row().pressed, rgba("#666666FF"));
     // A row the file left out keeps the shipped colours.
@@ -336,15 +340,14 @@ fn nothing_a_file_can_say_costs_the_user_their_settings() {
     // the palette with it.
     let table = table_from(
         r##"
-        [[themes]]
-        id = "Tokyo"
+        [themes.Tokyo]
         display_name = "Tokyo Nights"
         app_bg = "not a colour"
         display_bg = 42
         accent = "#00FF00"
-        button_border_thickness = "thick"
+        button_border_percent = "thick"
 
-        [themes.science]
+        [themes.Tokyo.science]
         fill = true
         label = ["#ABCDEFFF"]
         border = ["#GGGGGGGG", "#123456FF", true]
@@ -357,7 +360,7 @@ fn nothing_a_file_can_say_costs_the_user_their_settings() {
     assert_eq!(t.display_bg, shipped.display_bg);
     // Six digits is a colour; the alpha channel defaults to opaque.
     assert_eq!(t.accent, rgba("#00FF00FF"));
-    assert_eq!(t.button_border_thickness, shipped.button_border_thickness);
+    assert_eq!(t.button_border_percent, shipped.button_border_percent);
     // A row that is neither a line nor a list keeps all three
     // shipped colours...
     assert_eq!(t.science.fill_row(), shipped.science.fill_row());
@@ -381,18 +384,59 @@ fn nothing_a_file_can_say_costs_the_user_their_settings() {
 
 #[test]
 fn a_table_always_comes_out_whole_and_in_order() {
-    // A palette named twice keeps its first entry, one the build does
-    // not have is dropped, and every one the file left out is added
-    // back — so the rest of the app can count on all nineteen being
-    // there, in the order the settings panel offers them.
+    // An entry naming a palette the build does not have is dropped,
+    // and every palette the file left out is added back — so the rest
+    // of the app can count on all nineteen being there, in the order
+    // the settings panel offers them.
+    let table = table_from(
+        r##"
+        [themes.Barbie]
+        display_name = "First"
+
+        [themes.Custom]
+        display_name = "a palette this build does not have"
+
+        [themes."  Texas  "]
+        display_name = "Padded key"
+
+        [themes.Plastic]
+        "##,
+    );
+    let ids: Vec<_> = ThemeKind::ALL.iter().map(|k| table.get(*k).id).collect();
+    assert_eq!(ids, ThemeKind::ALL.to_vec());
+    assert_eq!(table.display_name(ThemeKind::Barbie), "First");
+    // Whitespace around a key is not part of it.
+    assert_eq!(table.display_name(ThemeKind::Texas), "Padded key");
+    // An entry that says nothing is the shipped palette, same as one
+    // the file left out altogether.
+    assert_eq!(table.get(ThemeKind::Plastic), ThemeKind::Plastic.get());
+    assert_eq!(table, {
+        let mut expected = table.clone();
+        expected.normalize();
+        expected
+    });
+}
+
+#[test]
+fn a_file_from_an_older_version_keeps_its_colours() {
+    // Earlier versions wrote the palettes as a `[[themes]]` array
+    // with the id inside each entry, and the border as
+    // `button_border_thickness`. Such a file has to load with
+    // everything its user tuned in it intact; the next save writes
+    // the table form.
     let table = table_from(
         r##"
         [[themes]]
-        id = "Barbie"
-        display_name = "First"
+        id = "Texas"
+        display_name = "My Texas"
+        app_bg = "#010203FF"
+        button_border_thickness = 3.5
+
+        [themes.number]
+        fill = "#111111FF #222222FF #333333FF"
 
         [[themes]]
-        id = "Barbie"
+        id = "Texas"
         display_name = "Second"
 
         [[themes]]
@@ -402,14 +446,60 @@ fn a_table_always_comes_out_whole_and_in_order() {
         display_name = "no id at all"
         "##,
     );
+    let t = table.get(ThemeKind::Texas);
+    assert_eq!(t.display_name, "My Texas");
+    assert_eq!(t.app_bg, rgba("#010203FF"));
+    assert_eq!(t.button_border_percent, 3.5);
+    assert_eq!(t.number.fill_row().hover, rgba("#222222FF"));
+    // A palette named twice keeps its first entry — an array can say
+    // the same thing twice where the table cannot — one the build
+    // does not have is dropped, and one with no id at all with it.
     let ids: Vec<_> = ThemeKind::ALL.iter().map(|k| table.get(*k).id).collect();
     assert_eq!(ids, ThemeKind::ALL.to_vec());
-    assert_eq!(table.display_name(ThemeKind::Barbie), "First");
-    assert_eq!(table, {
-        let mut expected = table.clone();
-        expected.normalize();
-        expected
-    });
+    assert_eq!(table.get(ThemeKind::Tokyo), ThemeKind::Tokyo.get());
+}
+
+#[test]
+fn a_colour_the_file_did_not_spell_properly_is_the_shipped_one() {
+    // Every colour off disk is `#` and six or eight hex digits, and
+    // anything else is replaced by the factory value rather than
+    // read as far as it parses. A missing `#`, a digit too many or
+    // too few, a character that is not hex — each is repaired on its
+    // own, and the colours around it stand.
+    let table = table_from(
+        r##"
+        [themes.Texas]
+        app_bg = "010203FF"
+        display_bg = "#010203F"
+        sidepanel_bg = "#01020Z04"
+        text_active = "#010203FFFF"
+        text_inactive = "#01 02 03"
+        accent = "#0102 03FF"
+
+        [themes.Texas.number]
+        fill = "#111111FF 222222FF #333333FF"
+        label = ["#4444", "#555555FF", "#666666FF"]
+        "##,
+    );
+    let t = table.get(ThemeKind::Texas);
+    let shipped = ThemeKind::Texas.get();
+    assert_eq!(t.app_bg, shipped.app_bg);
+    assert_eq!(t.display_bg, shipped.display_bg);
+    assert_eq!(t.sidepanel_bg, shipped.sidepanel_bg);
+    assert_eq!(t.text_active, shipped.text_active);
+    assert_eq!(t.text_inactive, shipped.text_inactive);
+    assert_eq!(t.accent, shipped.accent);
+    // Only the bad slot of a row is repaired; the good ones are the
+    // file's.
+    assert_eq!(t.number.fill_row().resting, rgba("#111111FF"));
+    assert_eq!(t.number.fill_row().hover, shipped.number.fill_row().hover);
+    assert_eq!(t.number.fill_row().pressed, rgba("#333333FF"));
+    assert_eq!(
+        t.number.label_row().resting,
+        shipped.number.label_row().resting
+    );
+    assert_eq!(t.number.label_row().hover, rgba("#555555FF"));
+    assert_eq!(t.number.label_row().pressed, rgba("#666666FF"));
 }
 
 #[test]
@@ -421,20 +511,16 @@ fn a_name_that_would_break_its_button_is_repaired() {
     // over.
     let table = table_from(
         r##"
-        [[themes]]
-        id = "Texas"
+        [themes.Texas]
         display_name = "  Lone\tStar\n  "
 
-        [[themes]]
-        id = "Tokyo"
+        [themes.Tokyo]
         display_name = "Tok\u202Eyo\u200B"
 
-        [[themes]]
-        id = "Barbie"
+        [themes.Barbie]
         display_name = "   "
 
-        [[themes]]
-        id = "Plastic"
+        [themes.Plastic]
         display_name = "PlasticPlasticPlasticPlasticPlasticPlastic"
         "##,
     );
@@ -455,27 +541,24 @@ fn a_name_that_would_break_its_button_is_repaired() {
 fn a_border_the_file_asks_too_much_of_is_clamped() {
     let table = table_from(
         r##"
-        [[themes]]
-        id = "Texas"
-        button_border_thickness = 900.0
+        [themes.Texas]
+        button_border_percent = 900.0
 
-        [[themes]]
-        id = "Tokyo"
-        button_border_thickness = -4.0
+        [themes.Tokyo]
+        button_border_percent = -4.0
 
-        [[themes]]
-        id = "Barbie"
-        button_border_thickness = 2
+        [themes.Barbie]
+        button_border_percent = 2
         "##,
     );
     assert_eq!(
-        table.get(ThemeKind::Texas).button_border_thickness,
-        MAX_BORDER_THICKNESS
+        table.get(ThemeKind::Texas).button_border_percent,
+        MAX_BORDER_PERCENT
     );
-    assert_eq!(table.get(ThemeKind::Tokyo).button_border_thickness, 0.0);
+    assert_eq!(table.get(ThemeKind::Tokyo).button_border_percent, 0.0);
     // An integer is a thickness too — TOML tells the two apart and
     // the user should not have to.
-    assert_eq!(table.get(ThemeKind::Barbie).button_border_thickness, 2.0);
+    assert_eq!(table.get(ThemeKind::Barbie).button_border_percent, 2.0);
 }
 
 #[test]

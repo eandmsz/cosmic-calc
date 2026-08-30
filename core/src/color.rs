@@ -7,6 +7,11 @@
 //! without translating it, and it is the spelling every colour picker
 //! and every stylesheet already uses.
 //!
+//! What comes off disk is held to exactly that spelling — see
+//! [`Rgba::parse_hex_str`]: a leading `#`, hex digits and nothing
+//! else, and six or eight of them. Anything else is not a colour to
+//! be guessed at, and the caller puts the shipped one in its place.
+//!
 //! The alpha channel is carried through everything here and is
 //! honoured by the renderer, so a theme can put a partly — or wholly —
 //! transparent colour anywhere a colour goes: a button filled with
@@ -17,7 +22,10 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 /// A theme colour written the way `config.toml` writes it:
 /// `#RRGGBBAA`, or `#RRGGBB` for a fully opaque one. The leading `#`
-/// is optional.
+/// is optional here — this is the source-level parser, and a literal
+/// in the shipped tables is checked by the compiler; the file's own
+/// colours go through [`Rgba::parse_hex_str`], which is not so
+/// forgiving.
 ///
 /// `const fn`, so a colour written into a `const` is checked at
 /// compile time; written into an ordinary expression — which is what
@@ -75,17 +83,35 @@ impl Rgba {
         format!("#{:02X}{:02X}{:02X}{:02X}", self.r, self.g, self.b, self.a)
     }
 
-    /// Parse `#RRGGBB`, `RRGGBB`, `#RRGGBBAA`, or `RRGGBBAA` (alpha
-    /// defaults to `FF` when omitted). The fallible sibling of
-    /// [`rgba`], for text that came from a file rather than from the
-    /// source.
+    /// Parse `#RRGGBB` or `#RRGGBBAA` — the two spellings the file
+    /// is written in — with alpha defaulting to `FF` when it is left
+    /// off. The fallible sibling of [`rgba`], for text that came from
+    /// a file rather than from the source.
+    ///
+    /// A colour is checked rather than interpreted, because a
+    /// hand-edited `config.toml` is the one place a colour can be
+    /// anything at all and the caller's answer to a bad one is the
+    /// shipped colour rather than a guess. Three things have to hold,
+    /// and nothing else is accepted:
+    ///
+    /// * it starts with `#` — a colour is written the way the file
+    ///   writes it, not `FF0000FF` or `0xFF0000` or `red`;
+    /// * every character after it is a hex digit — which also rules
+    ///   out the `+` and `-` a radix parser would otherwise take,
+    ///   silently reading `#+FF0000` as the wrong channels;
+    /// * there are exactly six or exactly eight of them — a length
+    ///   between the two is a digit typed twice or dropped, and
+    ///   whatever it was meant to be, it is not this.
+    ///
+    /// Whitespace around the value is not part of it and is trimmed;
+    /// whitespace inside it is not a colour.
     pub fn parse_hex_str(s: &str) -> Result<Self, String> {
-        let hex = s.trim().trim_start_matches('#');
-        // `from_str_radix` accepts a leading `+` or `-`, so `#+FFFFF`
-        // would pass the six-character check and silently produce the
-        // wrong channels. Require plain hex digits.
+        let text = s.trim();
+        let Some(hex) = text.strip_prefix('#') else {
+            return Err(format!("a colour starts with '#': {s:?}"));
+        };
         if !hex.chars().all(|c| c.is_ascii_hexdigit()) {
-            return Err(format!("invalid hex colour: {s:?}"));
+            return Err(format!("a colour is written in hex digits: {s:?}"));
         }
         if !matches!(hex.len(), 6 | 8) {
             return Err(format!("hex colour must be 6 or 8 digits: {s:?}"));

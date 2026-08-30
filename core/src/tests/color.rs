@@ -57,8 +57,39 @@ fn rgba_deserializes_legacy_table() {
 
 #[test]
 fn parse_hex_str_accepts_six_and_eight_digits() {
+    // Six digits is a colour; the alpha channel defaults to opaque.
     assert_eq!(Rgba::parse_hex_str("#AABBCC").unwrap(), rgba("#AABBCCFF"));
-    assert_eq!(Rgba::parse_hex_str("11223344").unwrap(), rgba("#11223344"));
+    assert_eq!(Rgba::parse_hex_str("#11223344").unwrap(), rgba("#11223344"));
+    // Case is the writer's business, not the file format's.
+    assert_eq!(Rgba::parse_hex_str("#aAbBcCdD").unwrap(), rgba("#AABBCCDD"));
+    // Whitespace around a value is not part of it.
+    assert_eq!(
+        Rgba::parse_hex_str("  #AABBCC  ").unwrap(),
+        rgba("#AABBCCFF")
+    );
+}
+
+#[test]
+fn a_colour_off_disk_has_to_start_with_a_hash() {
+    // `config.toml` writes every colour with one, and a value that
+    // does not is not a colour to be guessed at: the caller puts the
+    // shipped colour in its place rather than reading it anyway.
+    assert!(Rgba::parse_hex_str("11223344").is_err());
+    assert!(Rgba::parse_hex_str("AABBCC").is_err());
+    assert!(Rgba::parse_hex_str("0xAABBCC").is_err());
+    assert!(Rgba::parse_hex_str("#AABBCC").is_ok());
+}
+
+#[test]
+fn a_colour_off_disk_is_hash_and_hex_digits_and_nothing_else() {
+    // Everything after the `#` is a hex digit — no separators, no
+    // whitespace inside the value, no name, no percentage.
+    assert!(Rgba::parse_hex_str("#AA BB CC").is_err());
+    assert!(Rgba::parse_hex_str("#AA-BB-CC").is_err());
+    assert!(Rgba::parse_hex_str("#GGHHII").is_err());
+    assert!(Rgba::parse_hex_str("#AABBCC;").is_err());
+    assert!(Rgba::parse_hex_str("red").is_err());
+    assert!(Rgba::parse_hex_str("#").is_err());
 }
 
 #[test]
@@ -78,13 +109,17 @@ fn hex_parse_rejects_a_sign_prefix() {
     // `from_str_radix` accepts `+`/`-`, so this parsed as a valid
     // six-character colour and silently produced the wrong channels.
     assert!(Rgba::parse_hex_str("#+FFFFF").is_err());
-    assert!(Rgba::parse_hex_str("-FFFFFF").is_err());
+    assert!(Rgba::parse_hex_str("#-FFFFFF").is_err());
     assert!(Rgba::parse_hex_str("#FFFFFF").is_ok());
 }
 
 #[test]
 fn hex_parse_rejects_the_wrong_number_of_digits() {
+    // Six or eight, exactly — a length between the two is a digit
+    // typed twice or dropped, and either way it is not a colour.
     assert!(Rgba::parse_hex_str("#FFF").is_err());
+    assert!(Rgba::parse_hex_str("#FFFFF").is_err());
     assert!(Rgba::parse_hex_str("#FFFFFFF").is_err());
+    assert!(Rgba::parse_hex_str("#FFFFFFFFF").is_err());
     assert!(Rgba::parse_hex_str("").is_err());
 }
