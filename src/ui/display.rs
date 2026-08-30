@@ -390,9 +390,16 @@ impl Renderer<'_> {
                         write_formatted_number(&mut s, &run, self.decimal, thousands);
                     } else {
                         // The raw form is the clipboard's: a number
-                        // there is digits and an ASCII point, with no
+                        // there is plain digits, with none of the
                         // grouping the tokenizer would have to unpick.
-                        s.push_str(&run);
+                        // The separator between them is still the
+                        // user's own, though — a `.` shown to somebody
+                        // whose region writes `,` is a number in a
+                        // notation they do not use, and the tokenizer
+                        // reads either one.
+                        for c in run.chars() {
+                            s.push(if c == '.' { self.decimal } else { c });
+                        }
                     }
                     out.push(DisplaySegment::placed(s, true, script));
                     i += consumed;
@@ -729,9 +736,70 @@ pub fn render_expression_string(
     notation: Notation,
 ) -> String {
     let segs = render_expression(items, NO_CURSOR, decimal, thousands_glyph, None, notation);
+    segments_to_line(&segs)
+}
+
+/// One line of text from a row of pieces, for a caller with a single
+/// text widget to fill. What is drawn off the line comes back in
+/// Unicode's raised and lowered glyphs, all-or-nothing per run, the
+/// same rendering a history row's expression gets.
+pub fn segments_to_line(segments: &[DisplaySegment]) -> String {
     let mut out = String::new();
-    flatten(&segs, 0, &mut out);
+    flatten(segments, 0, &mut out);
     out
+}
+
+/// The `−1` an inverse function's name ends in, which the display
+/// raises exactly as it raises an exponent.
+const INVERSE_SUFFIX: &str = "\u{2212}1";
+
+/// The pieces an error message is drawn as. The five inverse-function
+/// domains name the function they are about — `sin−1`, `cos−1`,
+/// `cosh−1`, `tanh−1`, `coth−1` — and a calculator writes that `−1`
+/// above the line, which is how the display draws the same functions
+/// everywhere else. Written flat it read as a subtraction: `sin` minus
+/// one.
+///
+/// Only a `−1` written straight onto the end of a name is raised. The
+/// one in "between −1 and 1" is a number in a sentence, with a space
+/// in front of it, and stays where it is.
+pub fn error_segments(message: &str) -> Vec<DisplaySegment> {
+    let mut out = Vec::new();
+    let mut line = String::new();
+    let mut rest = message;
+    while let Some(at) = rest.find(INVERSE_SUFFIX) {
+        let (before, from_suffix) = rest.split_at(at);
+        line.push_str(before);
+        if before.chars().next_back().is_some_and(char::is_alphabetic) {
+            if !line.is_empty() {
+                out.push(DisplaySegment::placed(
+                    std::mem::take(&mut line),
+                    true,
+                    Script::ON_LINE,
+                ));
+            }
+            out.push(DisplaySegment::placed(
+                INVERSE_SUFFIX,
+                true,
+                Script::ON_LINE.raised(),
+            ));
+        } else {
+            line.push_str(INVERSE_SUFFIX);
+        }
+        rest = &from_suffix[INVERSE_SUFFIX.len()..];
+    }
+    line.push_str(rest);
+    if !line.is_empty() {
+        out.push(DisplaySegment::placed(line, true, Script::ON_LINE));
+    }
+    out
+}
+
+/// [`error_segments`] folded onto one line, for the callers that have
+/// a single text widget rather than a row of them — the history
+/// panel, where an error stands in for a result.
+pub fn error_line(message: &str) -> String {
+    segments_to_line(&error_segments(message))
 }
 
 /// Append `segs` to `out` as one line of text. Pieces at `depth` are

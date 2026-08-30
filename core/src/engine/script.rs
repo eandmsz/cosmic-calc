@@ -108,6 +108,11 @@ pub fn superscript_char(c: char) -> Option<char> {
         '9' => '⁹',
         '+' => '⁺',
         '-' => '⁻',
+        // The typographic minus the display and the error messages
+        // are written with, which raises to the same glyph the ASCII
+        // hyphen does. Without it a `sin−1` folded back to full size
+        // inside brackets on any one-line rendering.
+        '\u{2212}' => '⁻',
         '(' => '⁽',
         ')' => '⁾',
         // Unicode has no superscript decimal separator, so the two the
@@ -441,6 +446,15 @@ pub fn exponent_span(items: &[InputItem], pow_idx: usize) -> Option<usize> {
         Some(InputItem::BinOp(BinOp::Sub) | InputItem::BinOp(BinOp::Add))
     ) {
         i += 1;
+    }
+    // A sign keyed into the slot with nothing behind it yet is the
+    // exponent so far, not a subtraction that has left the power
+    // behind: `2^-` is a `2` whose exponent is being typed, and the
+    // display draws the `-` up in the slot where the next digit
+    // lands. Without this the whole power dropped back to the line
+    // the moment the sign went in.
+    if i > pow_idx + 1 && i >= items.len() {
+        return Some(i);
     }
     match items.get(i)? {
         InputItem::Digit(_) | InputItem::DecimalPoint => {

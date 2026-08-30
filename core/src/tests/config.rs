@@ -1,4 +1,4 @@
-use crate::color::Rgba;
+use crate::color::rgba;
 use crate::config::*;
 use crate::engine::Notation;
 use crate::theme::ThemeKind;
@@ -79,37 +79,28 @@ fn validate_resets_rand_range_on_nan() {
 }
 
 #[test]
-fn apply_preset_replaces_full_palette() {
-    let mut c = Config::default();
-    c.apply_theme_preset(ThemeKind::CupertinoDark);
-    assert_eq!(c.theme_kind, ThemeKind::CupertinoDark);
-    assert_eq!(c.theme.name, "Cupertino Dark");
-    assert_eq!(c.theme.app_bg, Rgba::from_hex(0x28_31_33_FF));
-}
-
-#[test]
-fn mark_custom_preserves_edited_palette() {
-    let mut c = Config::default();
-    c.theme.app_bg = Rgba::from_hex(0xAB_CD_EF_FF);
-    c.mark_theme_custom();
-    assert_eq!(c.theme_kind, ThemeKind::Custom);
-    assert_eq!(c.theme.app_bg, Rgba::from_hex(0xAB_CD_EF_FF));
-    assert_eq!(c.theme.name, "Custom");
+fn the_palette_is_looked_up_rather_than_stored() {
+    // The file records which theme is on, and the palette is the
+    // shipped one for that name. It used to hold a copy of every
+    // colour, which is a hundred-odd of them now and a second theme
+    // to keep in step with the first.
+    let c = Config {
+        theme_kind: ThemeKind::CupertinoDark,
+        ..Config::default()
+    };
+    assert_eq!(c.theme().name, "Cupertino Dark");
+    assert_eq!(c.theme().app_bg, rgba("#283133FF"));
+    assert_eq!(c.theme(), ThemeKind::CupertinoDark.get());
 }
 
 #[test]
 fn round_trip_through_toml() {
     let c = Config::default();
     let s = toml::to_string(&c).expect("serialize");
-    assert!(
-        s.contains("#"),
-        "theme colours should serialize as hex strings: {s}"
-    );
     let back: Config = toml::from_str(&s).expect("deserialize");
     assert_eq!(back.significant_digits, c.significant_digits);
     assert_eq!(back.mode, c.mode);
     assert_eq!(back.theme_kind, c.theme_kind);
-    assert_eq!(back.theme.app_bg, c.theme.app_bg);
     assert_eq!(back.decimal_separator, c.decimal_separator);
 }
 
@@ -160,7 +151,7 @@ fn save_and_reload_round_trip() {
         mode: Mode::Scientific,
         ..Config::default()
     };
-    cfg.apply_theme_preset(ThemeKind::RedmondDark);
+    cfg.theme_kind = ThemeKind::RedmondDark;
     cfg.save_at(&path).expect("save");
 
     let back = Config::load_or_create_default_at(&path).expect("reload");
@@ -182,12 +173,15 @@ fn corner_radius_clamps_to_max() {
 }
 
 #[test]
-fn theme_name_stays_in_sync_with_preset() {
-    let mut c = Config::default();
-    c.apply_theme_preset(ThemeKind::CupertinoLight);
-    c.theme.name = "oops".to_string(); // simulate stale state
-    c.validate_and_clamp();
-    assert_eq!(c.theme.name, "Cupertino Light");
+fn a_theme_name_the_build_does_not_know_falls_back() {
+    // A file naming the `Custom` palette earlier versions had — or
+    // any other name this build does not ship — loads with the
+    // default theme rather than failing and taking every other
+    // setting down with it.
+    let cfg: Config =
+        toml::from_str("significant_digits = 9\ntheme_kind = \"Custom\"\n").expect("load");
+    assert_eq!(cfg.theme_kind, ThemeKind::default());
+    assert_eq!(cfg.significant_digits, 9);
 }
 
 #[test]
@@ -228,87 +222,44 @@ fn load_clamps_out_of_range_values() {
 }
 
 // =====================================================================
-// Colour storage format
+// Theme storage format
 // =====================================================================
 
 #[test]
-fn colours_are_stored_as_compact_rgba_hex() {
+fn the_theme_is_stored_as_one_name() {
     let toml = toml::to_string_pretty(&Config::default()).expect("serialise");
-
-    // Structured: the palette is one named table, not eleven loose
-    // top-level keys.
     assert!(
-        toml.contains("[theme]"),
-        "expected a [theme] table:\n{toml}"
+        toml.contains(r#"theme_kind = "Cosmic""#),
+        "expected the palette's name:\n{toml}"
     );
-
-    // Compact: each colour is a single `#RRGGBBAA` string. The type
-    // also accepts the older `{ r, g, b, a }` table on the way in, so
-    // this asserts the *written* form has not regressed to it.
-    assert!(
-        toml.contains(r##"app_bg = "#1B1B1BFF""##),
-        "expected #RRGGBBAA hex:\n{toml}"
-    );
-    assert!(
-        !toml.contains("[theme.app_bg]"),
-        "colours must not expand into per-channel tables:\n{toml}"
-    );
-
-    // Every slot in the palette, uppercase hex, alpha always present.
-    let hex = regex_lite_hex_lines(&toml);
-    assert_eq!(hex.len(), 11, "expected 11 colour slots, got {hex:?}");
-    for line in &hex {
-        let value = line.split('=').nth(1).unwrap().trim().trim_matches('"');
-        assert_eq!(value.len(), 9, "{value:?} should be #RRGGBBAA");
-        assert!(value.starts_with('#'), "{value:?} should start with #");
-        assert!(
-            value[1..]
-                .chars()
-                .all(|c| c.is_ascii_hexdigit() && !c.is_lowercase()),
-            "{value:?} should be uppercase hex"
-        );
-    }
-}
-
-/// Collect the `key = "#RRGGBBAA"` lines without pulling in a regex
-/// crate for one assertion.
-fn regex_lite_hex_lines(toml: &str) -> Vec<&str> {
-    toml.lines().filter(|l| l.contains("= \"#")).collect()
+    // And nothing else of the palette: the colours are the build's,
+    // so a file that carried a copy of them carried a second theme to
+    // keep in step.
+    assert!(!toml.contains("[theme]"), "{toml}");
+    assert!(!toml.contains("app_bg"), "{toml}");
 }
 
 #[test]
-fn colours_round_trip_through_the_hex_form() {
-    let mut cfg = Config::default();
-    cfg.apply_theme_preset(ThemeKind::CupertinoDark);
-    let toml = toml::to_string_pretty(&cfg).expect("serialise");
-    let back: Config = toml::from_str(&toml).expect("deserialise");
-    assert_eq!(back.theme, cfg.theme);
-}
-
-#[test]
-fn legacy_per_channel_colour_tables_still_load() {
-    // Older config files stored colours as a table of channels. They
-    // must keep loading, and get rewritten in the compact form on the
-    // next save.
+fn a_file_that_still_carries_a_palette_loads_without_it() {
+    // Older versions wrote the whole palette into the file and let it
+    // be hand-edited. Those files must keep loading — the section is
+    // simply ignored, and the next save leaves it out.
     let raw = r##"
+        significant_digits = 9
+        theme_kind = "CupertinoDark"
+
         [theme]
         name = "Custom"
         app_bg = { r = 27, g = 27, b = 27, a = 255 }
         sidepanel_bg = "#272727FF"
         text_active = "#E7E7E7FF"
-        science_button = "#636363FF"
-        second_button = "#636363FF"
-        toprow_button = "#636363FF"
-        basicop_button = "#61CDDCFF"
-        equals_button = "#61CDDCFF"
-        negate_button = "#636363FF"
-        decimal_button = "#4F4F4FFF"
-        number_button = "#4F4F4FFF"
     "##;
-    let cfg: Config = toml::from_str(raw).expect("legacy form must deserialise");
-    assert_eq!(cfg.theme.app_bg, Rgba::from_hex(0x1B_1B_1B_FF));
+    let cfg: Config = toml::from_str(raw).expect("an old file must still load");
+    assert_eq!(cfg.significant_digits, 9);
+    assert_eq!(cfg.theme_kind, ThemeKind::CupertinoDark);
+    assert_eq!(cfg.theme().app_bg, rgba("#283133FF"));
     let rewritten = toml::to_string_pretty(&cfg).expect("serialise");
-    assert!(rewritten.contains(r##"app_bg = "#1B1B1BFF""##));
+    assert!(!rewritten.contains("app_bg"), "{rewritten}");
 }
 
 #[test]
@@ -422,4 +373,52 @@ fn a_pinned_minimum_width_is_held_to_the_window_range() {
     };
     let back: Config = toml::from_str(&toml::to_string_pretty(&c).unwrap()).unwrap();
     assert_eq!(back.min_window_width, 240);
+}
+
+#[test]
+fn font_weights_name_the_faces_a_font_ships() {
+    use crate::config::FontWeight;
+
+    // The nine steps, lightest first, at the numbers a face carries.
+    assert_eq!(FontWeight::ALL.len(), 9);
+    assert_eq!(FontWeight::default(), FontWeight::Regular);
+    assert_eq!(FontWeight::Regular.value(), 400);
+    assert_eq!(FontWeight::Black.value(), 900);
+    let mut sorted = FontWeight::ALL;
+    sorted.sort();
+    assert_eq!(sorted, FontWeight::ALL);
+
+    // A face is free to carry any number in the range — a variable
+    // font's instances often do — and lands on the step nearest it.
+    assert_eq!(FontWeight::nearest(400), FontWeight::Regular);
+    assert_eq!(FontWeight::nearest(430), FontWeight::Regular);
+    assert_eq!(FontWeight::nearest(560), FontWeight::SemiBold);
+    assert_eq!(FontWeight::nearest(0), FontWeight::Thin);
+    assert_eq!(FontWeight::nearest(2000), FontWeight::Black);
+    // A tie goes to the lighter step.
+    assert_eq!(FontWeight::nearest(450), FontWeight::Regular);
+}
+
+#[test]
+fn the_font_weight_round_trips_through_the_file() {
+    use crate::config::FontWeight;
+
+    let path = scratch_path("font-weight");
+    let written = Config {
+        font_weight: FontWeight::SemiBold,
+        ..Config::default()
+    };
+    written.save_at(&path).expect("save");
+    let read = Config::load_or_create_default_at(&path).expect("load");
+    assert_eq!(read.font_weight, FontWeight::SemiBold);
+    // Spelled readably in the file rather than as a number.
+    let body = std::fs::read_to_string(&path).expect("read");
+    assert!(body.contains("font_weight = \"semi_bold\""), "{body}");
+
+    // And a file written before the field existed still loads, at the
+    // weight a font ships as its own.
+    std::fs::write(&path, "font = \"Adwaita Sans\"\n").expect("write");
+    let read = Config::load_or_create_default_at(&path).expect("load");
+    assert_eq!(read.font_weight, FontWeight::Regular);
+    let _ = std::fs::remove_dir_all(path.parent().unwrap());
 }

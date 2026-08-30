@@ -34,6 +34,31 @@
   </categories>
 
   <releases>
+    <release version="0.2.0" date="2026-08-30">
+      <description>
+        <ul>
+          <li>A negative exponent can be keyed at all: 2, xʸ, −, 3 is 2⁻³ and 5, EE, −, 3 is 5×10⁻³, with the sign drawn up in the slot the digits are going into. The press used to read as a change of mind about the operator, take the caret back and leave 2-, so there was no way to reach a negative exponent from the keypad</li>
+          <li>yˣ lifts the sign with the number it raises: −, 2, yˣ, 9 is 9⁻², where the sign was left on the line as -9² — the negative of nine squared, a different number. A minus that has something to subtract from is still a subtraction, so 5-2 then yˣ then 3 is 5-3²</li>
+          <li>A power whose slot a ) has closed is a finished value, and everything keyed after it says so. A digit starts a new factor — 2, xʸ, 3, ), 5 is 2³×5 where it used to run onto the end of the exponent and give 2 to the thirty-fifth — a postfix applies to the whole power as (2³)!, and a second caret raises the power rather than adding a level to it</li>
+          <li>! and % after a yˣ apply to the whole power too: 5, yˣ, 9, ! is (9⁵)!, the way 8^5-8 subtracts from the whole 8⁵. It used to read back as 9 raised to 5!</li>
+          <li>The five inverse-function error messages wear their −1 raised, the way the display writes those functions everywhere else: Undefined sin⁻¹(x) must be between −1 and 1. Flat, it read as a sin with a 1 subtracted from it</li>
+          <li>The memory register under the display is called Memory: rather than a bare M, with a no-break space before the value so the two are never split across lines. When it and the number-property labels would meet — a narrow window, or fifteen digits stored — it drops to a line of its own under them instead of being drawn over the fibonacci at the end of the row</li>
+          <li>The ASCII expression writes the decimal separator the settings are set to instead of always a dot, on screen and on the clipboard alike. The tokenizer reads either, so it is still text this calculator takes back</li>
+          <li>History rows are stored as the display writes them — √(9)×2𝑒, not the sqrt(9)*2*e the clipboard spells the same thing with — so a pasted expression keeps the characters that were pasted. Reading a row back is the clipboard's own paste pipeline, allow-list and length cap and all, so a hand-edited config.toml can put nothing into the buffer that the clipboard could not: a row that does not survive it is dropped whole and in silence, and is gone from the file on the next write</li>
+          <li>A font weight selector under the family, offering only the faces that family actually ships and following it as it changes. A weight the new family has no face for is drawn in the nearest it does have while the choice stays stored, so going back to a family that has it gets it again</li>
+          <li>Show angle mode and memory buttons hides the row above the keypad — the DEG/RAD switch and MC/MR/M+/M- — and gives the height it was taking to the expression display. Show memory is now Show memory contents</li>
+          <li>Every row of option buttons in the settings panel fills the panel's width, sharing it out in proportion to the names on the line, so a choice between two ends at the same edge as a choice between four rather than trailing off in the middle</li>
+          <li>Every colour a theme draws with is written down rather than worked out. A button group carries a fill, a label colour and a border colour for each of its three states — resting, hovered, pressed. The hover shade used to be an HSV lift of the base and the pressed shade a 10 percent darkening of it, with one label colour for the whole theme however little contrast it had against the key it landed on</li>
+          <li>AC/C and backspace have a colour group of their own so a theme can mark the two keys that take something away, and the display — the caption, the readout and the properties and memory under them — is a surface of its own that a theme can set apart from the window. Every shipped theme paints both exactly as before</li>
+          <li>Buttons can carry a border, off by default. The thickness is a percentage of the button's height rather than a pixel count, so an outline keeps its proportion as the window grows and a settings row does not wear the same line as a keypad key three times its size; the width rounds to a whole pixel so the line stays crisp, and it is drawn inside the button, so turning one on never moves anything</li>
+          <li>The alpha channel is live everywhere a colour goes: a button filled with 00000000 shows the background through it and is drawn by its border alone</li>
+          <li>The switches and sliders in the settings panel take the theme's own accent colour, which for the Cosmic palette is the desktop's</li>
+          <li>The Cosmic palette stops deriving anything: it takes the running desktop's own component colours — base, hover, pressed, the text on them and their border — so the keys hover the way the rest of the desktop hovers and an accent-coloured key wears the accent's own text colour, which is where its contrast used to go</li>
+          <li>Twelve new palettes: Texas, Tokyo, Cyberpunk, Plastic, Crystal, Barbie, Touch Light, Touch Dark, Emerald Light, Emerald Dark, Flat Orange Dark and Flat Green Light</li>
+          <li>The Custom palette is gone, and with it the copy of every colour config.toml carried so it could be hand-edited — that would be a hundred-odd colours in the file now. The file records which palette is on, and a name this build does not know falls back to the default rather than failing the load and taking every other setting with it</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.1.9" date="2026-08-29">
       <description>
         <ul>

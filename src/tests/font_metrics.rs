@@ -58,3 +58,33 @@ fn a_measured_nudge_stays_inside_the_button() {
         assert!(nudge.abs() <= 20.0 * 0.25 + 1e-6, "{label}: {nudge}");
     }
 }
+
+#[test]
+fn a_family_the_host_does_not_have_still_offers_a_weight() {
+    use crate::config::FontWeight;
+    use crate::ui::font::{resolved_weight, weights_for};
+
+    // The settings panel draws a button per weight, so the list can
+    // never be empty — a name nothing on the machine answers to gets
+    // the one weight the renderer would fall back to anyway.
+    const MISSING: &str = "No Such Family At All";
+    assert_eq!(weights_for(MISSING), [FontWeight::Regular]);
+    // And a weight that family has no face for resolves to the
+    // nearest it does, so nothing is drawn in a face it does not
+    // ship.
+    assert_eq!(
+        resolved_weight(MISSING, FontWeight::Black),
+        FontWeight::Regular
+    );
+
+    // Every family the host does have offers its weights lightest
+    // first, and answers for each of them with itself.
+    for family in crate::ui::font::available_fonts() {
+        let weights = weights_for(family);
+        assert!(!weights.is_empty(), "{family}");
+        assert!(weights.windows(2).all(|pair| pair[0] < pair[1]), "{family}");
+        for weight in weights {
+            assert_eq!(resolved_weight(family, *weight), *weight, "{family}");
+        }
+    }
+}

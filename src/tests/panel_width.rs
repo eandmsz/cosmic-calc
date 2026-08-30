@@ -135,3 +135,47 @@ fn an_unknown_screen_leaves_the_floor_where_the_panels_put_it() {
         KEYPAD_MIN + SETTINGS
     );
 }
+
+// --- settings option rows --------------------------------------------
+
+#[test]
+fn option_rows_pack_by_label_and_always_hold_one() {
+    use crate::ui::panels::{option_lines, option_width, OPTION_ROW_WIDTH};
+
+    // A short set shares one line.
+    let widths: Vec<f32> = ["Auto", "Dot .", "Comma ,"]
+        .iter()
+        .map(|l| option_width(l))
+        .collect();
+    assert_eq!(option_lines(&widths), vec![3]);
+
+    // A long set wraps, and no line is over the panel's width.
+    let labels = [
+        "Cosmic",
+        "Cupertino Dark",
+        "Cupertino Light",
+        "Redmond Dark",
+        "Redmond Light",
+        "High Contrast Dark",
+        "High Contrast Light",
+        "Custom",
+    ];
+    let widths: Vec<f32> = labels.iter().map(|l| option_width(l)).collect();
+    let lines = option_lines(&widths);
+    assert_eq!(lines.iter().sum::<usize>(), labels.len());
+    let mut from = 0;
+    for count in &lines {
+        let used: f32 =
+            widths[from..from + count].iter().sum::<f32>() + (*count as f32 - 1.0) * 4.0;
+        assert!(
+            *count == 1 || used <= OPTION_ROW_WIDTH,
+            "{used} for {count}"
+        );
+        from += count;
+    }
+
+    // A label wider than the whole panel still gets a line rather
+    // than being dropped.
+    assert_eq!(option_lines(&[OPTION_ROW_WIDTH * 3.0]), vec![1]);
+    assert_eq!(option_lines(&[]), Vec::<usize>::new());
+}

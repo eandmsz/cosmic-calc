@@ -1,37 +1,44 @@
 //! Per-category button styling. Every [`Button`] variant is mapped to
-//! one of the theme's colour slots (science / second / toprow /
-//! basicop / equals / negate / decimal / number); this module turns a
-//! slot colour into a libcosmic `ButtonClass::Custom` so the keypad
-//! paints each key in the palette's dedicated colour.
+//! one of the theme's colour groups (science / second / toprow /
+//! delete / basicop / equals / negate / decimal / number); this module
+//! turns that group into a libcosmic `ButtonClass::Custom` so the
+//! keypad paints each key in the palette's dedicated colours.
 //!
-//! Hover and pressed variants are derived from the base colour via the
-//! existing `Rgba` helpers: `hover()` (HSV lift + hue shift toward
-//! yellow) and `scaled(factor)` (linear RGB multiply). Disabled state
-//! is a darker tint of the base.
+//! Nothing is computed. The group carries a fill, a label colour and a
+//! border colour for each of the three states, and each state is drawn
+//! with the three it names — see [`crate::theme::ButtonColors`]. Hover
+//! used to be an HSV lift of the base and pressed a 10 % darkening of
+//! it, with one label colour for the whole theme however little
+//! contrast it had against the key it landed on.
 //!
-//! Styling uses only pure helpers; the category mapping is tested
-//! here, the colour construction is simple enough that a snapshot-style
-//! test is not worth its maintenance cost.
+//! The border is drawn inside the button's own rectangle, so its width
+//! never moves anything: turning one on changes what a key looks like
+//! and not where it or its neighbours sit. How wide it comes out is
+//! [`Theme::border_width`], which is the one place a number is worked
+//! out, and it needs the button's height — which is why the class
+//! builders take one.
 //!
 //! Keeping this helper self-contained means `keypad.rs` stays focused
 //! on layout and the theme types keep no libcosmic dependency.
-//! The category function lives alongside the `Button` enum so the
-//! lookup is trivially exhaustive.
 
 use cosmic::iced::border::Radius;
 use cosmic::iced::{Background, Color};
 use cosmic::widget::button::{ButtonClass, Style};
 
 use crate::color::Rgba;
-use crate::theme::Theme;
+use crate::theme::{ButtonColors, ButtonFace, Theme};
 use crate::ui::buttons::Button;
 
-/// Which palette slot drives a button's background colour.
+/// Which palette group drives a button's colours.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Category {
     Science,
     Second,
     TopRow,
+    /// `AC`/`C` and backspace — the two keys that take something
+    /// away. Their own group so a theme can mark them; the shipped
+    /// ones paint them exactly as the top row.
+    Delete,
     BasicOp,
     Equals,
     Negate,
@@ -40,25 +47,27 @@ pub enum Category {
 }
 
 impl Category {
-    /// Pick the slot colour from an active palette.
-    pub fn color(self, theme: &Theme) -> Rgba {
+    /// Pick the group from an active palette.
+    pub fn colors(self, theme: &Theme) -> ButtonColors {
         match self {
-            Self::Science => theme.science_button,
-            Self::Second => theme.second_button,
-            Self::TopRow => theme.toprow_button,
-            Self::BasicOp => theme.basicop_button,
-            Self::Equals => theme.equals_button,
-            Self::Negate => theme.negate_button,
-            Self::Decimal => theme.decimal_button,
-            Self::Number => theme.number_button,
+            Self::Science => theme.science,
+            Self::Second => theme.second,
+            Self::TopRow => theme.toprow,
+            Self::Delete => theme.delete,
+            Self::BasicOp => theme.basicop,
+            Self::Equals => theme.equals,
+            Self::Negate => theme.negate,
+            Self::Decimal => theme.decimal,
+            Self::Number => theme.number,
         }
     }
 }
 
 /// Assign a [`Category`] to every [`Button`] variant. The mapping
 /// follows the Phase-4 spec: digits / decimal / negate / equals get
-/// their own slots; basic operators share one; everything else is
-/// either "top-row" control or "science".
+/// their own slots; basic operators share one; clear and backspace
+/// share the delete slot; everything else is either "top-row" control
+/// or "science".
 pub fn category_for(button: Button) -> Category {
     use Button::*;
     match button {
@@ -68,91 +77,96 @@ pub fn category_for(button: Button) -> Category {
         Equals => Category::Equals,
         Add | Sub | Mul | Div => Category::BasicOp,
         Second => Category::Second,
-        Clear | Backspace | LeftParen | RightParen | CursorLeft | CursorRight | CursorHome
-        | CursorEnd | ToggleMode | ToggleAngleMode | ToggleHistoryPanel | ToggleSettingsPanel
-        | MemClear | MemRecall | MemAdd | MemSub => Category::TopRow,
+        Clear | Backspace => Category::Delete,
+        LeftParen | RightParen | CursorLeft | CursorRight | CursorHome | CursorEnd | ToggleMode
+        | ToggleAngleMode | ToggleHistoryPanel | ToggleSettingsPanel | MemClear | MemRecall
+        | MemAdd | MemSub => Category::TopRow,
         _ => Category::Science,
     }
 }
 
-/// Build a [`ButtonClass`] that paints the button in `base` with text
-/// rendered in `text` and the corners rounded to `corner_radius`
-/// pixels. Hover lightens via `Rgba::hover`, pressed darkens to 90 %
-/// luminance, disabled darkens to 70 % luminance.
-pub fn class(base: Rgba, text: Rgba, corner_radius: f32) -> ButtonClass {
-    let active_bg = rgba_to_color(base);
-    let hovered_bg = rgba_to_color(base.hover());
-    let pressed_bg = rgba_to_color(base.scaled(0.9));
-    let disabled_bg = rgba_to_color(base.scaled(0.7));
-    let txt = rgba_to_color(text);
-    let txt_dim = rgba_to_color(text.inactive());
+/// Build a [`ButtonClass`] that draws each state in the colours
+/// `colors` names for it, with corners rounded to `corner_radius` and
+/// a border `border_width` pixels wide drawn inside the button.
+///
+/// No button in this app is ever disabled — every one is built with an
+/// `on_press` — so the disabled variant is the resting one rather than
+/// a dimmed invention of a colour the theme has not asked for.
+pub fn class(colors: ButtonColors, corner_radius: f32, border_width: f32) -> ButtonClass {
     let radius = Radius::from(corner_radius);
+    let normal = style_of(colors.normal, radius, border_width);
+    let hovered = style_of(colors.hover, radius, border_width);
+    let pressed = style_of(colors.pressed, radius, border_width);
 
     ButtonClass::Custom {
-        active: Box::new(move |_focused, _theme| build_style(active_bg, txt, radius)),
-        hovered: Box::new(move |_focused, _theme| build_style(hovered_bg, txt, radius)),
-        pressed: Box::new(move |_focused, _theme| build_style(pressed_bg, txt, radius)),
-        disabled: Box::new(move |_theme| build_style(disabled_bg, txt_dim, radius)),
+        active: Box::new(move |_focused, _theme| normal),
+        hovered: Box::new(move |_focused, _theme| hovered),
+        pressed: Box::new(move |_focused, _theme| pressed),
+        disabled: Box::new(move |_theme| normal),
     }
 }
 
-/// Convenience: colour a button straight from a [`Theme`] given its
-/// [`Button`] tag, applying the user-configured corner radius.
-pub fn class_for(theme: &Theme, button: Button, corner_radius: f32) -> ButtonClass {
-    let cat = category_for(button);
-    class(cat.color(theme), theme.text_active, corner_radius)
+/// Colour a button straight from a [`Theme`] given its [`Button`] tag,
+/// applying the user-configured corner radius and the theme's border
+/// at the width `height` earns it.
+pub fn class_for(theme: &Theme, button: Button, corner_radius: f32, height: f32) -> ButtonClass {
+    let colors = category_for(button).colors(theme);
+    class(colors, corner_radius, theme.border_width(height))
 }
 
-/// Same as [`class_for`] but renders the button in its pressed colour
-/// even when not actively pressed by the mouse. Used to flash the
-/// keypad cell that matches a keyboard activation, so the user can see
-/// which button their keystroke hit.
-pub fn class_for_flashed(theme: &Theme, button: Button, corner_radius: f32) -> ButtonClass {
-    let cat = category_for(button);
-    class_flashed(cat.color(theme), theme.text_active, corner_radius)
+/// Same as [`class_for`] but the resting state is drawn in the pressed
+/// colours, so the button looks held down without any pointer
+/// interaction. Used to flash the keypad cell that matches a keyboard
+/// activation, so the user can see which button their keystroke hit.
+pub fn class_for_flashed(
+    theme: &Theme,
+    button: Button,
+    corner_radius: f32,
+    height: f32,
+) -> ButtonClass {
+    let colors = category_for(button).colors(theme);
+    class(
+        ButtonColors::new(colors.pressed, colors.hover, colors.pressed),
+        corner_radius,
+        theme.border_width(height),
+    )
 }
 
-/// Colour a latched toggle that is currently on. The button swaps to
-/// the palette's text colour with the app background as its label, so
-/// "armed" reads at a glance in every theme — the old treatment reused
-/// the pressed shade, a 10 % darkening that was easy to miss on the
-/// `2nd` key and impossible to tell from an ordinary press.
-pub fn class_for_toggled(theme: &Theme, corner_radius: f32) -> ButtonClass {
-    class(theme.text_active, theme.app_bg, corner_radius)
-}
-
-/// Like [`class`] but the active variant uses the pressed colour, so
-/// the button looks "held down" without any pointer interaction.
-fn class_flashed(base: Rgba, text: Rgba, corner_radius: f32) -> ButtonClass {
-    let pressed_bg = rgba_to_color(base.scaled(0.9));
-    let hovered_bg = rgba_to_color(base.hover());
-    let disabled_bg = rgba_to_color(base.scaled(0.7));
-    let txt = rgba_to_color(text);
-    let txt_dim = rgba_to_color(text.inactive());
-    let radius = Radius::from(corner_radius);
-
-    ButtonClass::Custom {
-        active: Box::new(move |_focused, _theme| build_style(pressed_bg, txt, radius)),
-        hovered: Box::new(move |_focused, _theme| build_style(hovered_bg, txt, radius)),
-        pressed: Box::new(move |_focused, _theme| build_style(pressed_bg, txt, radius)),
-        disabled: Box::new(move |_theme| build_style(disabled_bg, txt_dim, radius)),
-    }
+/// Colour a latched toggle that is currently on: the `2nd` key while
+/// its table is the one on screen, the chosen row in a settings
+/// list.
+///
+/// The button swaps to the palette's text colour with the window
+/// background as its label, so "armed" reads at a glance in every
+/// theme. It holds that appearance under the pointer as well — a
+/// latch is showing state rather than inviting a press, and a hover
+/// shade there was easy to read as an ordinary press.
+pub fn class_for_toggled(theme: &Theme, corner_radius: f32, height: f32) -> ButtonClass {
+    let face = ButtonFace::new(theme.text_active, theme.app_bg, theme.text_active);
+    class(
+        ButtonColors::flat(face),
+        corner_radius,
+        theme.border_width(height),
+    )
 }
 
 // ---------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------
 
-fn rgba_to_color(c: Rgba) -> Color {
+pub(crate) fn rgba_to_color(c: Rgba) -> Color {
     let (r, g, b, a) = c.to_f32();
     Color::from_rgba(r, g, b, a)
 }
 
-fn build_style(background: Color, text: Color, radius: Radius) -> Style {
+fn style_of(face: ButtonFace, radius: Radius, border_width: f32) -> Style {
+    let text = rgba_to_color(face.text);
     let mut s = Style::new();
-    s.background = Some(Background::Color(background));
+    s.background = Some(Background::Color(rgba_to_color(face.background)));
     s.text_color = Some(text);
     s.icon_color = Some(text);
     s.border_radius = radius;
+    s.border_width = border_width;
+    s.border_color = rgba_to_color(face.border);
     s
 }

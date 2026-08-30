@@ -60,8 +60,12 @@ pub enum Message {
     SetRandDecimals(u8),
     SetPropertyTesting(bool),
     SetDebugRawFormula(bool),
+    /// Which of the chosen family's faces to draw in.
+    SetFontWeight(crate::config::FontWeight),
     /// Show the memory register under the display.
     SetShowMemory(bool),
+    /// Show the DEG/RAD and memory button row above the keypad.
+    SetShowToprow(bool),
     /// Remember the window size the user leaves the window at.
     SetSaveWindowSize(bool),
     /// Keep the history list in `config.toml` across restarts.
@@ -195,14 +199,15 @@ pub struct AppModel {
 
 impl AppModel {
     /// Current active palette – for the Cosmic preset we overlay the
-    /// live desktop colours on top of the stored palette. Every
-    /// other preset (including Custom) is returned as-is.
+    /// live desktop colours on top of the shipped one. Every other
+    /// preset is its table as written.
     pub fn active_theme(&self) -> Theme {
+        let base = self.config.theme();
         if self.config.theme_kind == ThemeKind::Cosmic {
             let over = override_from_cosmic(self.core.system_theme().cosmic());
-            apply_cosmic_override(self.config.theme.clone(), over)
+            apply_cosmic_override(base, over)
         } else {
-            self.config.theme.clone()
+            base
         }
     }
 
@@ -615,7 +620,17 @@ impl AppModel {
         self.ui.context_menu_open = false;
         match op {
             ClipboardOp::Copy => {
-                let text = crate::clipboard::copy_text_for(&self.engine.input.ascii_expression());
+                // The same text the "Show ASCII expression" toggle
+                // draws, down to the separator between a number's
+                // digits: the two are one form, and a `.` copied to
+                // somebody whose region writes `,` is a number in a
+                // notation they do not use.
+                let text = crate::clipboard::copy_text_for(
+                    &self
+                        .engine
+                        .input
+                        .ascii_expression_with(self.config.decimal_separator.to_char()),
+                );
                 cosmic::iced::clipboard::write(text)
             }
             ClipboardOp::Paste => cosmic::iced::clipboard::read()
@@ -674,7 +689,7 @@ impl Application for AppModel {
         // every widget that consults `crate::font::default()` (buttons,
         // dropdowns, sliders, ...) uses it from the very first frame
         // instead of falling back to the system default.
-        crate::ui::font::apply_interface_font(&config.font);
+        crate::ui::font::apply_interface_font(&config.font, config.font_weight);
         let mut engine = Engine::new(config.significant_digits);
         engine.angle_mode = config.angle_mode;
         let rand_min_text = format_f64_for_input(config.rand_min_incl);
@@ -732,7 +747,7 @@ impl Application for AppModel {
             }
 
             Message::SetTheme(kind) => {
-                self.config.apply_theme_preset(kind);
+                self.config.theme_kind = kind;
                 self.persist();
             }
             Message::SetDecimalSeparator(sep) => {
@@ -757,7 +772,12 @@ impl Application for AppModel {
             Message::SetFont(font) => {
                 self.config.font = font;
                 self.config.validate_and_clamp();
-                crate::ui::font::apply_interface_font(&self.config.font);
+                crate::ui::font::apply_interface_font(&self.config.font, self.config.font_weight);
+                self.persist();
+            }
+            Message::SetFontWeight(weight) => {
+                self.config.font_weight = weight;
+                crate::ui::font::apply_interface_font(&self.config.font, self.config.font_weight);
                 self.persist();
             }
             Message::SetSignificantDigits(n) => {
@@ -812,6 +832,10 @@ impl Application for AppModel {
             }
             Message::SetDebugRawFormula(flag) => {
                 self.config.debug_raw_formula = flag;
+                self.persist();
+            }
+            Message::SetShowToprow(flag) => {
+                self.config.show_toprow = flag;
                 self.persist();
             }
             Message::SetShowMemory(flag) => {
@@ -928,7 +952,7 @@ impl Application for AppModel {
         // Re-asserting it here is what keeps the user's family on the
         // keypad from the first frame rather than from the first time
         // they pick one.
-        crate::ui::font::apply_interface_font(&self.config.font);
+        crate::ui::font::apply_interface_font(&self.config.font, self.config.font_weight);
         let layout = self.main_column_layout();
         let top_bar = self.render_top_bar();
         let display_metrics = self.compute_display_metrics(&layout);
@@ -939,7 +963,13 @@ impl Application for AppModel {
         } else {
             None
         };
-        let memory_row = self.render_memory_row(&layout);
+        // The row of memory buttons is the user's to keep or to give
+        // to the display: turned off, its height goes into the
+        // expression slot above rather than being left blank.
+        let memory_row = self
+            .config
+            .show_toprow
+            .then(|| self.render_memory_row(&layout));
         let active_theme = self.active_theme();
         let labels = LabelContext {
             clear: match self.ui.clear_mode {
@@ -965,18 +995,41 @@ impl Application for AppModel {
         );
         // Memory row is shorter than keypad buttons; reclaimed height
         // goes to the expression display above.
-        let controls = widget::column::with_capacity(2)
-            .push(memory_row)
-            .push(keypad)
+        let mut controls = widget::column::with_capacity(2)
             .spacing(layout.row_spacing)
             .width(Length::Fill);
+        if let Some(memory_row) = memory_row {
+            controls = controls.push(memory_row);
+        }
+        let controls = controls.push(keypad);
 
-        let display_slot = widget::container(display)
-            .width(Length::Fill)
-            .height(Length::Fixed(layout.display_budget.max(1.0)));
-        let mut main_column = widget::column::with_capacity(4)
+        // The display and the row of readouts under it are one
+        // surface with a background of its own: the caption, the
+        // readout, the number properties and the memory register all
+        // sit on `display_bg` rather than on the window. It is a
+        // separate slot so a theme can make the display a panel
+        // against the keypad; every shipped one paints it the same
+        // colour as the window, where it reads as one background.
+        let mut display_area = widget::column::with_capacity(2)
+            .push(
+                widget::container(display)
+                    .width(Length::Fill)
+                    .height(Length::Fixed(layout.display_budget.max(1.0))),
+            )
+            .width(Length::Fill);
+        if let Some(status) = status_bar {
+            display_area = display_area.push(status);
+        }
+        let display_slot = widget::container(display_area)
+            .class(surface(
+                active_theme.display_bg,
+                self.config.effective_button_corner_radius(),
+            ))
+            .width(Length::Fill);
+        let main_column = widget::column::with_capacity(3)
             .push(top_bar)
             .push(display_slot)
+            .push(controls)
             .spacing(layout.section_spacing)
             .padding(Padding {
                 top: layout.section_spacing,
@@ -986,10 +1039,6 @@ impl Application for AppModel {
             })
             .width(Length::Fill)
             .height(Length::Fill);
-        if let Some(status) = status_bar {
-            main_column = main_column.push(status);
-        }
-        main_column = main_column.push(controls);
 
         // While a resize this app asked for is in flight the window is
         // changing width underneath the layout, so the calculator is
@@ -1123,7 +1172,12 @@ impl AppModel {
         let radius = self.config.effective_button_corner_radius();
         let key = |label: &'static str, button: Button| {
             widget::button::standard(label)
-                .class(crate::ui::button_style::class_for(&theme, button, radius))
+                .class(crate::ui::button_style::class_for(
+                    &theme,
+                    button,
+                    radius,
+                    TOP_BAR_BUTTON_HEIGHT,
+                ))
                 .on_press(Message::Button(button))
         };
         widget::row::with_capacity(3)
@@ -1151,19 +1205,32 @@ impl AppModel {
         let spacing_metrics = crate::ui::keypad::keypad_metrics(window_height, config);
         let row_spacing = spacing_metrics.spacing;
         let edge = row_spacing;
-        let status_visible = config.status_row_visible();
-        let status_h = if status_visible {
-            PROPERTY_STATUS_HEIGHT
-        } else {
-            0.0
-        };
-        let column_gaps = if status_visible { 3.0 } else { 2.0 };
+        // A memory register that has had to drop under the property
+        // labels is a second line, and the height it takes has to
+        // come out of the display's budget rather than out of the
+        // keypad below it.
+        let status_h = PROPERTY_STATUS_HEIGHT * self.status_row_lines() as f32;
+        // The main column is three sections — top bar, display,
+        // controls — however many rows the display surface holds
+        // inside itself, so the gaps between them do not change with
+        // the status row.
+        let column_gaps = 2.0;
         let section = row_spacing * SECTION_GAP_RATIO;
-        let memory_h = crate::ui::keypad::memory_row_height(&spacing_metrics);
+        // The memory row and the gap above it are only there when the
+        // user has asked for them; without it the display slot is
+        // that much taller and the readout scales up to fill it.
+        let (memory_h, memory_gap) = if config.show_toprow {
+            (
+                crate::ui::keypad::memory_row_height(&spacing_metrics),
+                row_spacing,
+            )
+        } else {
+            (0.0, 0.0)
+        };
         // Bottom padding (`edge`) sits below the keypad and must not
         // steal height from the display region.
         let chrome_without_keypad =
-            section + TOP_BAR_HEIGHT + status_h + memory_h + row_spacing + section * column_gaps;
+            section + TOP_BAR_HEIGHT + status_h + memory_h + memory_gap + section * column_gaps;
         let keypad_area_height = (window_height * crate::ui::keypad::KEYPAD_HEIGHT_FRACTION)
             .min((window_height - chrome_without_keypad - MIN_DISPLAY_HEIGHT).max(1.0));
         let display_budget =
@@ -1230,19 +1297,35 @@ impl AppModel {
         );
         let caption_segments = self.caption_segments();
         let has_caption = !caption_segments.is_empty();
-        let (main_chars, main_width_units) = if let Some(err) = self.ui.error_message.as_deref() {
-            (
-                err.chars().count(),
-                crate::ui::keypad::label_width_units(err),
-            )
+        // An error is a row of pieces like an expression is, so the
+        // `−1` of an inverse function's name is raised where the
+        // display raises every other one. See
+        // [`crate::ui::display::error_segments`].
+        let error_segments = self
+            .ui
+            .error_message
+            .as_deref()
+            .map(crate::ui::display::error_segments)
+            .unwrap_or_default();
+        let (main_chars, main_width_units) = if !error_segments.is_empty() {
+            measure_segments(&error_segments)
         } else if segments.is_empty() {
             (1, 1.0)
         } else {
             measure_segments(&segments)
         };
         let content_width = self.content_width();
+        // A heavier face draws wider than the per-character estimate
+        // the fitting is made with, so the room it is measured
+        // against shrinks by as much rather than the estimate growing
+        // — same arithmetic, and it keeps the factor out of every
+        // width the caption and the readout are fitted from.
         let available_width =
-            display_metrics::available_display_width(content_width, layout.edge_spacing);
+            display_metrics::available_display_width(content_width, layout.edge_spacing)
+                / display_metrics::char_width_factor(crate::ui::font::resolved_weight(
+                    &self.config.font,
+                    self.config.font_weight,
+                ));
         let (caption_slot_h, main_slot_h) =
             display_metrics::display_line_budgets(layout.display_budget, layout.section_spacing);
         let (mut main_size, mut main_line_h) =
@@ -1279,6 +1362,7 @@ impl AppModel {
             caption_size,
             caption_line_h,
             segments,
+            error_segments,
         }
     }
 
@@ -1289,26 +1373,25 @@ impl AppModel {
     ) -> Element<'_, Message> {
         let theme = self.active_theme();
         let inactive_color = {
-            let (r, g, b, a) = theme.text_active.inactive().to_f32();
+            let (r, g, b, a) = theme.text_inactive.to_f32();
             cosmic::iced::Color::from_rgba(r, g, b, a)
         };
-        let display_font = crate::ui::font::font_for_name(&self.config.font);
+        let display_font = crate::ui::font::font_for(&self.config.font, self.config.font_weight);
         let has_caption = metrics.has_caption;
         let main_size = metrics.main_size;
         let main_line_h = metrics.main_line_h;
         let caption_size = metrics.caption_size;
         let caption_line_h = metrics.caption_line_h;
 
-        let main_inner: Element<'_, Message> = if let Some(err) = self.ui.error_message.as_deref() {
-            widget::text::title1(err.to_string())
-                .size(main_size)
-                .font(display_font)
-                .wrapping(cosmic::iced::advanced::text::Wrapping::None)
-                .line_height(cosmic::iced::widget::text::LineHeight::Absolute(
-                    main_line_h.into(),
-                ))
-                .into()
-        } else if metrics.segments.is_empty() {
+        // An error message and an expression are both a row of placed
+        // pieces, and are drawn by the same walk: what differs is
+        // only which row of pieces it is handed.
+        let main_pieces = if metrics.error_segments.is_empty() {
+            &metrics.segments
+        } else {
+            &metrics.error_segments
+        };
+        let main_inner: Element<'_, Message> = if main_pieces.is_empty() {
             widget::text::title1("0")
                 .size(main_size)
                 .font(display_font)
@@ -1317,8 +1400,8 @@ impl AppModel {
                 ))
                 .into()
         } else {
-            let mut row = widget::row::with_capacity(metrics.segments.len());
-            for seg in &metrics.segments {
+            let mut row = widget::row::with_capacity(main_pieces.len());
+            for seg in main_pieces {
                 let scale = seg.script.scale();
                 let size = main_size * scale;
                 let t = widget::text::title1(seg.text.clone())
@@ -1446,7 +1529,7 @@ impl AppModel {
     fn render_status_bar(&self) -> Element<'_, Message> {
         let theme = self.active_theme();
         let inactive_color = {
-            let (r, g, b, a) = theme.text_active.inactive().to_f32();
+            let (r, g, b, a) = theme.text_inactive.to_f32();
             cosmic::iced::Color::from_rgba(r, g, b, a)
         };
         let mut row = widget::row::with_capacity(NumberProperty::ALL.len() + 2);
@@ -1470,26 +1553,85 @@ impl AppModel {
             }
         }
         row = row.push(widget::Space::new().width(Length::Fill));
-        if self.config.show_memory {
-            // A bare `M`, dim, while nothing is stored — the same way
-            // a property that does not hold keeps its label — and the
-            // value beside it, lit, once something is.
+
+        // `Memory:`, dim, while nothing is stored — the same way a
+        // property that does not hold keeps its label — and the value
+        // beside it, lit, once something is.
+        let register = self.memory_readout().map(|text| {
             let stored = self.memory.display(self.config.significant_digits);
+            let label = widget::text::caption(text);
             let label = if stored.is_empty() {
-                widget::text::caption("M").class(cosmic::theme::Text::Color(inactive_color))
+                label.class(cosmic::theme::Text::Color(inactive_color))
             } else {
-                let shown = crate::ui::display::localise_number(
-                    &stored,
-                    self.config.decimal_separator,
-                    self.config
-                        .thousands_separator
-                        .resolve(self.config.decimal_separator),
-                );
-                widget::text::caption(format!("M {shown}"))
+                label
             };
-            row = row.push(label);
+            Element::from(label)
+        });
+
+        let Some(register) = register else {
+            return row.spacing(STATUS_SPACING).width(Length::Fill).into();
+        };
+        if self.status_row_lines() < 2 {
+            return row
+                .push(register)
+                .spacing(STATUS_SPACING)
+                .width(Length::Fill)
+                .into();
         }
-        row.spacing(8).width(Length::Fill).into()
+        // No room beside the labels: the register drops to a line of
+        // its own under them rather than being drawn over the
+        // `fibonacci` at the end of the row. Still right-aligned, so
+        // it stays where the eye already looks for it.
+        widget::column::with_capacity(2)
+            .push(row.spacing(STATUS_SPACING).width(Length::Fill))
+            .push(
+                widget::container(register)
+                    .width(Length::Fill)
+                    .align_x(Alignment::End),
+            )
+            .width(Length::Fill)
+            .into()
+    }
+
+    /// The memory register as the row under the display writes it:
+    /// the word, then the stored value in the display's own grouping
+    /// and decimal glyph. `None` while the register is switched off,
+    /// and the word on its own while nothing is stored.
+    ///
+    /// The space between the two is a no-break one, so a readout that
+    /// has to be wrapped is never split between its name and its
+    /// number — the row it lands on carries the whole reading or none
+    /// of it.
+    fn memory_readout(&self) -> Option<String> {
+        if !self.config.show_memory {
+            return None;
+        }
+        let stored = self.memory.display(self.config.significant_digits);
+        let shown = crate::ui::display::localise_number(
+            &stored,
+            self.config.decimal_separator,
+            self.config
+                .thousands_separator
+                .resolve(self.config.decimal_separator),
+        );
+        Some(memory_readout(&shown))
+    }
+
+    /// How many lines the row under the display takes here. See
+    /// [`status_row_lines`], which is the rule; this is it asked
+    /// about the window as it stands.
+    fn status_row_lines(&self) -> usize {
+        // The row sits inside the main column's own side padding,
+        // which is the keypad's inter-row spacing — the same number
+        // `main_column_layout` calls `edge_spacing`, worked out here
+        // without it so the two cannot ask each other in a circle.
+        let edge = crate::ui::keypad::keypad_metrics(self.window_height, &self.config).spacing;
+        let available = display_metrics::available_display_width(self.content_width(), edge);
+        status_row_lines(
+            self.config.property_bar_visible(),
+            self.memory_readout().as_deref(),
+            available,
+        )
     }
 
     /// Memory-button row. Always visible directly above the keypad in
@@ -1575,6 +1717,92 @@ struct MainColumnLayout {
     section_spacing: f32,
 }
 
+/// The memory register as the row under the display writes it:
+/// `Memory:` on its own while nothing is stored, and the word plus
+/// the value once something is.
+///
+/// The space between the two is a no-break one, so a readout the row
+/// has to wrap is never split between its name and its number — the
+/// line it lands on carries the whole reading or none of it.
+pub(crate) fn memory_readout(shown: &str) -> String {
+    if shown.is_empty() {
+        return MEMORY_LABEL.to_string();
+    }
+    format!("{MEMORY_LABEL}{MEMORY_LABEL_SPACE}{shown}")
+}
+
+/// How many lines the row under the display takes: none when both of
+/// the things it carries are switched off, one when the memory
+/// register fits beside the property labels, two when it does not.
+///
+/// Asked by the layout arithmetic as well as by the renderer, so the
+/// height reserved for the row and the height it draws in agree.
+/// `register` is the readout when it is on show, `properties` whether
+/// the labels are, and `available_width` the room the two have to
+/// share.
+pub(crate) fn status_row_lines(
+    properties: bool,
+    register: Option<&str>,
+    available_width: f32,
+) -> usize {
+    let Some(register) = register else {
+        return usize::from(properties);
+    };
+    if !properties {
+        return 1;
+    }
+    let units = NumberProperty::ALL
+        .iter()
+        .map(|prop| crate::ui::keypad::label_width_units(prop.label()))
+        .sum::<f32>()
+        + crate::ui::keypad::label_width_units(register);
+    // One gap between each pair of labels, and one either side of the
+    // space that pushes the register to the right edge.
+    let gaps = NumberProperty::ALL.len() + 1;
+    if display_metrics::status_row_fits(units, gaps, available_width) {
+        1
+    } else {
+        2
+    }
+}
+
+/// A background of one colour with the keypad's own corners on it:
+/// what the display area is drawn on. Invisible where a theme paints
+/// it the same colour as the window, which every shipped one does.
+fn surface(color: crate::color::Rgba, corner_radius: f32) -> cosmic::theme::Container<'static> {
+    let color = crate::ui::button_style::rgba_to_color(color);
+    cosmic::theme::Container::custom(move |_theme| widget::container::Style {
+        background: Some(cosmic::iced::Background::Color(color)),
+        border: cosmic::iced::Border {
+            radius: cosmic::iced::border::Radius::from(corner_radius),
+            ..Default::default()
+        },
+        ..Default::default()
+    })
+}
+
+/// Height libcosmic draws a standard button at, which is what the top
+/// bar's three are. The border width is worked out from the button's
+/// own height — see [`crate::theme::Theme::border_width`] — and these
+/// three are the only buttons in the window whose height the layout
+/// does not set itself.
+const TOP_BAR_BUTTON_HEIGHT: f32 = 32.0;
+
+/// What the memory register is called on the row under the display.
+/// It used to be a bare `M`, which is a letter rather than a word and
+/// says nothing to somebody who has not used a calculator with one.
+const MEMORY_LABEL: &str = "Memory:";
+
+/// The space between that word and the value: U+00A0, no-break, so a
+/// readout the row has to wrap is never broken between its name and
+/// its number.
+const MEMORY_LABEL_SPACE: char = '\u{00A0}';
+
+/// Widget spacing of the row under the display. Shared with the fit
+/// arithmetic that decides whether the register goes on a line of its
+/// own — see [`display_metrics::status_row_fits`].
+const STATUS_SPACING: f32 = display_metrics::STATUS_SPACING;
+
 /// How much of the keypad's inter-row spacing the gaps around the
 /// display are worth.
 ///
@@ -1598,6 +1826,9 @@ struct DisplayMetrics {
     caption_size: f32,
     caption_line_h: f32,
     segments: Vec<crate::ui::display::DisplaySegment>,
+    /// The error message as pieces, when one is on screen. Empty
+    /// otherwise, which is what says the buffer is what to draw.
+    error_segments: Vec<crate::ui::display::DisplaySegment>,
 }
 
 /// Place one display segment on the expression line. A piece written

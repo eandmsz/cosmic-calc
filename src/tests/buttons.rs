@@ -844,7 +844,9 @@ fn an_operator_after_y_pow_x_follows_the_whole_power() {
     assert_eq!(e.evaluate().expect("3 squared plus 4").display, "13");
 
     // The same for the postfix keys, which would otherwise bind to the
-    // base alone.
+    // base alone — and which need brackets to say so, since the
+    // buffer spells the power `3^2` and a bare `3^2!` reads as `3`
+    // raised to `2!`.
     let (mut e, mut s, c) = fresh();
     for b in [
         Button::Num(2),
@@ -854,7 +856,8 @@ fn an_operator_after_y_pow_x_follows_the_whole_power() {
     ] {
         apply_button(&mut e, &mut s, &c, b);
     }
-    assert_eq!(e.input.display_string(), "3^2!");
+    assert_eq!(e.input.display_string(), "(3^2)!");
+    assert_eq!(e.evaluate().expect("nine factorial").display, "362880");
 
     // With the base still empty there is no value for an operator to
     // attach to, so the press is dropped as it always was.
@@ -863,6 +866,152 @@ fn an_operator_after_y_pow_x_follows_the_whole_power() {
         apply_button(&mut e, &mut s, &c, b);
     }
     assert_eq!(e.input.display_string(), "^2");
+}
+
+#[test]
+fn a_minus_in_an_empty_exponent_is_the_exponent_s_sign() {
+    // `2`, `xʸ`, `−` used to take the caret back and leave `2-`: the
+    // press read as a change of mind about the operator, so a
+    // negative exponent could not be keyed at all.
+    let (mut e, mut s, c) = fresh();
+    for b in [Button::Num(2), Button::XPowY, Button::Sub, Button::Num(3)] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert_eq!(e.input.display_string(), "2^-3");
+    assert_eq!(
+        e.evaluate().expect("two to the minus three").display,
+        "0.125"
+    );
+
+    // EE opens the same slot, and reads the same way.
+    let (mut e, mut s, c) = fresh();
+    for b in [Button::Num(5), Button::EE, Button::Sub, Button::Num(3)] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert_eq!(e.input.display_string(), "5×10^-3");
+    assert_eq!(e.evaluate().expect("five milli").display, "0.005");
+
+    // The keys with a base of their own leave the same slot behind.
+    let (mut e, mut s, c) = fresh();
+    for b in [Button::TenPowX, Button::Sub, Button::Num(2)] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert_eq!(e.input.ascii_expression(), "10^-2");
+
+    // The other three still replace the caret: only a sign is a
+    // thing an exponent can begin with.
+    let (mut e, mut s, c) = fresh();
+    for b in [Button::Num(2), Button::XPowY, Button::Mul] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert_eq!(e.input.display_string(), "2×");
+}
+
+#[test]
+fn y_pow_x_takes_the_sign_of_what_it_raises() {
+    // `−`, `2`, `yˣ`, `9` is nine to the minus two. The caret used to
+    // go in after the sign, leaving it on the line as `-9^2` — the
+    // negative of nine squared, which is a different number.
+    let (mut e, mut s, c) = fresh();
+    for b in [Button::Sub, Button::Num(2), Button::YPowX, Button::Num(9)] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert_eq!(e.input.display_string(), "9^-2");
+    assert_eq!(
+        e.evaluate().expect("nine to the minus two").display,
+        "0.0123456790123457"
+    );
+
+    // A minus with something to subtract from is a subtraction, and
+    // only what follows it goes up: `5-2`, `yˣ`, `3` is `5-3^2`.
+    let (mut e, mut s, c) = fresh();
+    for b in [
+        Button::Num(5),
+        Button::Sub,
+        Button::Num(2),
+        Button::YPowX,
+        Button::Num(3),
+    ] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert_eq!(e.input.display_string(), "5-3^2");
+}
+
+#[test]
+fn a_closed_exponent_slot_is_a_finished_value() {
+    // The `)` says the exponent is done with, so the next digit is a
+    // new factor rather than another digit of it. `2^35` used to be
+    // what came back — `2` to the thirty-fifth.
+    let (mut e, mut s, c) = fresh();
+    for b in [
+        Button::Num(2),
+        Button::XPowY,
+        Button::Num(3),
+        Button::RightParen,
+        Button::Num(5),
+    ] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert_eq!(e.input.display_string(), "2^3×5");
+    assert_eq!(e.evaluate().expect("eight fives").display, "40");
+
+    // A postfix applies to the whole power, which takes brackets to
+    // say: a bare `2^3!` reads as `2` raised to `3!`.
+    let (mut e, mut s, c) = fresh();
+    for b in [
+        Button::Num(2),
+        Button::XPowY,
+        Button::Num(3),
+        Button::RightParen,
+        Button::Factorial,
+    ] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert_eq!(e.input.display_string(), "(2^3)!");
+    assert_eq!(e.evaluate().expect("eight factorial").display, "40320");
+
+    // And a caret raises the power rather than adding a level to it.
+    let (mut e, mut s, c) = fresh();
+    for b in [
+        Button::Num(2),
+        Button::XPowY,
+        Button::Num(3),
+        Button::RightParen,
+        Button::XPowY,
+        Button::Num(2),
+    ] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert_eq!(e.input.display_string(), "(2^3)^2");
+    assert_eq!(e.evaluate().expect("eight squared").display, "64");
+
+    // The base slot `yˣ` opens closes the same way, and what follows
+    // reads the same way after it.
+    let (mut e, mut s, c) = fresh();
+    for b in [
+        Button::Num(5),
+        Button::YPowX,
+        Button::Num(9),
+        Button::RightParen,
+        Button::Factorial,
+    ] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert_eq!(e.input.display_string(), "(9^5)!");
+
+    // An exponent still being filled keeps its postfix, which is
+    // what `xʸ` is for: `2`, `xʸ`, `3`, `!` is `2` raised to `3!`.
+    let (mut e, mut s, c) = fresh();
+    for b in [
+        Button::Num(2),
+        Button::XPowY,
+        Button::Num(3),
+        Button::Factorial,
+    ] {
+        apply_button(&mut e, &mut s, &c, b);
+    }
+    assert_eq!(e.input.display_string(), "2^3!");
+    assert_eq!(e.evaluate().expect("two to the six").display, "64");
 }
 
 #[test]
