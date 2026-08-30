@@ -9,7 +9,7 @@
 //!
 //! Each arm of [`presets::preset`] is one palette, and each names
 //! three window surfaces, two text colours, an accent, a border
-//! thickness, and then one entry per button category — see [`Theme`]
+//! percentage, and then one entry per button category — see [`Theme`]
 //! for what the categories are.
 //!
 //! A category is a three-by-three grid: a row per colour, a column
@@ -25,7 +25,7 @@
 //! ```
 //!
 //! Borders are opt-in per palette
-//! ([`Theme::button_border_thickness`], a percentage of the button's
+//! ([`Theme::button_border_percent`], a percentage of the button's
 //! height). Most palettes leave it at zero and their border colours
 //! are written down and waiting rather than on screen; Cupertino Dark
 //! and Cyberpunk ask for one.
@@ -50,8 +50,8 @@
 //! its border — rather than deriving any of them. See
 //! [`apply_cosmic_override`].
 
-use serde::de::{SeqAccess, Visitor};
-use serde::ser::SerializeStruct;
+use serde::de::{MapAccess, SeqAccess, Visitor};
+use serde::ser::{SerializeMap, SerializeStruct};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::color::Rgba;
@@ -68,7 +68,7 @@ pub struct ButtonFace {
     /// is drawn in. The font colour.
     pub text: Rgba,
     /// What its outline is drawn in, where the palette asks for one
-    /// — see [`Theme::button_border_thickness`].
+    /// — see [`Theme::button_border_percent`].
     pub border: Rgba,
 }
 
@@ -178,11 +178,11 @@ impl ButtonColors {
 /// Largest border a theme may ask for, as a percentage of the
 /// button's height. A quarter of the button is already a frame rather
 /// than an outline; past that there is no room left for a label.
-pub const MAX_BORDER_THICKNESS: f32 = 25.0;
+pub const MAX_BORDER_PERCENT: f32 = 25.0;
 
-/// Longest label a theme may name itself with. The name is a button
-/// in the settings panel, and a panel-wide button is no use to
-/// anybody.
+/// Longest label a theme may name itself with. The name is a row in
+/// the settings panel's palette list, and one that runs off the end
+/// of its row is no use to anybody.
 pub const MAX_DISPLAY_NAME_LEN: usize = 32;
 
 /// Named colour palette. Every button category plus the three
@@ -192,8 +192,14 @@ pub struct Theme {
     /// Which preset this palette is. Fixed by the build: the file may
     /// retune a palette but cannot invent one, because every other
     /// part of the app names a palette by this.
+    ///
+    /// Not written into `config.toml`: the palette's entry is already
+    /// keyed by it — `[themes.RedmondLight]` — and a second copy
+    /// inside the entry is one more thing that can disagree with the
+    /// name above it.
+    #[serde(skip_serializing)]
     pub id: ThemeKind,
-    /// What the settings panel writes on the button that selects it.
+    /// What the settings panel writes on the row that selects it.
     pub display_name: String,
     /// Behind the window as a whole: the keypad's gaps, the top bar.
     pub app_bg: Rgba,
@@ -218,7 +224,7 @@ pub struct Theme {
     /// How thick a button's border is drawn, as a percentage of the
     /// button's height — see [`Theme::border_width`]. `0` is no
     /// border at all, which is what most shipped palettes ask for.
-    pub button_border_thickness: f32,
+    pub button_border_percent: f32,
     /// The scientific keys that have no category of their own: the
     /// roots, the logarithms, the powers, the constants, `!`, `EE`.
     pub science: ButtonColors,
@@ -263,14 +269,14 @@ impl Theme {
     /// physical ones too.
     ///
     /// A theme that asks for a border always gets at least one pixel
-    /// of it, and the width is capped at [`MAX_BORDER_THICKNESS`] of
+    /// of it, and the width is capped at [`MAX_BORDER_PERCENT`] of
     /// the button so no value can swallow the label.
     pub fn border_width(&self, button_height: f32) -> f32 {
-        if self.button_border_thickness <= 0.0 || button_height <= 0.0 {
+        if self.button_border_percent <= 0.0 || button_height <= 0.0 {
             return 0.0;
         }
-        let percent = self.button_border_thickness.min(MAX_BORDER_THICKNESS);
-        let cap = (button_height * MAX_BORDER_THICKNESS / 100.0).max(1.0);
+        let percent = self.button_border_percent.min(MAX_BORDER_PERCENT);
+        let cap = (button_height * MAX_BORDER_PERCENT / 100.0).max(1.0);
         (button_height * percent / 100.0).round().clamp(1.0, cap)
     }
 
@@ -280,12 +286,10 @@ impl Theme {
     fn sanitize(&mut self) {
         let fallback = presets::preset(self.id);
         self.display_name = sanitized_display_name(&self.display_name, &fallback.display_name);
-        if !self.button_border_thickness.is_finite() {
-            self.button_border_thickness = fallback.button_border_thickness;
+        if !self.button_border_percent.is_finite() {
+            self.button_border_percent = fallback.button_border_percent;
         }
-        self.button_border_thickness = self
-            .button_border_thickness
-            .clamp(0.0, MAX_BORDER_THICKNESS);
+        self.button_border_percent = self.button_border_percent.clamp(0.0, MAX_BORDER_PERCENT);
     }
 }
 
@@ -293,10 +297,10 @@ impl Theme {
 /// being handed taken out of it, or `fallback` when nothing usable is
 /// left.
 ///
-/// The name is drawn on a button and nowhere else — it is never a
-/// path, a command or markup — so the risks are a label that breaks
-/// the panel's layout and a label that lies about which palette it
-/// selects. Control characters (a newline, a NUL) do the first;
+/// The name is drawn on a row of the settings panel and nowhere else
+/// — it is never a path, a command or markup — so the risks are a
+/// label that breaks the panel's layout and a label that lies about
+/// which palette it selects. Control characters (a newline, a NUL) do the first;
 /// bidirectional overrides and zero-width joiners do the second, by
 /// letting a name render as something other than the characters it is
 /// made of. Both go, and what is left is capped at
@@ -491,6 +495,26 @@ impl Serialize for StateColors {
 
 /// Every palette, as `config.toml` carries them.
 ///
+/// One `themes` table holds the lot, and each palette is a sub-table
+/// under its own id, so every line of a palette says which palette it
+/// belongs to:
+///
+/// ```toml
+/// [themes.RedmondLight]
+/// display_name = "Redmond Light"
+/// app_bg = "#F0F0F0FF"
+///
+/// [themes.RedmondLight.number]
+/// fill   = "#FFFFFFFF #FFFFFFFF #E5E5E5FF"
+/// label  = "#000000FF #000000FF #000000FF"
+/// border = "#000000FF #000000FF #000000FF"
+/// ```
+///
+/// Earlier versions wrote a `[[themes]]` array with the id inside
+/// each entry, and those files still load — the id is read from the
+/// entry when the list is an array — so an upgrade is a load and the
+/// next save, not a hand-migration.
+///
 /// The file is authoritative: what the user leaves in it is what the
 /// window is painted with. It is also hand-edited, so nothing in it
 /// is trusted. Reading one is a repair pass rather than a parse —
@@ -500,8 +524,7 @@ impl Serialize for StateColors {
 /// keeps its first entry, and a palette the file leaves out is added
 /// back. What comes out is always all nineteen, in the order the
 /// settings panel offers them, whatever went in.
-#[derive(Debug, Clone, PartialEq, Serialize)]
-#[serde(transparent)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ThemeTable(Vec<Theme>);
 
 impl Default for ThemeTable {
@@ -520,7 +543,7 @@ impl ThemeTable {
             .unwrap_or_else(|| presets::preset(kind))
     }
 
-    /// What the settings panel writes on the button for `kind`.
+    /// What the settings panel writes on the row for `kind`.
     pub fn display_name(&self, kind: ThemeKind) -> &str {
         self.0
             .iter()
@@ -545,6 +568,24 @@ impl ThemeTable {
     }
 }
 
+/// One table of palettes, each under its own id, in the order the
+/// settings panel offers them. The id is the key rather than a field
+/// of the entry, so `[themes.HighContrastDark.number]` says which
+/// palette's digits it is describing without the reader having to
+/// scroll back up the file to find out.
+impl Serialize for ThemeTable {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut map = serializer.serialize_map(Some(self.0.len()))?;
+        for theme in &self.0 {
+            map.serialize_entry(theme.id.key(), theme)?;
+        }
+        map.end()
+    }
+}
+
 impl<'de> Deserialize<'de> for ThemeTable {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
@@ -556,13 +597,37 @@ impl<'de> Deserialize<'de> for ThemeTable {
             type Value = Vec<Theme>;
 
             fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                f.write_str("a list of themes")
+                f.write_str("a table of palettes keyed by id")
             }
 
+            /// The current shape: `[themes.RedmondLight]`, the key
+            /// naming the palette the entry retunes.
+            fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
+                let mut out = Vec::new();
+                while let Some(key) = map.next_key::<String>()? {
+                    // Read the entry as a plain value first, so one
+                    // written as something other than a table — a
+                    // string, a number — is skipped rather than
+                    // failing the whole file with it.
+                    let value = map.next_value::<toml::Value>()?;
+                    let Some(id) = ThemeKind::from_key(key.trim()) else {
+                        continue;
+                    };
+                    if let Ok(raw) = RawTheme::deserialize(value) {
+                        out.push(raw.resolve(id));
+                    }
+                }
+                Ok(out)
+            }
+
+            /// What earlier versions wrote: a `[[themes]]` array
+            /// with the id inside each entry. Read so those files
+            /// keep every colour the user tuned in them; the next
+            /// save writes the table above.
             fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
                 let mut out = Vec::new();
                 while let Some(raw) = seq.next_element::<RawTheme>()? {
-                    if let Some(theme) = raw.resolve() {
+                    if let Some(theme) = raw.resolve_by_own_id() {
                         out.push(theme);
                     }
                 }
@@ -570,7 +635,9 @@ impl<'de> Deserialize<'de> for ThemeTable {
             }
         }
 
-        let mut table = ThemeTable(deserializer.deserialize_seq(Entries)?);
+        // Either shape, told apart by what the file actually holds
+        // rather than by which one this build would have written.
+        let mut table = ThemeTable(deserializer.deserialize_any(Entries)?);
         table.normalize();
         Ok(table)
     }
@@ -579,14 +646,17 @@ impl<'de> Deserialize<'de> for ThemeTable {
 /// A palette as it comes off disk, before any of it is believed.
 ///
 /// Every field is optional and every field reads through a type that
-/// cannot fail: a colour that is not `#RRGGBBAA`, a thickness that is
-/// not a number, a whole category written as a string — none of them
-/// is an error, each is simply absent, and [`RawTheme::resolve`] puts
-/// the shipped value in its place. One bad character in one colour
-/// must not cost the user every other setting in the file.
+/// cannot fail: a colour that is not `#RRGGBBAA`, a border percentage
+/// that is not a number, a whole category written as a string — none
+/// of them is an error, each is simply absent, and
+/// [`RawTheme::resolve`] puts the shipped value in its place. One bad
+/// character in one colour must not cost the user every other setting
+/// in the file.
 #[derive(Debug, Default, Deserialize)]
 #[serde(default)]
 struct RawTheme {
+    /// Only a `[[themes]]` array written by an older version carries
+    /// one; in the table the key above the entry names the palette.
     id: Lenient<String>,
     display_name: Lenient<String>,
     app_bg: Lenient<Rgba>,
@@ -595,7 +665,11 @@ struct RawTheme {
     text_active: Lenient<Rgba>,
     text_inactive: Lenient<Rgba>,
     accent: Lenient<Rgba>,
-    button_border_thickness: Lenient<f32>,
+    /// Called `button_border_thickness` in earlier versions, and
+    /// still read under that name so a file written by one of them
+    /// keeps the border its user asked for.
+    #[serde(alias = "button_border_thickness")]
+    button_border_percent: Lenient<f32>,
     science: RawGroup,
     second: RawGroup,
     toprow: RawGroup,
@@ -613,14 +687,21 @@ struct RawTheme {
 }
 
 impl RawTheme {
-    /// The palette this entry describes, or `None` when it names one
-    /// the build does not have — the only thing in the file that
-    /// cannot be repaired, because the rest of the app addresses a
-    /// palette by its id.
-    fn resolve(self) -> Option<Theme> {
-        let id = ThemeKind::from_key(self.id.0?.trim())?;
+    /// The palette this entry describes, as an older `[[themes]]`
+    /// array named it: from the `id` field inside the entry itself.
+    /// `None` when it names one the build does not have — the only
+    /// thing in the file that cannot be repaired, because the rest of
+    /// the app addresses a palette by its id.
+    fn resolve_by_own_id(self) -> Option<Theme> {
+        let id = ThemeKind::from_key(self.id.0.as_deref()?.trim())?;
+        Some(self.resolve(id))
+    }
+
+    /// This entry as the palette `id` names, with the shipped value
+    /// in place of everything the file did not give usably.
+    fn resolve(self, id: ThemeKind) -> Theme {
         let base = presets::preset(id);
-        Some(Theme {
+        Theme {
             id,
             display_name: sanitized_display_name(
                 self.display_name.0.as_deref().unwrap_or_default(),
@@ -632,12 +713,12 @@ impl RawTheme {
             text_active: self.text_active.0.unwrap_or(base.text_active),
             text_inactive: self.text_inactive.0.unwrap_or(base.text_inactive),
             accent: self.accent.0.unwrap_or(base.accent),
-            button_border_thickness: self
-                .button_border_thickness
+            button_border_percent: self
+                .button_border_percent
                 .0
                 .filter(|t| t.is_finite())
-                .unwrap_or(base.button_border_thickness)
-                .clamp(0.0, MAX_BORDER_THICKNESS),
+                .unwrap_or(base.button_border_percent)
+                .clamp(0.0, MAX_BORDER_PERCENT),
             science: self.science.resolve(base.science),
             second: self.second.resolve(base.second),
             toprow: self.toprow.resolve(base.toprow),
@@ -652,7 +733,7 @@ impl RawTheme {
             negate: self.negate.resolve(base.negate),
             decimal: self.decimal.resolve(base.decimal),
             number: self.number.resolve(base.number),
-        })
+        }
     }
 }
 

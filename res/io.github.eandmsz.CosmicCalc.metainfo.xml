@@ -34,6 +34,18 @@
   </categories>
 
   <releases>
+    <release version="0.2.3" date="2026-08-30">
+      <description>
+        <ul>
+          <li>The palettes are one table in config.toml, each under its own id: [themes.RedmondLight], [themes.HighContrastDark.number]. The file used to repeat [[themes]] nineteen times with an id inside each entry and a bare [themes.number] under it, so nothing below the top of a palette said which palette it belonged to. A file written by an earlier version still loads, with everything tuned in it intact, and the next save rewrites it in the new shape</li>
+          <li>button_border_thickness is button_border_percent, which is what the value is — a percentage of the button's height. The old name is still read, so a hand-tuned file keeps its borders</li>
+          <li>Every colour off disk is checked rather than interpreted: a #, then hex digits and nothing else, and exactly six or eight of them. FF0000FF without the hash, #FF00 a digit short, #FF00GG with a character that is not hex — each is replaced by the shipped colour for that slot alone, and the colours either side of it in the same row still come out of the file</li>
+          <li>HighContrast Dark and HighContrast Light are High Contrast Dark and High Contrast Light. The id the file keys them by is unchanged, so nothing in an existing config.toml has to move</li>
+          <li>The theme picker is a scrolling list of one palette per row, in the same box and at the same height as the font family list, and it opens at the palette in force with the ones either side of it on screen. Nineteen names wrapped across the panel as buttons took a third of its height and had to be read across and down</li>
+          <li>± flips a minus already in front of the operand rather than wrapping a second one inside it. 5−3 is 5+3, since taking away a negative three is adding three, and −4 is 4, the sign coming off a number with nothing to subtract from — the same wherever a value begins, so sin(−3 is sin(3 and 2⁻³ is 2³. An operand after a +, ×, ÷ or a caret is still wrapped as (-x), and one already wrapped still unwraps</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.2.2" date="2026-08-30">
       <description>
         <ul>

@@ -236,6 +236,21 @@ make check                         # fmt + clippy + the whole workspace
 	  different number. A minus with something to subtract from is a
 	  subtraction and stays put, so `5-2` then `yˣ` then `3` is
 	  `5-3²`
+- `±` flips the sign of the operand it stands on, and a minus already
+  in front of that operand is the sign it flips rather than something
+  to put a second one inside. `5−3` then `±` is `5+3`: taking away a
+  negative three is adding three, and the `5−(−3)` it used to write
+  says the same thing in a way nobody reads at a glance
+	- `−4` then `±` is `4` — nothing on the left of that minus for
+	  it to subtract from, so the sign has only to come off. The
+	  same wherever a value begins: `sin(−3` is `sin(3`, and `2⁻³`
+	  is `2³`
+	- Anywhere else the operand is wrapped, as it always was: `5+6`
+	  then `±` is `5+(-6)`, and `2×5` is `2×(-5)`. A `+` is not a
+	  sign the key put there, and the brackets keep the negation
+	  bound to its own operand under chained operators, where a bare
+	  `2×-5` works arithmetically but reads as ambiguous. A press on
+	  an operand already wrapped unwraps it
 - A decimal separator with no digits behind it goes when you move on
   from it: `5`, `.`, `+` is `5+`. Backspace is the one press that
   leaves it, since deleting it is what you are asking for
@@ -311,38 +326,51 @@ make check                         # fmt + clippy + the whole workspace
 	- Every palette is written into `config.toml` in full — its
 	  name, its surfaces and the nine colours of each group — and
 	  the file is what the window is painted with, so any of it can
-	  be retuned by hand without rebuilding. A row is one line,
-	  the way a keypad row is:
+	  be retuned by hand without rebuilding. One `themes` table
+	  holds the lot, each palette under its own id, so every line
+	  says which palette it belongs to. A row is one line, the way
+	  a keypad row is:
 
 	  ```toml
-	  [[themes]]
-	  id = "CupertinoDark"
+	  [themes.CupertinoDark]
 	  display_name = "Cupertino Dark"
 	  app_bg = "#283133FF"
-	  button_border_thickness = 1.0
+	  button_border_percent = 1.0
 
-	  [themes.science]
+	  [themes.CupertinoDark.science]
 	  fill   = "#3E4247FF #52575EFF #383B40FF"
 	  label  = "#D4D4D4FF #D4D4D4FF #D4D4D4FF"
 	  border = "#D4D4D4FF #D4D4D4FF #D4D4D4FF"
 	  ```
 
-	  `id` is the only part the build owns, because everything else
-	  in the app names a palette by it: an entry naming one this
-	  build does not have is dropped, a palette named twice keeps
-	  its first entry, and one the file leaves out is added back.
-	  `display_name` is the text on the palette's button in the
-	  settings panel — rename `Barbie` and the button says what you
-	  renamed it to
+	  The id is the only part the build owns, because everything
+	  else in the app names a palette by it: an entry naming one
+	  this build does not have is dropped, and one the file leaves
+	  out is added back. `display_name` is the text on the
+	  palette's row in the settings panel — rename `Barbie` and the
+	  row says what you renamed it to
+	- A file written by an earlier version listed the palettes as a
+	  `[[themes]]` array with the id inside each entry, and spelled
+	  the border `button_border_thickness`. Those files still load,
+	  with everything tuned in them intact, and the next save
+	  rewrites them in the shape above — the migration is a start
+	  of the app rather than a hand-edit
 	- Nothing in that section is trusted. Reading it is a repair
 	  pass rather than a parse: a colour that is not `#RRGGBB(AA)`,
-	  a thickness that is not a number in range, a whole group
-	  written as a string — none of them is an error, each falls
-	  back to the shipped value on its own, and a name is stripped
-	  of control characters and invisible formatting codepoints and
-	  capped at 32 characters before it is drawn. One bad character
-	  in one colour must not cost you every other setting in the
-	  file
+	  a border percentage that is not a number in range, a whole
+	  group written as a string — none of them is an error, each
+	  falls back to the shipped value on its own, and a name is
+	  stripped of control characters and invisible formatting
+	  codepoints and capped at 32 characters before it is drawn.
+	  One bad character in one colour must not cost you every other
+	  setting in the file
+	- A colour is checked rather than interpreted: a `#`, then hex
+	  digits and nothing else, and exactly six or eight of them.
+	  `FF0000FF` without the `#`, `#FF00` a digit short, `#FF00GG`
+	  with a character that is not hex — each is replaced by the
+	  factory colour for that slot rather than read as far as it
+	  parses, and only that slot: the colours either side of it in
+	  the same row still come out of the file
 	- `version` at the top of the file records the release that
 	  wrote it, so a later one can tell what it is reading before
 	  it changes anything
@@ -360,7 +388,7 @@ make check                         # fmt + clippy + the whole workspace
 	  translating it, and the alpha channel is live everywhere: a
 	  button filled with `#00000000` shows the background through it
 	  and is drawn by its border alone
-	- Borders are opt-in per palette — `button_border_thickness`,
+	- Borders are opt-in per palette — `button_border_percent`,
 	  zero in most of them and non-zero in Cupertino Dark and
 	  Cyberpunk — and are a percentage of the button's height
 	  rather than a pixel count, so an outline keeps its
@@ -550,13 +578,18 @@ make check                         # fmt + clippy + the whole workspace
 	  the keyboard, and either can be put on a keypad cell of your
 	  own
 	- Every choice that is a row of buttons rather than a switch —
-	  theme, the two separators, the corner radius, font weight —
-	  is stretched to the full width of the panel, so a choice
-	  between two ends at the same edge as a choice between four
-	  instead of trailing off in the middle. What each button gets
-	  of that width is its share of the names on its line, so a
-	  `HighContrast Light` is drawn wider than the `Texas` beside
-	  it
+	  the two separators, the corner radius, font weight — is
+	  stretched to the full width of the panel, so a choice between
+	  two ends at the same edge as a choice between four instead of
+	  trailing off in the middle. What each button gets of that
+	  width is its share of the names on its line, so a `Comma ,`
+	  is drawn wider than the `None` beside it
+	- Theme is a list rather than a row of buttons: one palette per
+	  line, in the scroll box the font families are browsed in and
+	  bounded to the same height. Nineteen names wrapped across the
+	  panel took a third of it and had to be read across and down;
+	  one to a line is a list, and adding a palette no longer
+	  pushes the rest of the settings further away
 	- "System" is what the two separators and the corner radius
 	  call the choice that is not a choice: the separators take
 	  the region's, and the radius the desktop's
@@ -565,9 +598,10 @@ make check                         # fmt + clippy + the whole workspace
 	  radius is a fraction of the button's own height, so `50%`
 	  is a pill at every window size where a fixed pixel count
 	  would stop being round as the buttons grew
-	- The font list opens at the family in force rather than at
-	  the top of an alphabetical list of every family on the
-	  machine, with the rows either side of it on screen to
+	- Both lists open at the row in force — the palette you are
+	  using, the family you are using — rather than at the top of
+	  nineteen palettes or of an alphabetical list of every family
+	  on the machine, with the rows either side of it on screen to
 	  compare against
 - The font's weight is a choice of its own, under the family: only the
   faces that family actually ships, so one with a Light and a Black

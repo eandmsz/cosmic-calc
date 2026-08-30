@@ -25,7 +25,7 @@ pub(super) fn preset(kind: ThemeKind) -> Theme {
             text_active: rgba("#D4D4D4FF"),
             text_inactive: rgba("#D4D4D44D"),
             accent: rgba("#FF9600FF"),
-            button_border_thickness: 1.0,
+            button_border_percent: 1.0,
             science: ButtonColors::grid(
                 //               resting            hover              pressed
                 StateColors::new(rgba("#3E4247FF"), rgba("#52575EFF"), rgba("#383B40FF")), // fill
@@ -120,7 +120,7 @@ pub(super) fn preset(kind: ThemeKind) -> Theme {
             text_active: rgba("#FFFFFFFF"),
             text_inactive: rgba("#FFFFFF4D"),
             accent: rgba("#00525AFF"),
-            button_border_thickness: 0.0,
+            button_border_percent: 0.0,
             science: ButtonColors::grid(
                 //               resting            hover              pressed
                 StateColors::new(rgba("#D6D6D6FF"), rgba("#EDEDEDFF"), rgba("#C1C1C1FF")), // fill
@@ -215,7 +215,7 @@ pub(super) fn preset(kind: ThemeKind) -> Theme {
             text_active: rgba("#FFFFFFFF"),
             text_inactive: rgba("#FFFFFF4D"),
             accent: rgba("#4CC2FFFF"),
-            button_border_thickness: 0.0,
+            button_border_percent: 0.0,
             science: ButtonColors::grid(
                 //               resting            hover              pressed
                 StateColors::new(rgba("#333333FF"), rgba("#4A4A4AFF"), rgba("#2E2E2EFF")), // fill
@@ -310,7 +310,7 @@ pub(super) fn preset(kind: ThemeKind) -> Theme {
             text_active: rgba("#000000FF"),
             text_inactive: rgba("#0000004D"),
             accent: rgba("#0067C0FF"),
-            button_border_thickness: 0.0,
+            button_border_percent: 0.0,
             science: ButtonColors::grid(
                 //               resting            hover              pressed
                 StateColors::new(rgba("#F9F9F9FF"), rgba("#FFFFFFFF"), rgba("#E0E0E0FF")), // fill
@@ -398,14 +398,14 @@ pub(super) fn preset(kind: ThemeKind) -> Theme {
         },
         ThemeKind::HighContrastDark => Theme {
             id: ThemeKind::HighContrastDark,
-            display_name: "HighContrast Dark".to_string(),
+            display_name: "High Contrast Dark".to_string(),
             app_bg: rgba("#242424FF"),
             display_bg: rgba("#242424FF"),
             sidepanel_bg: rgba("#F3F3F3FF"),
             text_active: rgba("#FFFFFFFF"),
             text_inactive: rgba("#FFFFFF4D"),
             accent: rgba("#FFFFFFFF"),
-            button_border_thickness: 0.0,
+            button_border_percent: 0.0,
             science: ButtonColors::grid(
                 //               resting            hover              pressed
                 StateColors::new(rgba("#1A1A1AFF"), rgba("#313131FF"), rgba("#171717FF")), // fill
@@ -493,14 +493,14 @@ pub(super) fn preset(kind: ThemeKind) -> Theme {
         },
         ThemeKind::HighContrastLight => Theme {
             id: ThemeKind::HighContrastLight,
-            display_name: "HighContrast Light".to_string(),
+            display_name: "High Contrast Light".to_string(),
             app_bg: rgba("#DBDBDBFF"),
             display_bg: rgba("#DBDBDBFF"),
             sidepanel_bg: rgba("#DBDBDBFF"),
             text_active: rgba("#000000FF"),
             text_inactive: rgba("#0000004D"),
             accent: rgba("#000000FF"),
-            button_border_thickness: 0.0,
+            button_border_percent: 0.0,
             science: ButtonColors::grid(
                 //               resting            hover              pressed
                 StateColors::new(rgba("#E5E5E5FF"), rgba("#FCFCFCFF"), rgba("#CECECEFF")), // fill
@@ -595,7 +595,7 @@ pub(super) fn preset(kind: ThemeKind) -> Theme {
             text_active: rgba("#E7E7E7FF"),
             text_inactive: rgba("#E7E7E74D"),
             accent: rgba("#61CDDCFF"),
-            button_border_thickness: 0.0,
+            button_border_percent: 0.0,
             science: ButtonColors::grid(
                 //               resting            hover              pressed
                 StateColors::new(rgba("#636363FF"), rgba("#7A7A7AFF"), rgba("#595959FF")), // fill
@@ -690,7 +690,7 @@ pub(super) fn preset(kind: ThemeKind) -> Theme {
             text_active: rgba("#000000FF"),
             text_inactive: rgba("#0000004D"),
             accent: rgba("#324C67FF"),
-            button_border_thickness: 0.0,
+            button_border_percent: 0.0,
             science: ButtonColors::grid(
                 //               resting            hover              pressed
                 StateColors::new(rgba("#1C1F27FF"), rgba("#2C313EFF"), rgba("#191C23FF")), // fill
@@ -785,7 +785,7 @@ pub(super) fn preset(kind: ThemeKind) -> Theme {
             text_active: rgba("#D4D4D4FF"),
             text_inactive: rgba("#D4D4D44D"),
             accent: rgba("#FF9600FF"),
-            button_border_thickness: 0.0,
+            button_border_percent: 0.0,
             science: ButtonColors::grid(
                 //               resting            hover              pressed
                 StateColors::new(rgba("#3E4247FF"), rgba("#52575EFF"), rgba("#383B40FF")), // fill
@@ -880,7 +880,7 @@ pub(super) fn preset(kind: ThemeKind) -> Theme {
             text_active: rgba("#D4D4D4FF"),
             text_inactive: rgba("#D4D4D44D"),
             accent: rgba("#FF9600FF"),
-            button_border_thickness: 0.1,
+            button_border_percent: 0.1,
             science: ButtonColors::grid(
                 //               resting            hover              pressed
                 StateColors::new(rgba("#3E4247FF"), rgba("#52575EFF"), rgba("#383B40FF")), // fill
@@ -975,7 +975,7 @@ pub(super) fn preset(kind: ThemeKind) -> Theme {
             text_active: rgba("#D4D4D4FF"),
             text_inactive: rgba("#D4D4D44D"),
             accent: rgba("#FF9600FF"),
-            button_border_thickness: 0.0,
+            button_border_percent: 0.0,
             science: ButtonColors::grid(
                 //               resting            hover              pressed
                 StateColors::new(rgba("#3E4247FF"), rgba("#52575EFF"), rgba("#383B40FF")), // fill
@@ -1070,7 +1070,7 @@ pub(super) fn preset(kind: ThemeKind) -> Theme {
             text_active: rgba("#D4D4D4FF"),
             text_inactive: rgba("#D4D4D44D"),
             accent: rgba("#FF9600FF"),
-            button_border_thickness: 0.0,
+            button_border_percent: 0.0,
             science: ButtonColors::grid(
                 //               resting            hover              pressed
                 StateColors::new(rgba("#3E4247FF"), rgba("#52575EFF"), rgba("#383B40FF")), // fill
@@ -1165,7 +1165,7 @@ pub(super) fn preset(kind: ThemeKind) -> Theme {
             text_active: rgba("#D4D4D4FF"),
             text_inactive: rgba("#D4D4D44D"),
             accent: rgba("#FF9600FF"),
-            button_border_thickness: 0.0,
+            button_border_percent: 0.0,
             science: ButtonColors::grid(
                 //               resting            hover              pressed
                 StateColors::new(rgba("#3E4247FF"), rgba("#52575EFF"), rgba("#383B40FF")), // fill
@@ -1260,7 +1260,7 @@ pub(super) fn preset(kind: ThemeKind) -> Theme {
             text_active: rgba("#D4D4D4FF"),
             text_inactive: rgba("#D4D4D44D"),
             accent: rgba("#FF9600FF"),
-            button_border_thickness: 0.0,
+            button_border_percent: 0.0,
             science: ButtonColors::grid(
                 //               resting            hover              pressed
                 StateColors::new(rgba("#3E4247FF"), rgba("#52575EFF"), rgba("#383B40FF")), // fill
@@ -1355,7 +1355,7 @@ pub(super) fn preset(kind: ThemeKind) -> Theme {
             text_active: rgba("#D4D4D4FF"),
             text_inactive: rgba("#D4D4D44D"),
             accent: rgba("#FF9600FF"),
-            button_border_thickness: 0.0,
+            button_border_percent: 0.0,
             science: ButtonColors::grid(
                 //               resting            hover              pressed
                 StateColors::new(rgba("#3E4247FF"), rgba("#52575EFF"), rgba("#383B40FF")), // fill
@@ -1450,7 +1450,7 @@ pub(super) fn preset(kind: ThemeKind) -> Theme {
             text_active: rgba("#D4D4D4FF"),
             text_inactive: rgba("#D4D4D44D"),
             accent: rgba("#FF9600FF"),
-            button_border_thickness: 0.0,
+            button_border_percent: 0.0,
             science: ButtonColors::grid(
                 //               resting            hover              pressed
                 StateColors::new(rgba("#3E4247FF"), rgba("#52575EFF"), rgba("#383B40FF")), // fill
@@ -1545,7 +1545,7 @@ pub(super) fn preset(kind: ThemeKind) -> Theme {
             text_active: rgba("#D4D4D4FF"),
             text_inactive: rgba("#D4D4D44D"),
             accent: rgba("#FF9600FF"),
-            button_border_thickness: 0.0,
+            button_border_percent: 0.0,
             science: ButtonColors::grid(
                 //               resting            hover              pressed
                 StateColors::new(rgba("#3E4247FF"), rgba("#52575EFF"), rgba("#383B40FF")), // fill
@@ -1640,7 +1640,7 @@ pub(super) fn preset(kind: ThemeKind) -> Theme {
             text_active: rgba("#D4D4D4FF"),
             text_inactive: rgba("#D4D4D44D"),
             accent: rgba("#FF9600FF"),
-            button_border_thickness: 0.0,
+            button_border_percent: 0.0,
             science: ButtonColors::grid(
                 //               resting            hover              pressed
                 StateColors::new(rgba("#3E4247FF"), rgba("#52575EFF"), rgba("#383B40FF")), // fill
@@ -1735,7 +1735,7 @@ pub(super) fn preset(kind: ThemeKind) -> Theme {
             text_active: rgba("#D4D4D4FF"),
             text_inactive: rgba("#D4D4D44D"),
             accent: rgba("#FF9600FF"),
-            button_border_thickness: 0.0,
+            button_border_percent: 0.0,
             science: ButtonColors::grid(
                 //               resting            hover              pressed
                 StateColors::new(rgba("#3E4247FF"), rgba("#52575EFF"), rgba("#383B40FF")), // fill

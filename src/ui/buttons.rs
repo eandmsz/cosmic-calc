@@ -1246,10 +1246,25 @@ fn insert_decimal(engine: &mut Engine) {
     engine.input.insert(InputItem::DecimalPoint);
 }
 
-/// Toggle the sign of the current operand by wrapping or unwrapping
-/// it as `(-X)`. The outer parens keep the negation bound to its
-/// operand under chained operators – `2×5±` becomes `2×(-5)`, not
-/// `2×-5` (which works arithmetically but reads as ambiguous).
+/// Toggle the sign of the current operand.
+///
+/// A minus already in front of the operand is the sign the key is
+/// being asked to flip, so it is flipped where it stands rather than
+/// having a second one wrapped inside it:
+///
+/// * `5−3` becomes `5+3`. The minus is a subtraction, and taking away
+///   a negative three is adding three — `5−(−3)` says the same thing
+///   in a way nobody reads at a glance.
+/// * `−4` becomes `4`, and so do `sin(−3` and `2^−3`: there is
+///   nothing on the left of those minuses for them to subtract from,
+///   so the sign has only to go.
+///
+/// Anywhere else the operand is wrapped as `(-X)`, and a press on one
+/// already wrapped unwraps it. The parens keep the negation bound to
+/// its operand under chained operators — `2×5±` becomes `2×(-5)`, not
+/// `2×-5`, which works arithmetically but reads as ambiguous. `5+3`
+/// therefore becomes `5+(-3)`: a `+` is not a sign the key put there,
+/// and the three is what is being negated, not the addition.
 ///
 /// On an empty buffer the press is a no-op – without an operand to
 /// flip there's nothing meaningful to do, and a stray `-` would be
@@ -1278,13 +1293,31 @@ fn toggle_negate(engine: &mut Engine) {
             v.remove(start);
         }
         engine.input.set_cursor(cur.saturating_sub(3));
-    } else {
-        engine.input.insert_at(start, InputItem::LeftParen);
-        engine
-            .input
-            .insert_at(start + 1, InputItem::BinOp(BinOp::Sub));
-        engine.input.insert_at(end + 2, InputItem::RightParen);
+        return;
     }
+    // A minus in front of the operand: flip it rather than wrap the
+    // operand in a second one. Whether it becomes a `+` or goes
+    // altogether is whether it had anything to subtract from — an
+    // operand on its left makes it a subtraction, and nothing there
+    // makes it the sign of the operand itself.
+    if start > 0 && matches!(items[start - 1], InputItem::BinOp(BinOp::Sub)) {
+        let subtracts_from_something = start >= 2 && items[start - 2].ends_operand();
+        // Through the structured edits rather than `items_mut`, so
+        // the exact value behind a pasted or generated operand
+        // survives having its sign flipped.
+        engine.input.delete_range(start - 1, start);
+        if subtracts_from_something {
+            engine
+                .input
+                .insert_at(start - 1, InputItem::BinOp(BinOp::Add));
+        }
+        return;
+    }
+    engine.input.insert_at(start, InputItem::LeftParen);
+    engine
+        .input
+        .insert_at(start + 1, InputItem::BinOp(BinOp::Sub));
+    engine.input.insert_at(end + 2, InputItem::RightParen);
 }
 
 /// Insert a binary operator. Four cases:

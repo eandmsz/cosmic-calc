@@ -139,20 +139,25 @@ fn the_palette_in_force_comes_out_of_the_file() {
 
 /// A [`ThemeTable`] built the way a config file builds one: written
 /// out and read back, so the test exercises the same path the app
-/// does rather than a constructor only it can reach.
+/// does rather than a constructor only it can reach. Each palette
+/// goes under its own id, which is how the file keys them.
 fn toml_themes(themes: &[crate::theme::Theme]) -> crate::theme::ThemeTable {
     #[derive(serde::Serialize)]
     struct Wrap {
-        themes: Vec<crate::theme::Theme>,
+        themes: toml::value::Table,
     }
     #[derive(serde::Deserialize)]
     struct Read {
         themes: crate::theme::ThemeTable,
     }
-    let text = toml::to_string_pretty(&Wrap {
-        themes: themes.to_vec(),
-    })
-    .expect("serialise");
+    let mut table = toml::value::Table::new();
+    for theme in themes {
+        table.insert(
+            theme.id.key().to_string(),
+            toml::Value::try_from(theme).expect("serialise"),
+        );
+    }
+    let text = toml::to_string_pretty(&Wrap { themes: table }).expect("serialise");
     toml::from_str::<Read>(&text).expect("parse").themes
 }
 
@@ -234,7 +239,7 @@ fn a_retuned_palette_survives_a_save_and_a_reload() {
     let mut mine = ThemeKind::Barbie.get();
     mine.display_name = "Not Barbie".to_string();
     mine.app_bg = rgba("#0F0E0DFF");
-    mine.button_border_thickness = 2.5;
+    mine.button_border_percent = 2.5;
     mine.number = crate::theme::ButtonColors::grid(
         crate::theme::StateColors::new(rgba("#111111FF"), rgba("#222222FF"), rgba("#333333FF")),
         crate::theme::StateColors::flat(rgba("#EEEEEEFF")),
@@ -330,19 +335,77 @@ fn the_file_names_the_palette_in_force_and_carries_them_all() {
         "expected the palette's name:\n{toml}"
     );
     // And the palettes themselves, in full, so any of them can be
-    // retuned by hand.
+    // retuned by hand: one `themes` table, each palette a sub-table
+    // under its own id, and every part of a palette named by that id
+    // rather than by its place in a list.
     for kind in ThemeKind::ALL {
         assert!(
-            toml.contains(&format!("id = \"{}\"", kind.key())),
-            "{kind:?}"
+            toml.contains(&format!("[themes.{}]", kind.key())),
+            "{kind:?}\n{toml}"
+        );
+        assert!(
+            toml.contains(&format!("[themes.{}.number]", kind.key())),
+            "{kind:?}\n{toml}"
         );
     }
+    // The id is the key of the entry and is not repeated inside it.
+    assert!(!toml.contains("id = "), "{toml}");
     assert!(toml.contains("app_bg"), "{toml}");
-    assert!(toml.contains("[themes.number]"), "{toml}");
     assert!(
-        toml.contains(r#"display_name = "HighContrast Dark""#),
+        toml.contains(r#"display_name = "High Contrast Dark""#),
         "{toml}"
     );
+    // The border is a percentage of the button's height, and the key
+    // says so.
+    assert!(toml.contains("button_border_percent"), "{toml}");
+    assert!(!toml.contains("button_border_thickness"), "{toml}");
+}
+
+#[test]
+fn a_file_that_lists_its_palettes_the_old_way_is_rewritten() {
+    // Earlier versions wrote the palettes as a `[[themes]]` array,
+    // each entry naming itself with an `id` and spelling its border
+    // as `button_border_thickness`. Such a file has to load with what
+    // its user tuned in it intact, and the save that follows writes
+    // the table form — the migration is a start of the app, not a
+    // hand-edit.
+    let path = scratch_path("legacy-theme-list");
+    std::fs::create_dir_all(path.parent().unwrap()).expect("mkdir");
+    std::fs::write(
+        &path,
+        r##"
+version = "0.2.2"
+theme_kind = "Barbie"
+
+[[themes]]
+id = "Barbie"
+display_name = "Not Barbie"
+app_bg = "#0F0E0DFF"
+button_border_thickness = 2.5
+
+[themes.number]
+fill = "#111111FF #222222FF #333333FF"
+"##,
+    )
+    .expect("write");
+
+    let cfg = Config::load_or_create_default_at(&path).expect("load");
+    assert_eq!(cfg.theme().display_name, "Not Barbie");
+    assert_eq!(cfg.theme().app_bg, rgba("#0F0E0DFF"));
+    assert_eq!(cfg.theme().button_border_percent, 2.5);
+    assert_eq!(cfg.theme().number.fill_row().hover, rgba("#222222FF"));
+
+    cfg.save_at(&path).expect("save");
+    let body = std::fs::read_to_string(&path).expect("read");
+    assert!(body.contains("[themes.Barbie]"), "{body}");
+    assert!(body.contains("[themes.Barbie.number]"), "{body}");
+    assert!(!body.contains("[[themes]]"), "{body}");
+    assert!(!body.contains("button_border_thickness"), "{body}");
+
+    // And it reads back as what it was.
+    let back = Config::load_or_create_default_at(&path).expect("reload");
+    assert_eq!(back.theme(), cfg.theme());
+    let _ = std::fs::remove_dir_all(path.parent().unwrap());
 }
 
 #[test]
