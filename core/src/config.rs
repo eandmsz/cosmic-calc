@@ -86,12 +86,24 @@ pub enum Mode {
     Scientific,
 }
 
-/// Preset button shapes. `Auto` defers to the cosmic system theme's
-/// own corner-radius choice; the named presets pin the radius and
-/// inter-button spacing to a known recipe so the user can pick a
-/// look without juggling two numeric sliders. The radius/spacing
-/// pairs (in logical pixels) are: Round 15/2, SlightlyRound 5/2,
-/// Square 0/1.
+/// Preset button corner radii. `Auto` defers to the cosmic system
+/// theme's own corner-radius choice; the named presets pin the radius
+/// and inter-button spacing to a known recipe so the user can pick a
+/// look without juggling two numeric sliders.
+///
+/// On the keypad the two rounded presets are a *fraction of the
+/// button's height* rather than a pixel count — `Round` is half of
+/// it, which is as round as a rectangle gets, and `SlightlyRound` a
+/// quarter — so the corners keep their proportion as the window
+/// grows. That is what the settings panel shows: 50%, 25%, 0%. The
+/// UI crate's `keypad_metrics_for_area` solves the button height and
+/// the radius together, which is why neither is stored here.
+///
+/// [`ButtonShape::resolved`] carries a pixel pair for each preset
+/// anyway — Round 15/3.75, SlightlyRound 5/1.25, Square 0/1 — because
+/// the buttons *outside* the keypad (the settings rows, the history
+/// rows) have no such height to scale against and take a fixed
+/// number. The keypad recomputes its own and ignores the radius here.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ButtonShape {
@@ -110,12 +122,19 @@ impl ButtonShape {
         ButtonShape::Square,
     ];
 
+    /// What the settings panel offers the preset as.
+    ///
+    /// The rounded presets are named by the proportion of the
+    /// button's height they round off, which is what the keypad
+    /// actually draws — a `Round` key is a pill at any window size,
+    /// and a fixed "15" would stop being true the moment the window
+    /// was dragged.
     pub fn display_name(&self) -> &'static str {
         match self {
-            ButtonShape::Auto => "Auto",
-            ButtonShape::Round => "Round",
-            ButtonShape::SlightlyRound => "Slightly Round",
-            ButtonShape::Square => "Square",
+            ButtonShape::Auto => "System",
+            ButtonShape::Round => "50%",
+            ButtonShape::SlightlyRound => "25%",
+            ButtonShape::Square => "0%",
         }
     }
 

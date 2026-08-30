@@ -143,7 +143,7 @@ fn option_rows_pack_by_label_and_always_hold_one() {
     use crate::ui::panels::{option_lines, option_width, OPTION_ROW_WIDTH};
 
     // A short set shares one line.
-    let widths: Vec<f32> = ["Auto", "Dot .", "Comma ,"]
+    let widths: Vec<f32> = ["System", "Dot .", "Comma ,"]
         .iter()
         .map(|l| option_width(l))
         .collect();
@@ -178,4 +178,44 @@ fn option_rows_pack_by_label_and_always_hold_one() {
     // than being dropped.
     assert_eq!(option_lines(&[OPTION_ROW_WIDTH * 3.0]), vec![1]);
     assert_eq!(option_lines(&[]), Vec::<usize>::new());
+}
+
+// --- font list scroll position ---------------------------------------
+
+#[test]
+fn the_font_list_opens_at_the_family_in_force() {
+    use crate::config::Config;
+    use crate::ui::font::available_fonts_with_faces;
+    use crate::ui::panels::font_list_offset;
+
+    let at = |family: &str| {
+        font_list_offset(&Config {
+            font: family.to_string(),
+            ..Config::default()
+        })
+    };
+
+    // A family the machine does not have has no row to scroll to, and
+    // the top is where the list already is.
+    assert_eq!(at("No Such Family At All"), 0.0);
+
+    let families = available_fonts_with_faces();
+    // The first family is at the top, and centring it would ask for a
+    // negative offset — which is clamped away rather than handed to a
+    // scrollable that cannot honour it.
+    assert_eq!(at(&families[0].0), 0.0);
+
+    // Further down the list is further down the scroll. Guarded on
+    // there being a list to walk: a build host with one font
+    // installed has nothing to compare.
+    if families.len() >= 3 {
+        let last = at(&families[families.len() - 1].0);
+        let middle = at(&families[families.len() / 2].0);
+        assert!(last > 0.0, "{last}");
+        assert!(last > middle, "{last} vs {middle}");
+        // Every row is the same height, so the step between two
+        // neighbours is the same wherever in the list they are.
+        let a = at(&families[families.len() - 2].0);
+        assert!((last - a - (a - at(&families[families.len() - 3].0))).abs() < 0.01);
+    }
 }

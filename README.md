@@ -504,12 +504,25 @@ make check                         # fmt + clippy + the whole workspace
 	  the keyboard, and either can be put on a keypad cell of your
 	  own
 	- Every choice that is a row of buttons rather than a switch —
-	  theme, the two separators, button shape, font weight — is
-	  stretched to the full width of the panel, so a choice between
-	  two ends at the same edge as a choice between four instead of
-	  trailing off in the middle. What each button gets of that
-	  width is its share of the names on its line, so a `Slightly
-	  Round` is drawn wider than the `Auto` beside it
+	  theme, the two separators, the corner radius, font weight —
+	  is stretched to the full width of the panel, so a choice
+	  between two ends at the same edge as a choice between four
+	  instead of trailing off in the middle. What each button gets
+	  of that width is its share of the names on its line, so a
+	  `High Contrast Light` is drawn wider than the `Texas` beside
+	  it
+	- "System" is what the two separators and the corner radius
+	  call the choice that is not a choice: the separators take
+	  the region's, and the radius the desktop's
+	- "Button corner radius" offers `50%`, `25%` and `0%` rather
+	  than names, because that is what the keypad draws: the
+	  radius is a fraction of the button's own height, so `50%`
+	  is a pill at every window size where a fixed pixel count
+	  would stop being round as the buttons grew
+	- The font list opens at the family in force rather than at
+	  the top of an alphabetical list of every family on the
+	  machine, with the rows either side of it on screen to
+	  compare against
 - The font's weight is a choice of its own, under the family: only the
   faces that family actually ships, so one with a Light and a Black
   offers both and one that comes in a single face offers just the one.
