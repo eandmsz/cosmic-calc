@@ -9,7 +9,7 @@
 //! trigger an immediate persist-on-mutation path.
 
 use cosmic::app::{Core, Task};
-use cosmic::iced::{Alignment, Length, Padding, Size};
+use cosmic::iced::{Alignment, Length, Padding, Point, Size};
 use cosmic::widget;
 use cosmic::{Application, Element};
 
@@ -99,6 +99,14 @@ pub enum Message {
     /// height drives the keypad's 62%-of-window target so the buttons
     /// grow with the window instead of staying at a fixed pixel height.
     WindowResized(f32, f32),
+    /// Answer to the window-position query a panel toggle kicks off:
+    /// the window's left edge in logical pixels, or `None` where the
+    /// platform will not say (Wayland does not tell a client where it
+    /// is). The history panel docks on the left, so the window has to
+    /// move left by the width it gains for the calculator to stay put
+    /// — see [`AppModel::apply_panel_resize`]. The monitor-size query
+    /// follows this one.
+    PanelOrigin(Option<Point>),
     /// Answer to the monitor-size query a panel toggle kicks off. The
     /// window grows or shrinks by the panel's width, capped so it
     /// never reaches past the edge of the screen it is on. `None` when
@@ -166,6 +174,10 @@ pub struct AppModel {
     /// screen and only part of the width was added, or refused
     /// outright and none of it was.
     panel_width_added: f32,
+    /// Where the window's left edge was when the panel toggle went
+    /// out, as the compositor last reported it. `None` on a platform
+    /// that will not say — see [`Message::PanelOrigin`].
+    window_origin: Option<Point>,
     /// Window width with the panels' share taken out: what the window
     /// goes back to once the last panel closes. Re-derived from every
     /// width the window reports, so a window the user widened by
@@ -366,11 +378,6 @@ impl AppModel {
         };
     }
 
-    /// Read-only accessor exposed for tests and for the side panel.
-    pub fn property_results(&self) -> Option<(u64, [bool; 6])> {
-        self.property_results
-    }
-
     /// True when the live rand-bound inputs would commit cleanly (or
     /// are blank, in which case the persisted config values stand).
     /// Shares one implementation with the red-border rule the settings
@@ -382,13 +389,6 @@ impl AppModel {
             &self.rand_max_text,
         );
         !v.min_invalid && !v.max_invalid
-    }
-
-    /// Expose the UI-state flags (panel toggles, clear mode) so the
-    /// view layer can render them without running through the
-    /// dispatcher.
-    pub fn ui_state(&self) -> &UiState {
-        &self.ui
     }
 
     /// Dispatch a button whose second-function meaning is already
@@ -543,15 +543,27 @@ impl AppModel {
         self.window_width = width;
     }
 
-    /// Ask the compositor how wide the monitor holding this window is.
-    /// The answer arrives as `Message::PanelGeometry` and drives the
-    /// resize. Asking per toggle rather than caching the value keeps a
-    /// window that has since been dragged to another screen honest.
+    /// Ask the compositor where the window is and how wide the
+    /// monitor holding it is. The two answers arrive one after the
+    /// other, as `Message::PanelOrigin` and then
+    /// `Message::PanelGeometry`, and the second drives the resize.
+    /// Asking per toggle rather than caching keeps a window that has
+    /// since been dragged elsewhere honest.
     fn request_panel_resize(&self) -> Task<Message> {
         let Some(id) = self.core.main_window_id() else {
             // No window to measure, but the toggle still has to reach
             // `apply_panel_resize` — that is what puts the panel on
             // screen.
+            return Task::done(cosmic::action::app(Message::PanelGeometry(None)));
+        };
+        cosmic::iced::window::position(id)
+            .map(|origin| cosmic::action::app(Message::PanelOrigin(origin)))
+    }
+
+    /// The second of those two queries, sent once the first has
+    /// answered.
+    fn request_monitor_width(&self) -> Task<Message> {
+        let Some(id) = self.core.main_window_id() else {
             return Task::done(cosmic::action::app(Message::PanelGeometry(None)));
         };
         cosmic::iced::window::monitor_size(id)
@@ -562,12 +574,23 @@ impl AppModel {
     /// it back when they close), so a panel docks *beside* the
     /// calculator instead of squeezing it.
     ///
-    /// The screen is the one limit: when there is no room left to grow,
-    /// the panel has to share the width that already exists, and the
-    /// calculator area does give way. `monitor_width` is `None` on
-    /// platforms that cannot report one, and then the request goes out
-    /// unclamped — the compositor still refuses anything it cannot
-    /// honour.
+    /// A resize on its own keeps the window's left edge, so the width
+    /// it gains appears on the right. That is exactly where the
+    /// settings panel goes, and nothing on screen moves for it. The
+    /// history panel docks on the *left*, where the same growth would
+    /// push the whole calculator right by the panel's width — so the
+    /// left edge moves out by what that panel took instead, leaving
+    /// the right edge, and every key under the pointer, where they
+    /// were. Where the platform will not report a position — Wayland
+    /// tells a client neither where it is nor lets it say — the move
+    /// is skipped and the window grows rightwards as before.
+    ///
+    /// The screen is the one limit on the growth: when there is no
+    /// room left, the panel has to share the width that already
+    /// exists, and the calculator area does give way. `monitor_width`
+    /// is `None` on platforms that cannot report one, and then the
+    /// request goes out unclamped — the compositor still refuses
+    /// anything it cannot honour.
     fn apply_panel_resize(&mut self, monitor_width: Option<f32>) -> Task<Message> {
         let wanted = self.wanted_panels();
         let delta = wanted.width() - self.panel_width_added;
@@ -583,6 +606,13 @@ impl AppModel {
         };
         let (min_width, min_height) = self.min_window_size(wanted, monitor_width);
         let new_width = (self.window_width + change).max(min_width);
+        // Only the width the window really gains or gives back can be
+        // taken off its left edge; a resize the compositor refused
+        // leaves the window where it is.
+        let origin_shift = panel_origin_shift(
+            wanted.history_width() - self.panels_shown.history_width(),
+            new_width - self.window_width,
+        );
         // The width the calculator has as things stand, which is the
         // width it keeps while the window changes size around it.
         let content_width = self.content_width();
@@ -622,11 +652,21 @@ impl AppModel {
             panels: wanted,
             content_width,
         });
-        Task::batch([
+        let mut tasks = vec![
             limits,
             cosmic::iced::window::resize(id, Size::new(new_width, self.window_height)),
-            Task::done(cosmic::action::app(Message::ResyncWindowSize)),
-        ])
+        ];
+        // The move goes out with the resize, so the two land in the
+        // same batch and the window changes width and position in one
+        // step rather than sliding across the screen and back.
+        if let Some(origin) = self.window_origin.filter(|_| origin_shift != 0.0) {
+            tasks.push(cosmic::iced::window::move_to(
+                id,
+                Point::new(origin.x + origin_shift, origin.y),
+            ));
+        }
+        tasks.push(Task::done(cosmic::action::app(Message::ResyncWindowSize)));
+        Task::batch(tasks)
     }
 
     /// Translate a `ClipboardOp` into a real cosmic `Task`. Copy is a
@@ -732,6 +772,7 @@ impl Application for AppModel {
             window_height,
             flashing_button: None,
             panel_width_added: 0.0,
+            window_origin: None,
             bare_width: window_width,
             panels_shown: PanelsShown::default(),
             panel_resize: None,
@@ -948,6 +989,10 @@ impl Application for AppModel {
                 self.adopt_window_width(w);
                 self.window_height = h;
                 self.note_window_size();
+            }
+            Message::PanelOrigin(origin) => {
+                self.window_origin = origin;
+                return self.request_monitor_width();
             }
             Message::PanelGeometry(monitor_width) => return self.apply_panel_resize(monitor_width),
             Message::ResyncWindowSize => {
@@ -1834,12 +1879,11 @@ const STATUS_SPACING: f32 = display_metrics::STATUS_SPACING;
 /// How much of the keypad's inter-row spacing the gaps around the
 /// display are worth.
 ///
-/// They used to be that spacing exactly, which is a number about how
-/// far apart two buttons should sit — and stacked either side of the
-/// readout it left a band of nothing around the one thing on screen
-/// with something to say. Halving it is the same gap top and bottom,
-/// and every pixel it gives back goes to the display slot, which the
-/// readout then scales itself up to fill.
+/// That spacing is a number about how far apart two buttons should
+/// sit, and stacked either side of the readout it leaves a band of
+/// nothing around the one thing on screen with something to say. Half
+/// of it is the same gap top and bottom, and every pixel it gives
+/// back goes to the display slot, which the readout scales up to fill.
 const SECTION_GAP_RATIO: f32 = 0.5;
 
 /// Measured display fonts for the expression area.
@@ -1984,15 +2028,48 @@ pub struct PanelsShown {
 impl PanelsShown {
     /// Width these panels take out of the window, their gaps included.
     pub fn width(self) -> f32 {
-        let mut width = 0.0;
-        if self.history {
-            width += crate::ui::panels::HISTORY_PANEL_WIDTH + crate::ui::panels::PANEL_SPACING;
-        }
-        if self.settings {
-            width += crate::ui::panels::SETTINGS_PANEL_WIDTH + crate::ui::panels::PANEL_SPACING;
-        }
-        width
+        self.history_width() + self.settings_width()
     }
+
+    /// The history panel's share of that, which is the part that sits
+    /// to the *left* of the calculator and so decides where the
+    /// window's left edge has to be — see [`panel_origin_shift`].
+    pub fn history_width(self) -> f32 {
+        match self.history {
+            true => crate::ui::panels::HISTORY_PANEL_WIDTH + crate::ui::panels::PANEL_SPACING,
+            false => 0.0,
+        }
+    }
+
+    /// And the settings panel's, which sits to the right and moves
+    /// nothing.
+    pub fn settings_width(self) -> f32 {
+        match self.settings {
+            true => crate::ui::panels::SETTINGS_PANEL_WIDTH + crate::ui::panels::PANEL_SPACING,
+            false => 0.0,
+        }
+    }
+}
+
+/// How far the window's left edge has to move for the calculator to
+/// stay where it is, given how much wider the history panel has just
+/// made its side of the window (`history_delta`, negative when the
+/// panel is closing) and how much the window itself is changing by
+/// (`window_change`).
+///
+/// The window keeps its right edge: whatever the history panel takes
+/// on the left, the left edge gives back, so the keypad under the
+/// pointer does not move. Only width the window actually gains counts
+/// — a compositor that refused the resize, or granted part of it,
+/// leaves the edge where the width really ended up, because moving
+/// further than that would walk the window off the screen instead.
+pub fn panel_origin_shift(history_delta: f32, window_change: f32) -> f32 {
+    let granted = if history_delta >= 0.0 {
+        history_delta.min(window_change.max(0.0))
+    } else {
+        history_delta.max(window_change.min(0.0))
+    };
+    -granted
 }
 
 /// A resize this app has asked the window for and is waiting on.

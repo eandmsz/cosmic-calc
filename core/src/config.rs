@@ -19,7 +19,7 @@ use crate::engine::{AngleMode, Notation};
 use crate::history::{StoredEntry, HISTORY_CAPACITY};
 use crate::layout::KeypadLayouts;
 use crate::locale::{DecimalSeparator, ThousandsSeparator};
-use crate::theme::{Theme, ThemeKind};
+use crate::theme::{Theme, ThemeKind, ThemeTable};
 
 // ---------------------------------------------------------------------
 // Bounds
@@ -28,10 +28,8 @@ use crate::theme::{Theme, ThemeKind};
 pub const MIN_SIGNIFICANT_DIGITS: u8 = 1;
 pub const MAX_SIGNIFICANT_DIGITS: u8 = 15;
 
-/// Re-exported so the formatter and the config agree by construction.
-/// These used to be two separate constants with two different values
-/// (14 and 15), which meant the test suite exercised a precision the
-/// shipped binary never used.
+/// Re-exported rather than restated, so the formatter and the config
+/// cannot disagree about how many digits a result keeps.
 pub use crate::engine::format::DEFAULT_SIGNIFICANT_DIGITS;
 
 pub const MIN_WINDOW_DIM: u32 = 10;
@@ -66,6 +64,16 @@ pub const MAX_CORNER_RADIUS: f32 = 50.0;
 pub const MAX_BUTTON_SPACING: f32 = 20.0;
 
 pub const DEFAULT_FONT: &str = "Adwaita Sans";
+
+/// Longest font family name the config will carry. Family names are
+/// short; a longer one is a hand-edit that has gone wrong, and the
+/// string is handed straight to the text renderer.
+pub const MAX_FONT_NAME_LEN: usize = 64;
+
+/// The version stamped into every `config.toml` this build writes, so
+/// a later release can tell which format it is reading. Kept in step
+/// with the binary's own version by a test in the app crate.
+pub const CONFIG_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 // ---------------------------------------------------------------------
 // Enums
@@ -244,11 +252,21 @@ impl FontWeight {
 // ---------------------------------------------------------------------
 
 /// Top-level configuration. Every field has a serde default so a
-/// partial `config.toml` still deserialises cleanly – missing keys
-/// pick up their Phase-2 defaults rather than failing the load.
+/// partial `config.toml` still deserialises cleanly: a missing key
+/// takes its default rather than failing the load.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
+    /// The application version that last wrote this file.
+    ///
+    /// Nothing reads it yet; it is here so that a future release
+    /// which needs to change the shape of a setting can tell what it
+    /// is looking at instead of guessing. A load stamps it with
+    /// [`CONFIG_VERSION`] — after any migration would have run — so
+    /// the file on disk always names the build that produced it.
+    #[serde(deserialize_with = "crate::lenient::text")]
+    pub version: String,
+
     /// Corner radius of every button, in logical pixels. Clamped to
     /// `[0, MAX_CORNER_RADIUS]`. Ignored when `button_shape` is one of
     /// the named presets – those pin the radius themselves.
@@ -347,7 +365,9 @@ pub struct Config {
     /// says which. See [`ThemeKind`].
     pub theme_kind: ThemeKind,
 
-    /// UI font family name. Sent verbatim to iced's text renderer.
+    /// UI font family name. Sent to iced's text renderer once
+    /// `validate_and_clamp` has held it to what a family name can be.
+    #[serde(deserialize_with = "crate::lenient::text")]
     pub font: String,
 
     /// Which of the family's faces to draw in. A family that has no
@@ -378,6 +398,13 @@ pub struct Config {
     /// rearrange. See [`crate::layout`].
     pub keypad: KeypadLayouts,
 
+    /// Every palette, in full: its name, its surfaces and the nine
+    /// colours of each button category. The file is what the window
+    /// is painted with, so any of it can be retuned by hand without
+    /// rebuilding; [`Config::theme_kind`] picks which entry is in
+    /// force. Nothing in here is trusted — see [`ThemeTable`].
+    pub themes: ThemeTable,
+
     /// The saved history, oldest first, when `save_history` is on —
     /// otherwise empty. Written every time a calculation is recorded,
     /// and capped at the same [`HISTORY_CAPACITY`] the panel itself
@@ -388,6 +415,8 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
+            version: CONFIG_VERSION.to_string(),
+
             button_corner_radius: 8.0,
             button_spacing: 4.0,
             button_shape: ButtonShape::default(),
@@ -426,6 +455,7 @@ impl Default for Config {
             angle_mode: AngleMode::Deg,
 
             keypad: KeypadLayouts::default(),
+            themes: ThemeTable::default(),
 
             history: Vec::new(),
         }
@@ -468,9 +498,21 @@ impl Config {
             self.min_window_width = self.min_window_width.clamp(MIN_WINDOW_DIM, MAX_WINDOW_DIM);
         }
 
-        if self.font.trim().is_empty() {
-            self.font = DEFAULT_FONT.to_string();
-        }
+        // The family name is handed straight to the text renderer, so
+        // it is held to what a family name can be: no control
+        // characters, and no longer than one plausibly is.
+        let font: String = self
+            .font
+            .trim()
+            .chars()
+            .filter(|c| !c.is_control())
+            .take(MAX_FONT_NAME_LEN)
+            .collect();
+        self.font = if font.trim().is_empty() {
+            DEFAULT_FONT.to_string()
+        } else {
+            font.trim().to_string()
+        };
 
         if self
             .thousands_separator
@@ -503,6 +545,11 @@ impl Config {
         }
 
         self.keypad.normalize();
+        self.themes.normalize();
+
+        // Last, so a migration added above still sees the version the
+        // file was written by: from here on it names this build.
+        self.version = CONFIG_VERSION.to_string();
     }
 
     /// The floor the user pinned the window width to, if they pinned
@@ -558,10 +605,15 @@ impl Config {
             .unwrap_or(self.button_corner_radius)
     }
 
-    /// The palette in force. A preset lookup rather than a stored
-    /// value — see [`Config::theme_kind`].
+    /// The palette in force, as `config.toml` has it.
     pub fn theme(&self) -> Theme {
-        self.theme_kind.get()
+        self.themes.get(self.theme_kind)
+    }
+
+    /// What the settings panel writes on the button that selects
+    /// `kind` — the user's own name for it when they have renamed it.
+    pub fn theme_display_name(&self, kind: ThemeKind) -> &str {
+        self.themes.display_name(kind)
     }
 }
 

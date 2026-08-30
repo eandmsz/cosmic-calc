@@ -114,18 +114,46 @@ fn validate_resets_rand_range_on_nan() {
 }
 
 #[test]
-fn the_palette_is_looked_up_rather_than_stored() {
-    // The file records which theme is on, and the palette is the
-    // shipped one for that name. It used to hold a copy of every
-    // colour, which is a hundred-odd of them now and a second theme
-    // to keep in step with the first.
-    let c = Config {
+fn the_palette_in_force_comes_out_of_the_file() {
+    // `theme_kind` says which palette is on; the palette itself is
+    // the entry the file carries for it, which starts life as the
+    // shipped one and is the user's to retune.
+    let mut c = Config {
         theme_kind: ThemeKind::CupertinoDark,
         ..Config::default()
     };
-    assert_eq!(c.theme().name, "Cupertino Dark");
+    assert_eq!(c.theme().display_name, "Cupertino Dark");
     assert_eq!(c.theme().app_bg, rgba("#283133FF"));
     assert_eq!(c.theme(), ThemeKind::CupertinoDark.get());
+
+    // Retune it, and that is what the window is painted with.
+    let mut retuned = ThemeKind::CupertinoDark.get();
+    retuned.app_bg = rgba("#0A0B0CFF");
+    retuned.display_name = "Mine".to_string();
+    c.themes = toml_themes(&[retuned]);
+    assert_eq!(c.theme().app_bg, rgba("#0A0B0CFF"));
+    assert_eq!(c.theme_display_name(ThemeKind::CupertinoDark), "Mine");
+    // Every other palette is untouched.
+    assert_eq!(c.themes.get(ThemeKind::Tokyo), ThemeKind::Tokyo.get());
+}
+
+/// A [`ThemeTable`] built the way a config file builds one: written
+/// out and read back, so the test exercises the same path the app
+/// does rather than a constructor only it can reach.
+fn toml_themes(themes: &[crate::theme::Theme]) -> crate::theme::ThemeTable {
+    #[derive(serde::Serialize)]
+    struct Wrap {
+        themes: Vec<crate::theme::Theme>,
+    }
+    #[derive(serde::Deserialize)]
+    struct Read {
+        themes: crate::theme::ThemeTable,
+    }
+    let text = toml::to_string_pretty(&Wrap {
+        themes: themes.to_vec(),
+    })
+    .expect("serialise");
+    toml::from_str::<Read>(&text).expect("parse").themes
 }
 
 #[test]
@@ -198,6 +226,40 @@ fn save_and_reload_round_trip() {
 }
 
 #[test]
+fn a_retuned_palette_survives_a_save_and_a_reload() {
+    // The whole point of carrying the palettes in the file: an edit
+    // there has to come back out of it, through the same write and
+    // read the running app does.
+    let path = scratch_path("retuned-theme");
+    let mut mine = ThemeKind::Barbie.get();
+    mine.display_name = "Not Barbie".to_string();
+    mine.app_bg = rgba("#0F0E0DFF");
+    mine.button_border_thickness = 2.5;
+    mine.number = crate::theme::ButtonColors::grid(
+        crate::theme::StateColors::new(rgba("#111111FF"), rgba("#222222FF"), rgba("#333333FF")),
+        crate::theme::StateColors::flat(rgba("#EEEEEEFF")),
+        crate::theme::StateColors::flat(rgba("#999999FF")),
+    );
+    let mut cfg = Config {
+        theme_kind: ThemeKind::Barbie,
+        ..Config::default()
+    };
+    cfg.themes = toml_themes(&[mine.clone()]);
+    cfg.save_at(&path).expect("save");
+
+    let back = Config::load_or_create_default_at(&path).expect("reload");
+    assert_eq!(back.theme(), mine);
+    assert_eq!(back.theme_display_name(ThemeKind::Barbie), "Not Barbie");
+    // And the file names the build that wrote it.
+    let body = std::fs::read_to_string(&path).expect("read");
+    assert!(
+        body.starts_with(&format!("version = \"{CONFIG_VERSION}\"")),
+        "{body}"
+    );
+    let _ = std::fs::remove_dir_all(path.parent().unwrap());
+}
+
+#[test]
 fn corner_radius_clamps_to_max() {
     let mut c = Config {
         button_corner_radius: 200.0,
@@ -261,17 +323,48 @@ fn load_clamps_out_of_range_values() {
 // =====================================================================
 
 #[test]
-fn the_theme_is_stored_as_one_name() {
+fn the_file_names_the_palette_in_force_and_carries_them_all() {
     let toml = toml::to_string_pretty(&Config::default()).expect("serialise");
     assert!(
         toml.contains(r#"theme_kind = "Cosmic""#),
         "expected the palette's name:\n{toml}"
     );
-    // And nothing else of the palette: the colours are the build's,
-    // so a file that carried a copy of them carried a second theme to
-    // keep in step.
-    assert!(!toml.contains("[theme]"), "{toml}");
-    assert!(!toml.contains("app_bg"), "{toml}");
+    // And the palettes themselves, in full, so any of them can be
+    // retuned by hand.
+    for kind in ThemeKind::ALL {
+        assert!(
+            toml.contains(&format!("id = \"{}\"", kind.key())),
+            "{kind:?}"
+        );
+    }
+    assert!(toml.contains("app_bg"), "{toml}");
+    assert!(toml.contains("[themes.number]"), "{toml}");
+    assert!(
+        toml.contains(r#"display_name = "HighContrast Dark""#),
+        "{toml}"
+    );
+}
+
+#[test]
+fn the_file_records_the_version_that_wrote_it() {
+    let toml = toml::to_string_pretty(&Config::default()).expect("serialise");
+    assert!(
+        toml.contains(&format!("version = \"{CONFIG_VERSION}\"")),
+        "{toml}"
+    );
+
+    // Whatever an older file says, a load stamps this build's version
+    // on it: the value on disk always names the build that wrote it.
+    let mut cfg: Config = toml::from_str("version = \"0.0.1\"\n").expect("load");
+    assert_eq!(cfg.version, "0.0.1");
+    cfg.validate_and_clamp();
+    assert_eq!(cfg.version, CONFIG_VERSION);
+
+    // And a file that spells it as something other than a string is
+    // still a file: nothing about a version costs the user the rest
+    // of their settings.
+    let cfg: Config = toml::from_str("version = 3\nsignificant_digits = 9\n").expect("load");
+    assert_eq!(cfg.significant_digits, 9);
 }
 
 #[test]
@@ -289,12 +382,16 @@ fn a_file_that_still_carries_a_palette_loads_without_it() {
         sidepanel_bg = "#272727FF"
         text_active = "#E7E7E7FF"
     "##;
-    let cfg: Config = toml::from_str(raw).expect("an old file must still load");
+    let mut cfg: Config = toml::from_str(raw).expect("an old file must still load");
+    cfg.validate_and_clamp();
     assert_eq!(cfg.significant_digits, 9);
     assert_eq!(cfg.theme_kind, ThemeKind::CupertinoDark);
+    // The old single-palette section is not the new list, so it is
+    // ignored and the palette is the shipped one until the user
+    // retunes it in `themes`.
     assert_eq!(cfg.theme().app_bg, rgba("#283133FF"));
     let rewritten = toml::to_string_pretty(&cfg).expect("serialise");
-    assert!(!rewritten.contains("app_bg"), "{rewritten}");
+    assert!(!rewritten.contains("[theme]\n"), "{rewritten}");
 }
 
 #[test]

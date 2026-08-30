@@ -26,11 +26,43 @@ fn second_has_its_own_slot() {
 }
 
 #[test]
-fn parens_and_memory_share_toprow() {
-    assert_eq!(category_for(Button::LeftParen), Category::TopRow);
-    assert_eq!(category_for(Button::RightParen), Category::TopRow);
+fn the_controls_above_the_keypad_share_toprow() {
     assert_eq!(category_for(Button::MemRecall), Category::TopRow);
     assert_eq!(category_for(Button::ToggleAngleMode), Category::TopRow);
+    assert_eq!(category_for(Button::CursorLeft), Category::TopRow);
+}
+
+#[test]
+fn the_two_brackets_share_a_slot_of_their_own() {
+    assert_eq!(category_for(Button::LeftParen), Category::Bracket);
+    assert_eq!(category_for(Button::RightParen), Category::Bracket);
+}
+
+#[test]
+fn the_twelve_trig_functions_share_a_slot() {
+    for button in [
+        Button::Sin,
+        Button::Cos,
+        Button::Tan,
+        Button::Sinh,
+        Button::Cosh,
+        Button::Tanh,
+        Button::Asin,
+        Button::Acos,
+        Button::Atan,
+        Button::Asinh,
+        Button::Acosh,
+        Button::Atanh,
+    ] {
+        assert_eq!(category_for(button), Category::Trig, "{button:?}");
+    }
+}
+
+#[test]
+fn percent_reciprocal_and_rand_each_get_their_own_slot() {
+    assert_eq!(category_for(Button::Percent), Category::Percent);
+    assert_eq!(category_for(Button::Reciprocal), Category::Reciprocal);
+    assert_eq!(category_for(Button::Rand), Category::Rand);
 }
 
 #[test]
@@ -49,13 +81,15 @@ fn decimal_and_negate_get_own_slots() {
 }
 
 #[test]
-fn scientific_functions_share_science_slot() {
-    assert_eq!(category_for(Button::Sin), Category::Science);
+fn what_is_left_over_shares_the_science_slot() {
+    // Everything scientific without a slot of its own: the roots, the
+    // logarithms, the powers, the constants.
     assert_eq!(category_for(Button::Sqrt), Category::Science);
     assert_eq!(category_for(Button::Pi), Category::Science);
     assert_eq!(category_for(Button::Factorial), Category::Science);
     assert_eq!(category_for(Button::Pow), Category::Science);
     assert_eq!(category_for(Button::EE), Category::Science);
+    assert_eq!(category_for(Button::Ln), Category::Science);
 }
 
 #[test]
@@ -66,4 +100,9 @@ fn category_colors_read_expected_slot() {
     assert_eq!(Category::BasicOp.colors(&t), t.basicop);
     assert_eq!(Category::Equals.colors(&t), t.equals);
     assert_eq!(Category::Delete.colors(&t), t.delete);
+    assert_eq!(Category::Bracket.colors(&t), t.bracket);
+    assert_eq!(Category::Trig.colors(&t), t.trig);
+    assert_eq!(Category::Percent.colors(&t), t.percent);
+    assert_eq!(Category::Reciprocal.colors(&t), t.reciprocal);
+    assert_eq!(Category::Rand.colors(&t), t.rand);
 }

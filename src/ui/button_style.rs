@@ -1,15 +1,11 @@
 //! Per-category button styling. Every [`Button`] variant is mapped to
-//! one of the theme's colour groups (science / second / toprow /
-//! delete / basicop / equals / negate / decimal / number); this module
-//! turns that group into a libcosmic `ButtonClass::Custom` so the
-//! keypad paints each key in the palette's dedicated colours.
+//! one of the theme's colour groups — see [`Category`] — and this
+//! module turns that group into a libcosmic `ButtonClass::Custom` so
+//! the keypad paints each key in the palette's dedicated colours.
 //!
 //! Nothing is computed. The group carries a fill, a label colour and a
 //! border colour for each of the three states, and each state is drawn
-//! with the three it names — see [`crate::theme::ButtonColors`]. Hover
-//! used to be an HSV lift of the base and pressed a 10 % darkening of
-//! it, with one label colour for the whole theme however little
-//! contrast it had against the key it landed on.
+//! with the three it names — see [`crate::theme::ButtonColors`].
 //!
 //! The border is drawn inside the button's own rectangle, so its width
 //! never moves anything: turning one on changes what a key looks like
@@ -29,18 +25,32 @@ use crate::color::Rgba;
 use crate::theme::{ButtonColors, ButtonFace, Theme};
 use crate::ui::buttons::Button;
 
-/// Which palette group drives a button's colours.
+/// Which palette group drives a button's colours. Each is a slot a
+/// theme fills in on its own, so a palette can mark out the keys it
+/// wants marked out without touching the ones next to them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Category {
+    /// The scientific keys with no group of their own: the roots, the
+    /// logarithms, the powers, the constants, `!`, `EE`, `mod`.
     Science,
     Second,
+    /// The controls above the keypad: the cursor keys, the DEG/RAD
+    /// and layout switches, the panel toggles and the memory keys.
     TopRow,
     /// `AC`/`C` and backspace — the two keys that take something
     /// away. Their own group so a theme can mark them; the shipped
     /// ones paint them exactly as the top row.
     Delete,
+    /// `(` and `)`.
+    Bracket,
     BasicOp,
     Equals,
+    Percent,
+    /// `1/x`.
+    Reciprocal,
+    /// The twelve trigonometric functions.
+    Trig,
+    Rand,
     Negate,
     Decimal,
     Number,
@@ -54,8 +64,13 @@ impl Category {
             Self::Second => theme.second,
             Self::TopRow => theme.toprow,
             Self::Delete => theme.delete,
+            Self::Bracket => theme.bracket,
             Self::BasicOp => theme.basicop,
             Self::Equals => theme.equals,
+            Self::Percent => theme.percent,
+            Self::Reciprocal => theme.reciprocal,
+            Self::Trig => theme.trig,
+            Self::Rand => theme.rand,
             Self::Negate => theme.negate,
             Self::Decimal => theme.decimal,
             Self::Number => theme.number,
@@ -63,11 +78,9 @@ impl Category {
     }
 }
 
-/// Assign a [`Category`] to every [`Button`] variant. The mapping
-/// follows the Phase-4 spec: digits / decimal / negate / equals get
-/// their own slots; basic operators share one; clear and backspace
-/// share the delete slot; everything else is either "top-row" control
-/// or "science".
+/// Assign a [`Category`] to every [`Button`] variant. Anything with a
+/// group of its own is named here; what is left over is a scientific
+/// key and takes the science slot.
 pub fn category_for(button: Button) -> Category {
     use Button::*;
     match button {
@@ -75,12 +88,20 @@ pub fn category_for(button: Button) -> Category {
         Decimal => Category::Decimal,
         Negate => Category::Negate,
         Equals => Category::Equals,
+        Percent => Category::Percent,
+        Reciprocal => Category::Reciprocal,
+        Rand => Category::Rand,
+        Sin | Cos | Tan | Sinh | Cosh | Tanh | Asin | Acos | Atan | Asinh | Acosh | Atanh => {
+            Category::Trig
+        }
+        LeftParen | RightParen => Category::Bracket,
         Add | Sub | Mul | Div => Category::BasicOp,
         Second => Category::Second,
         Clear | Backspace => Category::Delete,
-        LeftParen | RightParen | CursorLeft | CursorRight | CursorHome | CursorEnd | ToggleMode
-        | ToggleAngleMode | ToggleHistoryPanel | ToggleSettingsPanel | MemClear | MemRecall
-        | MemAdd | MemSub => Category::TopRow,
+        CursorLeft | CursorRight | CursorHome | CursorEnd | ToggleMode | ToggleAngleMode
+        | ToggleHistoryPanel | ToggleSettingsPanel | MemClear | MemRecall | MemAdd | MemSub => {
+            Category::TopRow
+        }
         _ => Category::Science,
     }
 }

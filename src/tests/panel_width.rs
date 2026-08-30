@@ -3,7 +3,7 @@
 //! the resize lands in full, lands in part, or is refused outright,
 //! and the user may drag the window edge in between.
 
-use crate::ui::app::{min_window_width, split_panel_width, PanelsShown};
+use crate::ui::app::{min_window_width, panel_origin_shift, split_panel_width, PanelsShown};
 use crate::ui::panels::{HISTORY_PANEL_WIDTH, PANEL_SPACING, SETTINGS_PANEL_WIDTH};
 
 /// What one open history panel asks the window for.
@@ -156,9 +156,9 @@ fn option_rows_pack_by_label_and_always_hold_one() {
         "Cupertino Light",
         "Redmond Dark",
         "Redmond Light",
-        "High Contrast Dark",
-        "High Contrast Light",
-        "Custom",
+        "HighContrast Dark",
+        "HighContrast Light",
+        "Flat Orange Dark",
     ];
     let widths: Vec<f32> = labels.iter().map(|l| option_width(l)).collect();
     let lines = option_lines(&widths);
@@ -218,4 +218,53 @@ fn the_font_list_opens_at_the_family_in_force() {
         let a = at(&families[families.len() - 2].0);
         assert!((last - a - (a - at(&families[families.len() - 3].0))).abs() < 0.01);
     }
+}
+
+// ---------------------------------------------------------------------
+// Where the window's left edge goes
+// ---------------------------------------------------------------------
+
+#[test]
+fn the_history_panel_grows_the_window_leftwards() {
+    // It docks to the left of the calculator, so the width it takes
+    // comes off the window's left edge and the keypad stays under the
+    // pointer. Opening moves the edge out, closing brings it back.
+    assert_eq!(panel_origin_shift(HISTORY, HISTORY), -HISTORY);
+    assert_eq!(panel_origin_shift(-HISTORY, -HISTORY), HISTORY);
+}
+
+#[test]
+fn the_settings_panel_leaves_the_window_where_it_is() {
+    // It docks on the right, into width the window grows into
+    // anyway, so nothing on screen moves and neither does the edge.
+    assert_eq!(panel_origin_shift(0.0, SETTINGS), 0.0);
+    assert_eq!(panel_origin_shift(0.0, -SETTINGS), 0.0);
+}
+
+#[test]
+fn an_edge_never_moves_further_than_the_window_did() {
+    // A maximised window is refused the width, so there is nothing to
+    // take off its left edge; moving it anyway would walk the window
+    // off the side of the screen.
+    assert_eq!(panel_origin_shift(HISTORY, 0.0), 0.0);
+    assert_eq!(panel_origin_shift(-HISTORY, 0.0), 0.0);
+    // A partly granted resize moves by what was granted.
+    assert_eq!(panel_origin_shift(HISTORY, 100.0), -100.0);
+    assert_eq!(panel_origin_shift(-HISTORY, -100.0), 100.0);
+    // And a window that grew for some other reason does not drag the
+    // edge with it.
+    assert_eq!(panel_origin_shift(0.0, 400.0), 0.0);
+}
+
+#[test]
+fn each_panel_reports_the_side_it_docks_on() {
+    let both = PanelsShown {
+        history: true,
+        settings: true,
+    };
+    assert_eq!(both.history_width(), HISTORY);
+    assert_eq!(both.settings_width(), SETTINGS);
+    assert_eq!(both.width(), HISTORY + SETTINGS);
+    assert_eq!(PanelsShown::default().history_width(), 0.0);
+    assert_eq!(PanelsShown::default().settings_width(), 0.0);
 }

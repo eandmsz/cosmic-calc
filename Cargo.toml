@@ -3,7 +3,7 @@ members = ["core"]
 
 [package]
 name = "cosmic-calc"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2021"
 description = "A scientific calculator for the COSMIC desktop"
 license = "GPL-3.0-only"

@@ -279,38 +279,73 @@ make check                         # fmt + clippy + the whole workspace
 - Nineteen palettes, and every colour in one is written down rather
   than worked out. A button group carries a fill, a label colour and a
   border colour for each of its three states — resting, hovered,
-  pressed — and the window draws what the table says
-	- The hover shade used to be an HSV lift of the base colour and
-	  the pressed shade a 10 % darkening of it, with one label
-	  colour for the whole theme however little contrast it had
-	  against the key it landed on. A formula cannot know that a
-	  bright accent key needs a different label from the window
-	  around it; a table can
-	- Each group is written with its colours named, so which one
-	  is the hover fill and which the font colour is on the page
-	  rather than in the argument order:
+  pressed — and the window draws what the table says. A formula cannot
+  know that a bright accent key needs a different label from the
+  window around it; a table can
+	- Each group is a three-by-three grid — a row per colour, a
+	  column per state — so all nine are on the page at once and
+	  which is which is written above and beside them:
 
 	  ```rust
-	  science: ButtonColors::spread(KeyColors {
-	      fill: rgba("#3E4247FF"),         // at rest
-	      fill_hover: rgba("#52575EFF"),   // under the pointer
-	      fill_pressed: rgba("#383B40FF"), // held down
-	      label: rgba("#D4D4D4FF"),        // the font colour
-	      border: rgba("#D4D4D4FF"),       // the outline, when one is on
-	  }),
+	  science: ButtonColors::grid(
+	      //               resting            hover              pressed
+	      StateColors::new(rgba("#3E4247FF"), rgba("#52575EFF"), rgba("#383B40FF")), // fill
+	      StateColors::new(rgba("#D4D4D4FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")), // label
+	      StateColors::new(rgba("#B0B0B0FF"), rgba("#B0B0B0FF"), rgba("#B0B0B0FF")), // border
+	  ),
 	  ```
 
 	  Only the fill changes between the three states in any
-	  shipped palette, which is why the label and the border are
-	  written once. A palette that wants its label to change
-	  under the pointer still can — `ButtonColors::new` takes a
-	  whole face per state, which is what the type holds
-	- The groups are the science keys, `2nd`, the top row, the two
-	  delete keys (`AC`/`C` and backspace), the basic operators,
-	  `=`, `±`, the decimal point and the digits. `AC` and backspace
-	  are a group of their own so a theme can mark the keys that
-	  take something away; every shipped theme paints them exactly
-	  as the top row, so nothing has moved
+	  shipped palette, so their label and border rows read the
+	  same three times over — but a palette that wants its label
+	  to change under the pointer simply says so in that row
+	- Fourteen groups: the digits, the decimal point, `±`, the
+	  basic operators, `=`, percent, `1/x`, `rand`, the two
+	  brackets, the twelve trigonometric functions, the two delete
+	  keys (`AC`/`C` and backspace), `2nd`, the top row, and the
+	  scientific keys left over — the roots, the logarithms, the
+	  powers, the constants. A group of its own is somewhere a
+	  theme *can* mark those keys out; every shipped theme paints
+	  each new group exactly as the one it was split from, so
+	  nothing has moved
+	- Every palette is written into `config.toml` in full — its
+	  name, its surfaces and the nine colours of each group — and
+	  the file is what the window is painted with, so any of it can
+	  be retuned by hand without rebuilding. A row is one line,
+	  the way a keypad row is:
+
+	  ```toml
+	  [[themes]]
+	  id = "CupertinoDark"
+	  display_name = "Cupertino Dark"
+	  app_bg = "#283133FF"
+	  button_border_thickness = 1.0
+
+	  [themes.science]
+	  fill   = "#3E4247FF #52575EFF #383B40FF"
+	  label  = "#D4D4D4FF #D4D4D4FF #D4D4D4FF"
+	  border = "#D4D4D4FF #D4D4D4FF #D4D4D4FF"
+	  ```
+
+	  `id` is the only part the build owns, because everything else
+	  in the app names a palette by it: an entry naming one this
+	  build does not have is dropped, a palette named twice keeps
+	  its first entry, and one the file leaves out is added back.
+	  `display_name` is the text on the palette's button in the
+	  settings panel — rename `Barbie` and the button says what you
+	  renamed it to
+	- Nothing in that section is trusted. Reading it is a repair
+	  pass rather than a parse: a colour that is not `#RRGGBB(AA)`,
+	  a thickness that is not a number in range, a whole group
+	  written as a string — none of them is an error, each falls
+	  back to the shipped value on its own, and a name is stripped
+	  of control characters and invisible formatting codepoints and
+	  capped at 32 characters before it is drawn. One bad character
+	  in one colour must not cost you every other setting in the
+	  file
+	- `version` at the top of the file records the release that
+	  wrote it, so a later one can tell what it is reading before
+	  it changes anything
 	- Three surfaces rather than two: the window, the side panels,
 	  and the display — the caption, the readout and the row of
 	  number properties and memory under them all sit on
@@ -414,6 +449,15 @@ make check                         # fmt + clippy + the whole workspace
 - Side panels dock beside the calculator rather than over it, so the
   window grows to make room for them and cannot be dragged in narrower
   than the calculator plus whatever panels are open
+	- The settings panel docks on the right and appears in the
+	  width the window grows into, so nothing on screen moves. The
+	  history panel docks on the *left*, and there the window grows
+	  from its left edge outwards instead: the right edge stays put
+	  and so does every key under the pointer, rather than the whole
+	  calculator sliding sideways to make room. On a display server
+	  that will not tell a window where it is or let it move itself
+	  — Wayland does neither — the window grows rightwards as it
+	  always did
 - One `%` key for both readings, decided by what follows it: on its own
   it is a percentage (`3.5%×230` = 8.05, `200+10%` = 220), and with an
   operand straight after it, it is modulo (`5%3.2` = 1.8, `7%(-3)` = 1)
@@ -511,7 +555,7 @@ make check                         # fmt + clippy + the whole workspace
 	  between two ends at the same edge as a choice between four
 	  instead of trailing off in the middle. What each button gets
 	  of that width is its share of the names on its line, so a
-	  `High Contrast Light` is drawn wider than the `Texas` beside
+	  `HighContrast Light` is drawn wider than the `Texas` beside
 	  it
 	- "System" is what the two separators and the corner radius
 	  call the choice that is not a choice: the separators take

@@ -34,6 +34,20 @@
   </categories>
 
   <releases>
+    <release version="0.2.2" date="2026-08-30">
+      <description>
+        <ul>
+          <li>Every palette is written into config.toml in full — the name on its button in the settings panel, the three surfaces, the two text colours, the accent, the border thickness and the nine colours of each button group — and the file is what the window is painted with. A palette can be retuned by hand, or renamed, without rebuilding; the shipped tables are only where a fresh file starts from</li>
+          <li>Nothing in that section has to be right. A colour that is not #RRGGBB or #RRGGBBAA, a border thickness that is not a number in range, a whole button group written as one string: each falls back to the shipped value on its own rather than costing you every other setting in the file. A palette named twice keeps its first entry, one this build does not have is ignored, and one the file leaves out is put back. Only id is fixed, since that is how the rest of the app names a palette</li>
+          <li>A palette's name is stripped of control characters and of the invisible codepoints that let text render as something other than what it says, and is capped at 32 characters, before it reaches the button that carries it</li>
+          <li>Five more button groups a theme can paint on their own: percent, 1/x, rand, the two brackets, and the twelve trigonometric functions. Each one ships painted exactly as the group it was split out of, so nothing on screen moves until a theme says otherwise</li>
+          <li>High Contrast Dark and High Contrast Light are HighContrast Dark and HighContrast Light</li>
+          <li>Opening the history panel grows the window from its left edge instead of pushing the calculator sideways: the right edge stays put and so does every key under the pointer. The settings panel already behaved this way, by docking into the width added on its own side. A display server that will not tell a window where it is or let it move itself — Wayland does neither — still grows the window rightwards as before</li>
+          <li>config.toml records the version that wrote it, so a later release can tell what it is reading before it changes anything</li>
+          <li>The random-decimals caption in the settings panel drops its "(max 14)". The slider's own end already says where the limit is, and the limit moves with the upper bound as you type it</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.2.1" date="2026-08-30">
       <description>
         <ul>

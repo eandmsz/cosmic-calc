@@ -1,9 +1,8 @@
 //! Keypad button model. The [`Button`] enum enumerates every key on
-//! the scientific keypad; the per-button behaviour rules from the
-//! Phase-4 spec live in [`apply_button`]. All state lives in `Engine`
-//! plus a small [`UiState`] struct, so the dispatcher is a pure
-//! function the tests can exercise without spinning up a cosmic
-//! event loop.
+//! the scientific keypad and [`apply_button`] says what each one
+//! does. All state lives in `Engine` plus a small [`UiState`] struct,
+//! so the dispatcher is a pure function the tests can exercise
+//! without spinning up a cosmic event loop.
 //!
 //! Second-toggle handling lives here too – a [`Button::Second`] press
 //! flips `UiState::second_mode`. A keypad cell already knows what it
@@ -412,11 +411,9 @@ pub fn apply_resolved_button(
             ButtonEffect::None
         }
         Button::LeftParen => {
-            // Insert a matched pair and park the cursor between them so
-            // the user can keep typing the body. This matches the
-            // behaviour of most code editors and every modern
-            // calculator app, and removes the footgun of dropped
-            // closers that users reported in Phase-5 testing.
+            // Insert a matched pair and park the cursor between them
+            // so the user can keep typing the body, the way an editor
+            // does. Nothing then depends on remembering the closer.
             insert_with_auto_mul(engine, InputItem::LeftParen);
             engine.input.insert(InputItem::RightParen);
             engine.input.move_cursor(crate::engine::CursorMove::Left);
