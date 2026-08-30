@@ -9,6 +9,54 @@ fn cosmic_preset_has_expected_colours() {
 }
 
 #[test]
+fn a_group_can_still_carry_nine_colours_of_its_own() {
+    // The shorthand the tables are written in must not become the
+    // limit of what a palette can say. Nine distinct colours — a
+    // fill, a label and a border for each of the three states — go
+    // in, and all nine come back out, so a theme that wants its
+    // label to change under the pointer or its outline to darken on
+    // a press can still have it.
+    let group = ButtonColors::new(
+        ButtonFace::new(rgba("#010101FF"), rgba("#020202FF"), rgba("#030303FF")),
+        ButtonFace::new(rgba("#040404FF"), rgba("#050505FF"), rgba("#060606FF")),
+        ButtonFace::new(rgba("#070707FF"), rgba("#080808FF"), rgba("#090909FF")),
+    );
+    let seen = [
+        group.normal.background,
+        group.normal.text,
+        group.normal.border,
+        group.hover.background,
+        group.hover.text,
+        group.hover.border,
+        group.pressed.background,
+        group.pressed.text,
+        group.pressed.border,
+    ];
+    let wanted = [
+        "#010101FF",
+        "#020202FF",
+        "#030303FF",
+        "#040404FF",
+        "#050505FF",
+        "#060606FF",
+        "#070707FF",
+        "#080808FF",
+        "#090909FF",
+    ];
+    for (got, want) in seen.iter().zip(wanted) {
+        assert_eq!(*got, rgba(want));
+    }
+
+    // And it survives being put in a palette, which is where a hand
+    // -written theme would put it.
+    let mut t = ThemeKind::Cosmic.get();
+    t.science = group;
+    assert_eq!(t.science.hover.text, rgba("#050505FF"));
+    assert_ne!(t.science.normal.text, t.science.pressed.text);
+    assert_ne!(t.science.normal.border, t.science.hover.border);
+}
+
+#[test]
 fn a_key_spreads_its_label_and_border_over_all_three_states() {
     // What the palette tables are written in, pinned: the three
     // fills land in the order they are named, and the one label and
