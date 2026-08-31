@@ -476,6 +476,12 @@ fn grid(
     let radius = metrics.radius;
     let columns = rows.first().map(|r| r.len()).unwrap_or(1);
     let cell_width = button_cell_width(layout.window_width, columns, spacing, layout.edge_padding);
+    // The face the labels are really drawn in, which is what their
+    // centring has to be measured against: a palette naming a family
+    // the host does not have is drawn in a recommended substitute,
+    // and the substitute's ascender is the one on screen. Worked out
+    // once for the grid rather than once per key.
+    let font_family = crate::ui::font::resolved_font(layout.config).0;
     let mut column = widget::column::with_capacity(rows.len())
         .spacing(spacing)
         .width(Length::Fill)
@@ -489,7 +495,7 @@ fn grid(
             let element = match cell {
                 Some(button) => control_button(
                     layout.theme,
-                    &layout.config.font,
+                    font_family,
                     &keymap::label_parts(*button, labels),
                     *button,
                     CellGeometry {

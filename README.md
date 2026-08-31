@@ -334,6 +334,8 @@ make check                         # fmt + clippy + the whole workspace
 	  ```toml
 	  [themes.CupertinoDark]
 	  display_name = "Cupertino Dark"
+	  font = "SF Pro Display"
+	  font_weight = "regular"
 	  app_bg = "#283133FF"
 	  button_border_percent = 1.0
 
@@ -348,13 +350,18 @@ make check                         # fmt + clippy + the whole workspace
 	  this build does not have is dropped, and one the file leaves
 	  out is added back. `display_name` is the text on the
 	  palette's row in the settings panel — rename `Barbie` and the
-	  row says what you renamed it to
+	  row says what you renamed it to. `font` and `font_weight` are
+	  the face that palette is set in, and a family your machine
+	  does not have is stood in for rather than rewritten — see
+	  the font notes above
 	- A file written by an earlier version listed the palettes as a
-	  `[[themes]]` array with the id inside each entry, and spelled
-	  the border `button_border_thickness`. Those files still load,
-	  with everything tuned in them intact, and the next save
-	  rewrites them in the shape above — the migration is a start
-	  of the app rather than a hand-edit
+	  `[[themes]]` array with the id inside each entry, spelled the
+	  border `button_border_thickness`, and carried one `font` and
+	  `font_weight` for the whole app at the top of the file rather
+	  than one per palette. Those files still load, with everything
+	  tuned in them intact, and the next save rewrites them in the
+	  shape above — the migration is a start of the app rather than
+	  a hand-edit
 	- Nothing in that section is trusted. Reading it is a repair
 	  pass rather than a parse: a colour that is not `#RRGGBB(AA)`,
 	  a border percentage that is not a number in range, a whole
@@ -632,6 +639,36 @@ make check                         # fmt + clippy + the whole workspace
 	  nineteen palettes or of an alphabetical list of every family
 	  on the machine, with the rows either side of it on screen to
 	  compare against
+- The font belongs to the palette. Each of the nineteen names the
+  family and the weight it was designed for — Cupertino asks for SF
+  Pro Display, Redmond for Segoe UI, Barbie for Comic Sans MS,
+  Cyberpunk for a terminal face — so switching palettes switches the
+  face the calculator is set in, and picking a family changes the
+  palette you are looking at and leaves the other eighteen alone. Both
+  are written into that palette's entry in `config.toml`
+	- A palette naming a family your machine does not have is drawn
+	  in the best one it does: the first of the recommended families
+	  installed, in the priority order below. The settings panel
+	  marks those families `(Recommended)` against the right-hand
+	  edge of their rows, and the row it lights is the family being
+	  drawn rather than the one named in the file
+	- SF Pro Display, SF Compact Text, Adwaita Sans, Trebuchet MS,
+	  Segoe UI, Bahnschrift, Comfortaa, Cambria, Caladea, Noto Sans,
+	  Lucidia Console, Cantarell, Consolas, SF Pro Rounded, Comic
+	  Sans MS, SF Mono, Adwaita Mono, DHF Harry's Brush, Vivaldi,
+	  Montez, BigBlue_TerminalPlus Nerd Font Mono, zilverstone
+	  eYe/FS — highest first
+	- The substitution is never written back. The palette keeps the
+	  family it names, so installing that font later is all it takes
+	  to get it, with nothing to edit. A family stood in for is drawn
+	  at the regular weight, since a Black chosen for one face says
+	  nothing about how another should be set
+	- Until 0.2.5 the family and the weight were one setting for the
+	  whole app, at the top of `config.toml`. A file written by one
+	  of those versions gives its font to the palette that was on
+	  screen when it was written — the palette you chose that font
+	  while looking at — and the top-level keys are gone the next
+	  time a file is written
 - The font's weight is a choice of its own, under the family: only the
   faces that family actually ships, so one with a Light and a Black
   offers both and one that comes in a single face offers just the one.
@@ -642,6 +679,16 @@ make check                         # fmt + clippy + the whole workspace
 	  A heavier face draws a little wider per character, and without
 	  the allowance a long error message lost its last word off the
 	  right-hand edge as soon as the font was set to Bold
+	- The readout sits a little off the floor of the display. A
+	  family whose descender reaches past its line box — Comic Sans
+	  MS, most script faces — otherwise had the tail of a `g` and
+	  the foot of a `(` cut off by the bottom of the slot. The room
+	  is a fraction of the display rather than a fixed few pixels,
+	  so it keeps its proportion as the window grows, and it comes
+	  out of the text's own budget rather than off the keypad.
+	  There is none to match at the top: what wanted the space was
+	  the descender, and the ascender already has the leading above
+	  it
 - "Save history" keeps the history list in `config.toml` and reads it
   back on the next start, updated as each calculation is recorded.
   Turning it off empties it from the file straight away; turning it on

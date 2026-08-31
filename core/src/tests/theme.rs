@@ -1,4 +1,5 @@
 use crate::color::rgba;
+use crate::config::{FontWeight, MAX_FONT_NAME_LEN};
 use crate::theme::*;
 
 #[test]
@@ -535,6 +536,47 @@ fn a_name_that_would_break_its_button_is_repaired() {
         table.display_name(ThemeKind::Plastic).chars().count(),
         MAX_DISPLAY_NAME_LEN
     );
+}
+
+#[test]
+fn a_palette_carries_the_family_it_is_drawn_in() {
+    // The font is the palette's, so the file writes it inside the
+    // palette's own entry and an edit there reaches the window
+    // without touching any other palette.
+    let table = table_from(
+        r##"
+        [themes.Texas]
+        font = "Comic Sans MS"
+        font_weight = "bold"
+
+        [themes.Tokyo]
+        font = "  Trebuchet\tMS  "
+
+        [themes.Barbie]
+        font = "   "
+        font_weight = "enormous"
+
+        [themes.Plastic]
+        font = 12
+        "##,
+    );
+    assert_eq!(table.font(ThemeKind::Texas), "Comic Sans MS");
+    assert_eq!(table.font_weight(ThemeKind::Texas), FontWeight::Bold);
+    // Held to what a family name can be, the way a display name is.
+    assert_eq!(table.font(ThemeKind::Tokyo), "TrebuchetMS");
+    // Nothing usable left of either, so the shipped pair stands.
+    assert_eq!(table.font(ThemeKind::Barbie), ThemeKind::Barbie.get().font);
+    assert_eq!(
+        table.font_weight(ThemeKind::Barbie),
+        ThemeKind::Barbie.get().font_weight
+    );
+    assert_eq!(
+        table.font(ThemeKind::Plastic),
+        ThemeKind::Plastic.get().font
+    );
+    // A palette the file did not mention keeps its own family.
+    assert_eq!(table.font(ThemeKind::Cosmic), ThemeKind::Cosmic.get().font);
+    assert!(table.font(ThemeKind::Plastic).chars().count() <= MAX_FONT_NAME_LEN);
 }
 
 #[test]

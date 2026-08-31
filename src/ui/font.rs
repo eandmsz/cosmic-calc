@@ -10,6 +10,13 @@
 //!   * The list of available families is enumerated from the system
 //!     once via `fontdb` at startup so the settings dropdown reflects
 //!     what's actually installed instead of a hard-coded shortlist.
+//!   * A palette names the family it was designed for, which the host
+//!     may not have. [`resolved_font`] is what the window is really
+//!     drawn in: the palette's family when it is installed, and the
+//!     best of `config::RECOMMENDED_FONTS` that is when it is not.
+//!     The substitution stays out of `config.toml` — the palette keeps
+//!     the family it names, so installing that font is all it takes to
+//!     get it.
 //!
 //! Runtime swap works because every text widget in the app calls
 //! `apply_font(...)` (see `with_font` helper) on its way to the view
@@ -21,7 +28,7 @@ use std::sync::{OnceLock, RwLock};
 use cosmic::iced::font::Weight;
 use cosmic::iced::Font;
 
-use crate::config::FontWeight;
+use crate::config::{Config, FontWeight, RECOMMENDED_FONTS};
 
 /// The host's font database, loaded once. Shared by the family list
 /// below and by the label-centring metrics, which would otherwise scan
@@ -56,6 +63,63 @@ pub fn available_fonts() -> &'static Vec<String> {
         }
         names
     })
+}
+
+/// Whether the host actually has `family`.
+///
+/// [`available_fonts`] is sorted and deduplicated, so this is a binary
+/// search over it rather than a walk: the view asks the question once
+/// per frame, and the settings panel asks it once per row.
+pub fn is_installed(family: &str) -> bool {
+    available_fonts()
+        .binary_search_by(|name| name.as_str().cmp(family))
+        .is_ok()
+}
+
+/// The first family in [`RECOMMENDED_FONTS`] the host actually has,
+/// or `None` on a machine with none of them.
+///
+/// Worked out once: the list is fixed and so is the font database,
+/// so the answer cannot change while the process runs.
+pub fn recommended_fallback() -> Option<&'static str> {
+    static CACHE: OnceLock<Option<&'static str>> = OnceLock::new();
+    *CACHE.get_or_init(|| {
+        RECOMMENDED_FONTS
+            .into_iter()
+            .find(|family| is_installed(family))
+    })
+}
+
+/// The family the window is actually drawn in, and the weight it is
+/// drawn at.
+///
+/// A palette names the family it was designed for, and the machine it
+/// is opened on is under no obligation to have it — a Cupertino
+/// palette asking for SF Pro Display on a Linux desktop is the
+/// ordinary case rather than the odd one. So:
+///
+///   * the palette's own family, at the palette's own weight, when the
+///     host has it;
+///   * otherwise the best installed family from
+///     [`RECOMMENDED_FONTS`], at the default weight — a weight chosen
+///     for one face says nothing about how another should be set, and
+///     the substitute is not the face the user picked a Black for;
+///   * otherwise the name as it stands, on a machine with none of the
+///     recommended families, and the renderer's own substitution. No
+///     list here can second-guess that machine.
+///
+/// The substitution is never written back. `config.toml` keeps the
+/// family the palette names, so installing that font is all it takes
+/// to get it.
+pub fn resolved_font(config: &Config) -> (&str, FontWeight) {
+    let family = config.font();
+    if is_installed(family) {
+        return (family, config.font_weight());
+    }
+    match recommended_fallback() {
+        Some(fallback) => (fallback, FontWeight::default()),
+        None => (family, config.font_weight()),
+    }
 }
 
 /// Mutate the libcosmic-wide interface font so every widget that

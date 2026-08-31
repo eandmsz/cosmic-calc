@@ -230,6 +230,29 @@ impl AppModel {
         }
     }
 
+    /// Push the family and weight the palette in force asks for into
+    /// libcosmic's own font slot, so every widget that draws in the
+    /// interface font — the keypad, the panels, the top bar — picks
+    /// them up on the next render.
+    ///
+    /// It is what the window is really drawn in rather than what the
+    /// file says: a palette naming a family the host does not have is
+    /// drawn in the best recommended substitute, at the default
+    /// weight. See [`crate::ui::font::resolved_font`].
+    fn apply_font(&self) {
+        let (family, weight) = crate::ui::font::resolved_font(&self.config);
+        crate::ui::font::apply_interface_font(family, weight);
+    }
+
+    /// The weight the display is really set in: the palette's own
+    /// where the family has a face for it, and the nearest face it
+    /// does have otherwise. The width every display fit is measured
+    /// with follows the weight, so it has to be the drawn one.
+    fn drawn_weight(&self) -> crate::config::FontWeight {
+        let (family, weight) = crate::ui::font::resolved_font(&self.config);
+        crate::ui::font::resolved_weight(family, weight)
+    }
+
     /// Mark the config as needing a write. The actual save happens on
     /// the next `PersistConfig` tick, so a burst of changes (a slider
     /// drag, a run of keystrokes in a text field) costs one write
@@ -752,11 +775,12 @@ impl Application for AppModel {
         // lets the keypad reach the window edges so buttons fill the
         // window width as the user resizes it.
         core.window.content_container = false;
-        // Push the persisted font into libcosmic's global font slot so
+        // Push the palette's font into libcosmic's global font slot so
         // every widget that consults `crate::font::default()` (buttons,
         // dropdowns, sliders, ...) uses it from the very first frame
         // instead of falling back to the system default.
-        crate::ui::font::apply_interface_font(&config.font, config.font_weight);
+        let (family, weight) = crate::ui::font::resolved_font(&config);
+        crate::ui::font::apply_interface_font(family, weight);
         let mut engine = Engine::new(config.significant_digits);
         engine.angle_mode = config.angle_mode;
         let rand_min_text = format_f64_for_input(config.rand_min_incl);
@@ -835,6 +859,9 @@ impl Application for AppModel {
             }
             Message::SetTheme(kind) => {
                 self.config.theme_kind = kind;
+                // The font travels with the palette, so switching one
+                // switches the family the interface is drawn in.
+                self.apply_font();
                 self.persist();
             }
             Message::SetDecimalSeparator(sep) => {
@@ -857,14 +884,15 @@ impl Application for AppModel {
                 self.persist();
             }
             Message::SetFont(font) => {
-                self.config.font = font;
-                self.config.validate_and_clamp();
-                crate::ui::font::apply_interface_font(&self.config.font, self.config.font_weight);
+                // The palette on screen is the one that gets the
+                // family; the other eighteen keep theirs.
+                self.config.set_font(font);
+                self.apply_font();
                 self.persist();
             }
             Message::SetFontWeight(weight) => {
-                self.config.font_weight = weight;
-                crate::ui::font::apply_interface_font(&self.config.font, self.config.font_weight);
+                self.config.set_font_weight(weight);
+                self.apply_font();
                 self.persist();
             }
             Message::SetSignificantDigits(n) => {
@@ -1045,7 +1073,7 @@ impl Application for AppModel {
         // Re-asserting it here is what keeps the user's family on the
         // keypad from the first frame rather than from the first time
         // they pick one.
-        crate::ui::font::apply_interface_font(&self.config.font, self.config.font_weight);
+        self.apply_font();
         let layout = self.main_column_layout();
         let top_bar = self.render_top_bar();
         let display_metrics = self.compute_display_metrics(&layout);
@@ -1426,10 +1454,7 @@ impl AppModel {
         // width the caption and the readout are fitted from.
         let available_width =
             display_metrics::available_display_width(content_width, layout.edge_spacing)
-                / display_metrics::char_width_factor(crate::ui::font::resolved_weight(
-                    &self.config.font,
-                    self.config.font_weight,
-                ));
+                / display_metrics::char_width_factor(self.drawn_weight());
         let (caption_slot_h, main_slot_h) =
             display_metrics::display_line_budgets(layout.display_budget, layout.section_spacing);
         let (mut main_size, mut main_line_h) =
@@ -1480,7 +1505,8 @@ impl AppModel {
             let (r, g, b, a) = theme.text_inactive.to_f32();
             cosmic::iced::Color::from_rgba(r, g, b, a)
         };
-        let display_font = crate::ui::font::font_for(&self.config.font, self.config.font_weight);
+        let (family, weight) = crate::ui::font::resolved_font(&self.config);
+        let display_font = crate::ui::font::font_for(family, weight);
         let has_caption = metrics.has_caption;
         let main_size = metrics.main_size;
         let main_line_h = metrics.main_line_h;
@@ -1591,9 +1617,24 @@ impl AppModel {
             hit_area.into()
         };
 
+        // The readout sits a little off the floor of the display: a
+        // family whose descender reaches past its line box — Comic
+        // Sans MS, a good many script faces — otherwise has the tail
+        // of a `g` and the foot of a `(` cut off by the bottom of the
+        // slot. The room comes out of the text's own budget rather
+        // than out of the keypad, since `display_line_budgets` takes
+        // the same padding off before it splits the column, and there
+        // is none to match at the top: the ascender already has the
+        // leading above it.
         widget::container(interactive)
             .width(Length::Fill)
             .height(Length::Fixed(layout.display_budget.max(1.0)))
+            .padding(Padding {
+                top: 0.0,
+                right: 0.0,
+                bottom: display_metrics::display_descender_pad(layout.display_budget),
+                left: 0.0,
+            })
             .align_y(Alignment::End)
             .clip(true)
             .into()
@@ -1750,7 +1791,7 @@ impl AppModel {
         let radius = metrics.radius * (btn_height / metrics.button_height);
         let edge = layout.edge_spacing;
         let cell_w = crate::ui::keypad::button_cell_width(self.content_width(), 5, spacing, edge);
-        let font = self.config.font.as_str();
+        let font = crate::ui::font::resolved_font(&self.config).0;
         widget::row::with_capacity(5)
             .push(mem_btn(
                 &t,

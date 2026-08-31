@@ -25,8 +25,11 @@ fn main() -> cosmic::iced::Result {
     );
     // iced::Font::with_name needs a `&'static str`. Fonts live for the
     // program's whole lifetime, so the interner's leak is the right
-    // shape here.
-    let font = cosmic_calc::ui::font::font_for(&config.font, config.font_weight);
+    // shape here. The family is the one the palette in force asks for,
+    // or the best recommended substitute when the host does not have
+    // it — see `font::resolved_font`.
+    let (family, weight) = cosmic_calc::ui::font::resolved_font(&config);
+    let font = cosmic_calc::ui::font::font_for(family, weight);
     let settings = cosmic::app::Settings::default()
         .default_font(font)
         .size(startup)

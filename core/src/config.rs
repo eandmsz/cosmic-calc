@@ -70,6 +70,80 @@ pub const DEFAULT_FONT: &str = "Adwaita Sans";
 /// string is handed straight to the text renderer.
 pub const MAX_FONT_NAME_LEN: usize = 64;
 
+/// The families to fall back to when the palette asks for one the host
+/// does not have, best first.
+///
+/// A palette names the family it was drawn for, and the machine it is
+/// opened on is under no obligation to have it: a theme that asks for
+/// SF Pro Display is asking for something a Linux desktop almost
+/// never ships. Rather than hand the renderer a name it will silently
+/// substitute for whatever it likes, the first family in this list the
+/// host actually has is drawn instead — see
+/// `ui::font::resolved_font`.
+///
+/// The order is the priority: the list runs from the interface faces
+/// worth reaching for first, through the ones most desktops have, to
+/// the display and terminal faces that are a deliberate choice rather
+/// than a substitution. It is only ever consulted for a family that is
+/// not installed, so a machine with the configured font never sees it.
+///
+/// Nothing here is written to `config.toml`. The palette keeps the
+/// family it names, so installing that font later is all it takes to
+/// get it — see [`crate::theme::Theme::font`].
+pub const RECOMMENDED_FONTS: [&str; 22] = [
+    "SF Pro Display",
+    "SF Compact Text",
+    "Adwaita Sans",
+    "Trebuchet MS",
+    "Segoe UI",
+    "Bahnschrift",
+    "Comfortaa",
+    "Cambria",
+    "Caladea",
+    "Noto Sans",
+    "Lucidia Console",
+    "Cantarell",
+    "Consolas",
+    "SF Pro Rounded",
+    "Comic Sans MS",
+    "SF Mono",
+    "Adwaita Mono",
+    "DHF Harry's Brush",
+    "Vivaldi",
+    "Montez",
+    "BigBlue_TerminalPlus Nerd Font Mono",
+    "zilverstone eYe/FS",
+];
+
+/// Whether `family` is one of [`RECOMMENDED_FONTS`]. The settings
+/// panel marks those rows, so a user picking a font can see which
+/// ones the app would have reached for on its own.
+pub fn is_recommended_font(family: &str) -> bool {
+    RECOMMENDED_FONTS.contains(&family)
+}
+
+/// A font family name with everything the text renderer has no
+/// business being handed taken out of it, or `fallback` when nothing
+/// usable is left.
+///
+/// Family names are short and are handed straight to the renderer, so
+/// a name off disk is held to what one can be: no control characters,
+/// and no longer than one plausibly is.
+pub fn sanitized_font_name(name: &str, fallback: &str) -> String {
+    let cleaned: String = name
+        .trim()
+        .chars()
+        .filter(|c| !c.is_control())
+        .take(MAX_FONT_NAME_LEN)
+        .collect();
+    let cleaned = cleaned.trim();
+    if cleaned.is_empty() {
+        fallback.to_string()
+    } else {
+        cleaned.to_string()
+    }
+}
+
 /// The version stamped into every `config.toml` this build writes, so
 /// a later release can tell which format it is reading. Kept in step
 /// with the binary's own version by a test in the app crate.
@@ -371,16 +445,30 @@ pub struct Config {
     /// says which. See [`ThemeKind`].
     pub theme_kind: ThemeKind,
 
-    /// UI font family name. Sent to iced's text renderer once
-    /// `validate_and_clamp` has held it to what a family name can be.
-    #[serde(deserialize_with = "crate::lenient::text")]
-    pub font: String,
-
-    /// Which of the family's faces to draw in. A family that has no
-    /// face at this weight is drawn in the nearest one it does have,
-    /// and the choice is kept as it stands so a family that has it
-    /// gets it back — see [`FontWeight`].
-    pub font_weight: FontWeight,
+    /// The family a file written before the font moved into the
+    /// palette carried for the whole app, and the weight beside it.
+    ///
+    /// Neither is written back. `validate_and_clamp` moves the pair
+    /// into the palette that was in force when the file was written —
+    /// which is the palette the user chose that font while looking at
+    /// — and every other palette keeps the family its preset ships.
+    /// See [`crate::theme::Theme::font`].
+    ///
+    /// Public only because every field of this struct is: nothing
+    /// outside the load path has any business reading either, and
+    /// after one they are empty.
+    #[serde(
+        rename = "font",
+        skip_serializing,
+        deserialize_with = "crate::lenient::optional_text"
+    )]
+    pub legacy_font: Option<String>,
+    #[serde(
+        rename = "font_weight",
+        skip_serializing,
+        deserialize_with = "crate::lenient::optional_font_weight"
+    )]
+    pub legacy_font_weight: Option<FontWeight>,
 
     /// Keypad layout.
     pub mode: Mode,
@@ -452,8 +540,8 @@ impl Default for Config {
 
             theme_kind: ThemeKind::default(),
 
-            font: DEFAULT_FONT.to_string(),
-            font_weight: FontWeight::default(),
+            legacy_font: None,
+            legacy_font_weight: None,
 
             mode: Mode::default(),
 
@@ -506,22 +594,6 @@ impl Config {
             self.min_window_width = self.min_window_width.clamp(MIN_WINDOW_DIM, MAX_WINDOW_DIM);
         }
 
-        // The family name is handed straight to the text renderer, so
-        // it is held to what a family name can be: no control
-        // characters, and no longer than one plausibly is.
-        let font: String = self
-            .font
-            .trim()
-            .chars()
-            .filter(|c| !c.is_control())
-            .take(MAX_FONT_NAME_LEN)
-            .collect();
-        self.font = if font.trim().is_empty() {
-            DEFAULT_FONT.to_string()
-        } else {
-            font.trim().to_string()
-        };
-
         if self
             .thousands_separator
             .collides_with_decimal(self.decimal_separator.resolved())
@@ -554,6 +626,16 @@ impl Config {
 
         self.keypad.normalize();
         self.themes.normalize();
+
+        // After `normalize`, so the palette the legacy pair belongs to
+        // is certain to be in the table to receive it, and so the
+        // family it names is sanitized on its way in.
+        if let Some(font) = self.legacy_font.take() {
+            self.themes.set_font(self.theme_kind, font);
+        }
+        if let Some(weight) = self.legacy_font_weight.take() {
+            self.themes.set_font_weight(self.theme_kind, weight);
+        }
 
         // Last, so a migration added above still sees the version the
         // file was written by: from here on it names this build.
@@ -616,6 +698,36 @@ impl Config {
     /// The palette in force, as `config.toml` has it.
     pub fn theme(&self) -> Theme {
         self.themes.get(self.theme_kind)
+    }
+
+    /// The family the palette in force asks to be drawn in.
+    ///
+    /// The name as the file has it, which the host is under no
+    /// obligation to have installed: what is actually drawn is
+    /// `ui::font::resolved_font`, which falls back to
+    /// [`RECOMMENDED_FONTS`] for a family that is not there.
+    pub fn font(&self) -> &str {
+        self.themes.font(self.theme_kind)
+    }
+
+    /// The weight that palette asks for. A family with no face at it
+    /// is drawn in the nearest it does have, and the choice is kept as
+    /// it stands so a family that has it gets it back — see
+    /// [`FontWeight`].
+    pub fn font_weight(&self) -> FontWeight {
+        self.themes.font_weight(self.theme_kind)
+    }
+
+    /// Give the palette in force a family. The font is a property of
+    /// the palette, so picking one in the settings panel changes the
+    /// palette on screen and leaves the other eighteen as they were.
+    pub fn set_font(&mut self, font: String) {
+        self.themes.set_font(self.theme_kind, font);
+    }
+
+    /// Give the palette in force a weight, for the same reason.
+    pub fn set_font_weight(&mut self, weight: FontWeight) {
+        self.themes.set_font_weight(self.theme_kind, weight);
     }
 
     /// What the settings panel writes on the row that selects
