@@ -530,16 +530,25 @@ impl AppModel {
         }
     }
 
-    /// Record a window width — one the window reported, or one this
-    /// app has just asked for — and re-derive the panel bookkeeping
-    /// from it.
-    fn adopt_window_width(&mut self, width: f32) {
-        let (bare, held) = split_panel_width(
-            width,
-            self.bare_width,
-            self.panels_width(),
-            self.panel_width_added,
-        );
+    /// Record a window width and re-derive the panel bookkeeping from
+    /// it. `answering_panel_resize` says where the width came from,
+    /// which is what decides who it belongs to: a width this app asked
+    /// the window for on a panel's behalf settles what that panel is
+    /// holding, and any other width — the user dragging the window
+    /// edge, the size it opened at — is the calculator's own and
+    /// leaves the panel's share exactly as it was. See
+    /// [`split_panel_width`] and [`keep_panel_width`].
+    fn adopt_window_width(&mut self, width: f32, answering_panel_resize: bool) {
+        let (bare, held) = if answering_panel_resize {
+            split_panel_width(
+                width,
+                self.bare_width,
+                self.panels_width(),
+                self.panel_width_added,
+            )
+        } else {
+            keep_panel_width(width, self.panel_width_added)
+        };
         self.bare_width = bare;
         self.panel_width_added = held;
         self.window_width = width;
@@ -989,13 +998,15 @@ impl Application for AppModel {
                 self.ui.context_menu_open = false;
             }
             Message::WindowResized(w, h) => {
-                // The width a panel was waiting on has landed (or the
-                // user dragged the edge, which answers the same
-                // question): draw it, and let the column fill again.
-                if let Some(resize) = self.panel_resize.take() {
+                // A width this app asked for on a panel's behalf has
+                // landed: draw the panel, and let the column fill
+                // again. Any other width is the user at the window
+                // edge, and the panels keep the share they hold.
+                let pending = self.panel_resize.take();
+                if let Some(resize) = pending {
                     self.panels_shown = resize.panels;
                 }
-                self.adopt_window_width(w);
+                self.adopt_window_width(w, pending.is_some());
                 self.window_height = h;
                 self.note_window_size();
             }
@@ -1217,9 +1228,20 @@ impl Application for AppModel {
         std::process::exit(0);
     }
 
+    /// The window's own surface: the colour it is cleared to before
+    /// anything is drawn on it, and the default colour of text and
+    /// icons over that.
+    ///
+    /// The background goes out premultiplied, because it is the one
+    /// colour here the renderer does not blend — it is written into
+    /// the surface and handed to the compositor as it stands, and a
+    /// compositor reads those bytes as premultiplied. See
+    /// [`crate::color::Rgba::to_premultiplied_f32`]. The text colours
+    /// are drawn by the renderer like any other, so they go out as
+    /// they are written.
     fn style(&self) -> Option<cosmic::iced::theme::Style> {
         let t = self.active_theme();
-        let (r, g, b, a) = t.app_bg.to_f32();
+        let (r, g, b, a) = t.app_bg.to_premultiplied_f32();
         let (tr, tg, tb, ta) = t.text_active.to_f32();
         Some(cosmic::iced::theme::Style {
             background_color: cosmic::iced::Color::from_rgba(r, g, b, a),
@@ -2106,6 +2128,11 @@ struct PanelResize {
 /// own and the part the open side panels hold, returning
 /// `(bare_width, panels_hold)`.
 ///
+/// Only for the width that answers a resize *this app* asked for on a
+/// panel's behalf: what the window gained over the old split point is
+/// what the panel got, which is the one moment there is anything to
+/// work out. Every other width goes through [`keep_panel_width`].
+///
 /// `bare_width` is the previous split point, `panels_want` the width
 /// the panels that are open now ask for, and `panels_hold` the width
 /// they were last credited with. Panels never hold more than they ask
@@ -2125,6 +2152,29 @@ pub fn split_panel_width(
 ) -> (f32, f32) {
     let ceiling = panels_want.max(panels_hold);
     let held = ceiling.min((width - bare_width).max(0.0));
+    (width - held, held)
+}
+
+/// Re-split a window width that has nothing to do with the panels —
+/// the user at the window edge, or the size the window opened at.
+///
+/// A panel is a fixed width and is drawn at it whatever the window is
+/// doing, so a drag adds or takes width from the calculator column and
+/// from nothing else: the panels keep the share they hold, and
+/// `bare_width` moves by the whole of the change.
+///
+/// Re-deriving the share from the width instead is what made a window
+/// dragged in to its floor with a panel open spring wider when that
+/// panel closed. Every pixel the drag took came off the panel's credit
+/// rather than off the calculator's own width, so closing handed back
+/// less than the panel was really holding and the keypad grew into the
+/// difference — while the config, which persists `bare_width`, went on
+/// recording a calculator wider than the one on screen.
+///
+/// The one cap is the window itself: a panel cannot hold width that is
+/// not there, and `bare_width` is never negative.
+pub fn keep_panel_width(width: f32, panels_hold: f32) -> (f32, f32) {
+    let held = panels_hold.clamp(0.0, width.max(0.0));
     (width - held, held)
 }
 

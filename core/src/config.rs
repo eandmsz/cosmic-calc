@@ -334,6 +334,12 @@ pub struct Config {
     /// row as the number-property labels and aligned to the right.
     /// The value used to sit above the history panel, where it was
     /// only visible while that panel was open.
+    ///
+    /// Off out of the box: a register that is empty until something is
+    /// stored in it is a row of the display given over to the word
+    /// `Memory:`, so it is there for whoever uses `M+`/`M-` and out of
+    /// the way of everybody else. The memory keys themselves work
+    /// either way — this is only whether the value is on screen.
     pub show_memory: bool,
 
     /// Show the row of buttons directly above the keypad: the DEG/RAD
@@ -432,7 +438,9 @@ impl Default for Config {
             min_window_width: AUTO_MIN_WINDOW_WIDTH,
 
             property_testing: false,
-            show_memory: true,
+            // Nothing is in the register at startup, so the row would
+            // only say `Memory:` until the user puts something there.
+            show_memory: false,
             show_toprow: true,
             // The window size has always been remembered; the toggle
             // is there to stop it, not to start it.

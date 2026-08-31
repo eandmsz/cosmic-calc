@@ -17,6 +17,11 @@
 //! transparent colour anywhere a colour goes: a button filled with
 //! `#00000000` shows the app background through it and is drawn by
 //! its border alone.
+//!
+//! It means the same thing in every slot, including the window's own
+//! background, where the compositor rather than the renderer does the
+//! blending and wants the colour channels scaled by the alpha first —
+//! see [`Rgba::to_premultiplied_f32`].
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
@@ -139,6 +144,30 @@ impl Rgba {
             self.b as f32 / 255.0,
             self.a as f32 / 255.0,
         )
+    }
+
+    /// The same four floats with the colour channels already scaled by
+    /// the alpha — *premultiplied* alpha, which is how a compositor
+    /// reads the pixels of a window that has any transparency in it.
+    ///
+    /// Everything drawn *inside* the window is blended by the renderer,
+    /// which does this multiplication itself, so [`to_f32`] is what
+    /// those want. The window's own background is not drawn: it is
+    /// what the surface is cleared to, and those bytes go to the
+    /// compositor as they are written. Handed straight (unmultiplied)
+    /// channels there, the compositor reads `#FFFFFF00` — white, fully
+    /// transparent — as "add a screenful of white over whatever is
+    /// behind", which is an opaque white window, while `#00000000`
+    /// happens to come out right because its channels are zero either
+    /// way. Scaling first makes the alpha mean the one thing it should:
+    /// `00` is invisible whatever colour it is written in, `FF` is the
+    /// colour exactly as configured, and the values between are that
+    /// colour as tinted glass.
+    ///
+    /// [`to_f32`]: Rgba::to_f32
+    pub fn to_premultiplied_f32(self) -> (f32, f32, f32, f32) {
+        let (r, g, b, a) = self.to_f32();
+        (r * a, g * a, b * a, a)
     }
 }
 

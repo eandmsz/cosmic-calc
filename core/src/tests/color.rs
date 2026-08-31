@@ -105,6 +105,41 @@ fn an_alpha_channel_survives_the_round_trip_to_floats() {
 }
 
 #[test]
+fn alpha_means_the_same_thing_whatever_colour_it_is_written_in() {
+    // The window background is cleared rather than drawn, and the
+    // compositor reads those pixels as premultiplied. Handed straight
+    // channels it read `#FFFFFF00` as an opaque white window and
+    // `#28313300` as a tinted one, so the colour a transparency was
+    // written in decided how transparent it came out.
+    let alpha_of = |hex: &str| rgba(hex).to_premultiplied_f32();
+
+    // Nothing at all, whatever the colour: every channel goes to zero.
+    for hex in ["#FFFFFF00", "#00000000", "#28313300", "#FF000000"] {
+        assert_eq!(alpha_of(hex), (0.0, 0.0, 0.0, 0.0), "{hex}");
+    }
+
+    // Fully opaque is the colour exactly as it was configured.
+    for hex in ["#FFFFFFFF", "#283133FF", "#FF0000FF"] {
+        let c = rgba(hex);
+        assert_eq!(c.to_premultiplied_f32(), c.to_f32(), "{hex}");
+    }
+
+    // And in between, that colour as tinted glass: the alpha is
+    // carried through untouched, the colour scaled by it.
+    let (r, g, b, a) = alpha_of("#FFFFFF80");
+    let half = 0x80 as f32 / 255.0;
+    assert!((a - half).abs() < 1e-6, "{a}");
+    for (channel, name) in [(r, "r"), (g, "g"), (b, "b")] {
+        assert!((channel - half).abs() < 1e-6, "{name}={channel}");
+    }
+
+    // The colours the renderer blends itself are handed over as they
+    // are written — it does this multiplication in the shader, and
+    // doing it twice would fade every translucent button.
+    assert_eq!(rgba("#FFFFFF80").to_f32().0, 1.0);
+}
+
+#[test]
 fn hex_parse_rejects_a_sign_prefix() {
     // `from_str_radix` accepts `+`/`-`, so this parsed as a valid
     // six-character colour and silently produced the wrong channels.
