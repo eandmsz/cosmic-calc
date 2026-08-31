@@ -1,7 +1,7 @@
 use crate::ui::app::segment_padding;
 use crate::ui::display_metrics::{
-    available_display_width, display_line_budgets, fit_display_text, fit_display_text_to_width,
-    scale_main_text_size,
+    available_display_width, display_descender_pad, display_line_budgets, fit_display_text,
+    fit_display_text_to_width, scale_main_text_size,
 };
 use crate::ui::keypad::{label_width_units, LABEL_CHAR_WIDTH_RATIO};
 
@@ -13,6 +13,43 @@ fn display_line_budgets_keep_caption_at_sixty_percent_of_main() {
         (caption_h / main_h - 0.6).abs() < 0.01,
         "caption_h={caption_h} main_h={main_h}"
     );
+}
+
+#[test]
+fn the_readout_is_left_room_for_its_descenders() {
+    // A family whose descender reaches past its line box — Comic Sans
+    // MS is the one everybody has — had the tail of a `g` and the
+    // foot of a `(` cut off by the bottom of the display. The room
+    // comes out of the text's own budget, so the two lines, the gap
+    // between them and the space under them are the slot: nothing is
+    // taken from the keypad below.
+    let budget = 200.0;
+    let spacing = 8.0;
+    let pad = display_descender_pad(budget);
+    assert!(pad > 0.0, "{pad}");
+    let (caption_h, main_h) = display_line_budgets(budget, spacing);
+    assert!(
+        (caption_h + main_h + spacing + pad - budget).abs() < 0.01,
+        "caption={caption_h} main={main_h} pad={pad}"
+    );
+
+    // The readout is a fraction of the slot, so the room under it is
+    // too: a fixed few pixels would be room at the default window and
+    // nothing at all on a maximised one.
+    assert!(display_descender_pad(400.0) > display_descender_pad(100.0));
+
+    // Up to a ceiling, past which it stops being a descender's worth
+    // of room and starts being a gap under the readout.
+    assert_eq!(
+        display_descender_pad(10_000.0),
+        display_descender_pad(5_000.0)
+    );
+
+    // And nothing at all is still a legal slot: a window dragged to
+    // nothing must not hand the fit a negative budget.
+    assert!(display_descender_pad(0.0) >= 0.0);
+    let (caption_h, main_h) = display_line_budgets(1.0, 8.0);
+    assert!(caption_h > 0.0 && main_h > 0.0);
 }
 
 #[test]

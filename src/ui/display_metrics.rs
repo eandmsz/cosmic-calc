@@ -153,6 +153,41 @@ const MAIN_HEIGHT_PORTION: u16 = 100;
 const CAPTION_HEIGHT_PORTION: u16 =
     (MAIN_HEIGHT_PORTION as f32 * CAPTION_TO_MAIN_HEIGHT_RATIO) as u16;
 
+/// Fraction of the display slot kept clear under the readout so a
+/// descender is not cut off — see [`display_descender_pad`].
+const DESCENDER_PAD_RATIO: f32 = 0.06;
+
+/// Ceiling on that space. Past a point it stops being a descender's
+/// worth of room and starts being a gap between the readout and the
+/// row under it.
+const MAX_DESCENDER_PAD: f32 = 12.0;
+
+/// Space left clear under the main readout, in logical pixels.
+///
+/// The readout is drawn into a box one line high and clipped to the
+/// display, and the line box is not the same thing as the ink: a
+/// family whose descender reaches further than its line height —
+/// Comic Sans MS is the one everybody has — has the tail of a `g` and
+/// the foot of a `(` cut off by the bottom of the slot. There is no
+/// one number that clears every face, so the display simply keeps a
+/// little room under the last line and stops asking the readout to
+/// sit on the floor.
+///
+/// A fraction of the slot rather than a pixel count, because the
+/// readout is a fraction of it too: at the default window the digits
+/// are around 50px and on a maximised one twice that, and a fixed
+/// four pixels would be room at one size and nothing at the other.
+/// Capped, so a very tall window does not turn it into a margin.
+///
+/// It comes off the text's own budget — [`display_line_budgets`]
+/// takes it out before the split — so the space is found inside the
+/// display rather than taken from the keypad below it. There is
+/// deliberately no matching room at the top: what wants the space is
+/// the descender, and the ascender already has the leading above it.
+pub fn display_descender_pad(display_height: f32) -> f32 {
+    (display_height * DESCENDER_PAD_RATIO).clamp(0.0, MAX_DESCENDER_PAD)
+}
+
 /// Split the fixed display column into caption and main line heights.
 ///
 /// The caption's share is reserved whether or not there is a caption
@@ -161,8 +196,12 @@ const CAPTION_HEIGHT_PORTION: u16 =
 /// number typed after a start (or an AC) came up in a much larger font
 /// than the same number after an `=` — the split has to be the same
 /// either way for the readout to keep one size.
+///
+/// The descender space comes off the top of the budget, before the
+/// split, so both lines are fitted to what is left and the renderer
+/// draws into a slot that really has room under it.
 pub fn display_line_budgets(display_height: f32, row_spacing: f32) -> (f32, f32) {
-    let content = (display_height - row_spacing).max(1.0);
+    let content = (display_height - row_spacing - display_descender_pad(display_height)).max(1.0);
     let total_portions = MAIN_HEIGHT_PORTION as f32 + CAPTION_HEIGHT_PORTION as f32;
     let main_h = content * MAIN_HEIGHT_PORTION as f32 / total_portions;
     let caption_h = content * CAPTION_HEIGHT_PORTION as f32 / total_portions;

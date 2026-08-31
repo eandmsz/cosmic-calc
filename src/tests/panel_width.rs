@@ -301,10 +301,9 @@ fn the_theme_list_opens_at_the_palette_in_force() {
         if index >= families.len() {
             break;
         }
-        let font = font_list_offset(&Config {
-            font: families[index].0.clone(),
-            ..Config::default()
-        });
+        let mut config = Config::default();
+        config.set_font(families[index].0.clone());
+        let font = font_list_offset(&config);
         assert!((at(*kind) - font).abs() < 0.01, "{index}");
     }
 }
@@ -316,15 +315,20 @@ fn the_font_list_opens_at_the_family_in_force() {
     use crate::ui::panels::font_list_offset;
 
     let at = |family: &str| {
-        font_list_offset(&Config {
-            font: family.to_string(),
-            ..Config::default()
-        })
+        let mut config = Config::default();
+        config.set_font(family.to_string());
+        font_list_offset(&config)
     };
 
-    // A family the machine does not have has no row to scroll to, and
-    // the top is where the list already is.
-    assert_eq!(at("No Such Family At All"), 0.0);
+    // A family the machine does not have is not the one on screen: the
+    // list opens at the recommended family standing in for it, since
+    // that is the row in force. On a machine with none of them to
+    // stand in there is nothing to scroll to, and the top is where
+    // the list already is.
+    let expected = crate::ui::font::recommended_fallback()
+        .map(at)
+        .unwrap_or(0.0);
+    assert_eq!(at("No Such Family At All"), expected);
 
     let families = available_fonts_with_faces();
     // The first family is at the top, and centring it would ask for a

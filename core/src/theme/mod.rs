@@ -55,6 +55,7 @@ use serde::ser::{SerializeMap, SerializeStruct};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::color::Rgba;
+use crate::config::{sanitized_font_name, FontWeight};
 use crate::lenient::{color_of, Lenient};
 
 mod presets;
@@ -201,6 +202,30 @@ pub struct Theme {
     pub id: ThemeKind,
     /// What the settings panel writes on the row that selects it.
     pub display_name: String,
+    /// The family this palette is drawn in.
+    ///
+    /// A palette is a look rather than a set of colours, and the face
+    /// its text is set in is as much a part of that as its accent: a
+    /// Cupertino palette wants the face that desktop is drawn in, a
+    /// Cyberpunk one a terminal face. So the font travels with the
+    /// palette — switching palettes switches the family with it, and
+    /// picking a family in the settings panel changes the palette on
+    /// screen and leaves the other eighteen as they were.
+    ///
+    /// The name is kept exactly as it stands, whether or not the host
+    /// has the family. A machine without it is drawn in the best
+    /// installed family from [`crate::config::RECOMMENDED_FONTS`] —
+    /// see `ui::font::resolved_font` — and installing the one the
+    /// palette names is all it takes to get it, without an edit
+    /// anywhere.
+    pub font: String,
+    /// Which of that family's faces to draw in.
+    ///
+    /// Only honoured while the family itself is installed: a palette
+    /// falling back to a recommended family is drawn at the default
+    /// weight, since a Black chosen for one face says nothing about
+    /// how another should be set.
+    pub font_weight: FontWeight,
     /// Behind the window as a whole: the keypad's gaps, the top bar.
     pub app_bg: Rgba,
     /// Behind the expression display — the caption, the readout, and
@@ -286,6 +311,7 @@ impl Theme {
     fn sanitize(&mut self) {
         let fallback = presets::preset(self.id);
         self.display_name = sanitized_display_name(&self.display_name, &fallback.display_name);
+        self.font = sanitized_font_name(&self.font, &fallback.font);
         if !self.button_border_percent.is_finite() {
             self.button_border_percent = fallback.button_border_percent;
         }
@@ -552,6 +578,46 @@ impl ThemeTable {
             .unwrap_or("")
     }
 
+    /// The family `kind` asks to be drawn in — see [`Theme::font`].
+    /// Borrowed rather than handed back with the whole palette: the
+    /// view asks for it once per widget it draws, and cloning
+    /// nineteen colours' worth of palette for a family name is a lot
+    /// of copying per frame.
+    pub fn font(&self, kind: ThemeKind) -> &str {
+        self.0
+            .iter()
+            .find(|t| t.id == kind)
+            .map(|t| t.font.as_str())
+            .unwrap_or(crate::config::DEFAULT_FONT)
+    }
+
+    /// The weight `kind` asks for.
+    pub fn font_weight(&self, kind: ThemeKind) -> FontWeight {
+        self.0
+            .iter()
+            .find(|t| t.id == kind)
+            .map(|t| t.font_weight)
+            .unwrap_or_default()
+    }
+
+    /// Give `kind` a family, held to what a family name can be. A
+    /// palette the table does not carry is not created for it: the
+    /// table always holds all nineteen after
+    /// [`ThemeTable::normalize`], and one that does not has bigger
+    /// problems than a font.
+    pub fn set_font(&mut self, kind: ThemeKind, font: String) {
+        if let Some(theme) = self.0.iter_mut().find(|t| t.id == kind) {
+            theme.font = sanitized_font_name(&font, &presets::preset(kind).font);
+        }
+    }
+
+    /// Give `kind` a weight.
+    pub fn set_font_weight(&mut self, kind: ThemeKind, weight: FontWeight) {
+        if let Some(theme) = self.0.iter_mut().find(|t| t.id == kind) {
+            theme.font_weight = weight;
+        }
+    }
+
     /// Put the table back in a state the rest of the app can rely on:
     /// each of the nineteen presets present exactly once, in
     /// [`ThemeKind::ALL`] order, each with a drawable name and border.
@@ -659,6 +725,8 @@ struct RawTheme {
     /// one; in the table the key above the entry names the palette.
     id: Lenient<String>,
     display_name: Lenient<String>,
+    font: Lenient<String>,
+    font_weight: Lenient<FontWeight>,
     app_bg: Lenient<Rgba>,
     display_bg: Lenient<Rgba>,
     sidepanel_bg: Lenient<Rgba>,
@@ -707,6 +775,8 @@ impl RawTheme {
                 self.display_name.0.as_deref().unwrap_or_default(),
                 &base.display_name,
             ),
+            font: sanitized_font_name(self.font.0.as_deref().unwrap_or_default(), &base.font),
+            font_weight: self.font_weight.0.unwrap_or(base.font_weight),
             app_bg: self.app_bg.0.unwrap_or(base.app_bg),
             display_bg: self.display_bg.0.unwrap_or(base.display_bg),
             sidepanel_bg: self.sidepanel_bg.0.unwrap_or(base.sidepanel_bg),

@@ -22,8 +22,8 @@ use cosmic::widget::button::ButtonClass;
 use cosmic::Element;
 
 use crate::config::{
-    max_decimals_for_rand_max, ButtonShape, Config, FontWeight, MAX_SIGNIFICANT_DIGITS,
-    MIN_SIGNIFICANT_DIGITS,
+    is_recommended_font, max_decimals_for_rand_max, ButtonShape, Config, FontWeight,
+    MAX_SIGNIFICANT_DIGITS, MIN_SIGNIFICANT_DIGITS,
 };
 use crate::history::History;
 use crate::locale::{DecimalSeparator, ThousandsSeparator};
@@ -77,6 +77,14 @@ fn row_class(theme: &Theme, radius: f32, selected: bool) -> ButtonClass {
 /// Gap between one row of a scrolling list and the next.
 const LIST_ROW_SPACING: f32 = 2.0;
 
+/// What a row of the font list says about a family the app would fall
+/// back to on its own — see [`crate::config::RECOMMENDED_FONTS`].
+const RECOMMENDED_TAG: &str = "(Recommended)";
+
+/// Size the tag is drawn at: a step under the family name beside it,
+/// so it reads as a note on the row rather than as part of the name.
+const RECOMMENDED_TAG_SIZE: f32 = 11.0;
+
 /// Height each of the panel's two scrolling lists — the palettes and
 /// the font families — is given: enough rows to browse by, and
 /// bounded so nineteen palettes, or a host with hundreds of families,
@@ -110,19 +118,23 @@ fn list_offset(index: usize) -> f32 {
     (row_top - (LIST_HEIGHT - ROW_HEIGHT) / 2.0).max(0.0)
 }
 
-/// How far to scroll the font list for the chosen family to sit in
+/// How far to scroll the font list for the family in force to sit in
 /// the middle of it.
 ///
 /// The list is every family on the machine in alphabetical order, so
 /// a user whose font starts with S opens the panel a long way from
-/// the row that is actually in force.
+/// the row that is actually in force. It is the family being *drawn*
+/// that is scrolled to, which on a machine without the one the
+/// palette names is the recommended substitute — the row the list
+/// lights is the one the window is set in.
 ///
-/// `0.0` for a family near the top, or one the machine no longer has
-/// — there is nothing to scroll to.
+/// `0.0` for a family near the top, or one that is not in the list at
+/// all — there is nothing to scroll to.
 pub fn font_list_offset(config: &Config) -> f32 {
+    let (family, _) = crate::ui::font::resolved_font(config);
     available_fonts_with_faces()
         .iter()
-        .position(|(name, _)| name == &config.font)
+        .position(|(name, _)| name == family)
         .map(list_offset)
         .unwrap_or(0.0)
 }
@@ -667,19 +679,41 @@ pub fn settings_panel<'a>(
 
     // Font selector — enumerates every family fontdb finds installed on
     // the host. Each row renders the family's name in its own typeface
-    // so the user can preview the look before committing. The currently
-    // selected entry uses the `Suggested` (accent) button class so it
-    // stands out from the rest. The list is wrapped in a scrollable so
-    // a host with hundreds of installed fonts doesn't push the rest of
-    // the settings panel off-screen.
+    // so the user can preview the look before committing. The list is
+    // wrapped in a scrollable so a host with hundreds of installed
+    // fonts doesn't push the rest of the settings panel off-screen.
+    //
+    // The row lit is the family being *drawn*, which is the palette's
+    // own where the host has it and the recommended substitute where
+    // it does not — the same rule the weight buttons follow, and the
+    // one that makes the panel a picture of what is on screen rather
+    // than of what is in the file.
+    //
+    // The families the app would reach for on its own say so, against
+    // the right-hand edge of their row so the tags line up down the
+    // list instead of trailing each name. The tag is drawn in the
+    // interface font rather than the row's own face: it is the panel
+    // speaking, not a sample of the family, and a "(Recommended)" set
+    // in a brush script is neither.
+    let (drawn_family, drawn_weight) = crate::ui::font::resolved_font(config);
     let fonts = available_fonts_with_faces();
     let mut font_list = widget::column::with_capacity(fonts.len()).spacing(LIST_ROW_SPACING);
     for (name, face) in fonts {
         let preview = widget::text(name.clone())
             .font(*face)
             .size(crate::ui::font::FONT_ROW_SIZE);
-        let btn = widget::button::custom(preview)
-            .class(row_class(theme, radius, name == &config.font))
+        let mut label = widget::row::with_capacity(3)
+            .push(preview)
+            .align_y(Alignment::Center)
+            .spacing(8)
+            .width(Length::Fill);
+        if is_recommended_font(name) {
+            label = label
+                .push(widget::Space::new().width(Length::Fill))
+                .push(widget::text(RECOMMENDED_TAG).size(RECOMMENDED_TAG_SIZE));
+        }
+        let btn = widget::button::custom(label)
+            .class(row_class(theme, radius, name == drawn_family))
             .width(Length::Fill)
             .padding(ROW_PADDING)
             .on_press(Message::SetFont(name.clone()));
@@ -690,19 +724,19 @@ pub fn settings_panel<'a>(
         .spacing(SCROLLBAR_GAP)
         .height(Length::Fixed(LIST_HEIGHT));
 
-    // Weight — only the faces the chosen family actually ships, so a
-    // family with a Light and a Black offers both and one that comes
-    // in a single face offers just the one rather than nine buttons
-    // that all draw the same. The list therefore changes as the
-    // family does. A stored weight the family has no face for is left
-    // stored — switching families and back gets it again — and the
-    // button lit is the one that will really be drawn.
-    let weights = crate::ui::font::weights_for(&config.font);
+    // Weight — only the faces the family being drawn actually ships,
+    // so a family with a Light and a Black offers both and one that
+    // comes in a single face offers just the one rather than nine
+    // buttons that all draw the same. The list therefore changes as
+    // the family does. A stored weight the family has no face for is
+    // left stored — switching families and back gets it again — and
+    // the button lit is the one that will really be drawn.
+    let weights = crate::ui::font::weights_for(drawn_family);
     let weight_buttons = option_buttons(
         theme,
         radius,
         weights,
-        crate::ui::font::resolved_weight(&config.font, config.font_weight),
+        crate::ui::font::resolved_weight(drawn_family, drawn_weight),
         |w: FontWeight| w.display_name().to_string(),
         Message::SetFontWeight,
     );

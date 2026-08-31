@@ -10,7 +10,10 @@ fn defaults_sit_in_valid_ranges() {
     assert_eq!(c.significant_digits, 15);
     assert_eq!(c.window_startup_width, 300);
     assert_eq!(c.window_startup_height, 700);
-    assert_eq!(c.font, "Adwaita Sans");
+    // The font is the palette's now, and Cosmic — the palette a
+    // fresh file opens on — asks for the desktop's own family.
+    assert_eq!(c.font(), "Adwaita Sans");
+    assert_eq!(c.font_weight(), FontWeight::Regular);
     // First run opens on the Basic keypad.
     assert_eq!(c.mode, Mode::Basic);
     assert_eq!(c.theme_kind, ThemeKind::Cosmic);
@@ -77,7 +80,6 @@ fn validate_clamps_out_of_range_fields() {
         window_startup_width: 0,
         window_startup_height: 999_999,
         rand_decimals: 40,
-        font: "   ".to_string(),
         ..Config::default()
     };
     c.validate_and_clamp();
@@ -86,7 +88,12 @@ fn validate_clamps_out_of_range_fields() {
     assert_eq!(c.window_startup_width, MIN_WINDOW_DIM);
     assert_eq!(c.window_startup_height, MAX_WINDOW_DIM);
     assert_eq!(c.rand_decimals, MAX_RAND_DECIMALS);
-    assert_eq!(c.font, DEFAULT_FONT);
+
+    // A family name is the palette's, and a blank one is repaired to
+    // the family that palette ships with rather than left for the
+    // renderer to guess at.
+    c.set_font("   ".to_string());
+    assert_eq!(c.font(), ThemeKind::Cosmic.get().font);
 }
 
 #[test]
@@ -601,24 +608,125 @@ fn font_weights_name_the_faces_a_font_ships() {
 
 #[test]
 fn the_font_weight_round_trips_through_the_file() {
-    use crate::config::FontWeight;
-
     let path = scratch_path("font-weight");
-    let written = Config {
-        font_weight: FontWeight::SemiBold,
-        ..Config::default()
-    };
+    let mut written = Config::default();
+    written.set_font_weight(FontWeight::SemiBold);
     written.save_at(&path).expect("save");
     let read = Config::load_or_create_default_at(&path).expect("load");
-    assert_eq!(read.font_weight, FontWeight::SemiBold);
-    // Spelled readably in the file rather than as a number.
+    assert_eq!(read.font_weight(), FontWeight::SemiBold);
+    // Spelled readably in the file rather than as a number, and
+    // inside the palette it belongs to.
     let body = std::fs::read_to_string(&path).expect("read");
     assert!(body.contains("font_weight = \"semi_bold\""), "{body}");
-
-    // And a file written before the field existed still loads, at the
-    // weight a font ships as its own.
-    std::fs::write(&path, "font = \"Adwaita Sans\"\n").expect("write");
-    let read = Config::load_or_create_default_at(&path).expect("load");
-    assert_eq!(read.font_weight, FontWeight::Regular);
     let _ = std::fs::remove_dir_all(path.parent().unwrap());
+}
+
+#[test]
+fn the_font_belongs_to_the_palette_that_is_on_screen() {
+    // Picking a family changes the palette being looked at and leaves
+    // the other eighteen exactly as they were, so switching palettes
+    // brings the family that palette was drawn for back with it.
+    let mut c = Config {
+        theme_kind: ThemeKind::Barbie,
+        ..Config::default()
+    };
+    let cosmic_font = c.themes.font(ThemeKind::Cosmic).to_string();
+    c.set_font("Trebuchet MS".to_string());
+    c.set_font_weight(FontWeight::Bold);
+
+    assert_eq!(c.font(), "Trebuchet MS");
+    assert_eq!(c.font_weight(), FontWeight::Bold);
+    assert_eq!(c.themes.font(ThemeKind::Cosmic), cosmic_font);
+    assert_eq!(c.themes.font_weight(ThemeKind::Cosmic), FontWeight::Regular);
+
+    c.theme_kind = ThemeKind::Cosmic;
+    assert_eq!(c.font(), cosmic_font);
+
+    // And both survive the file, under the palette they belong to.
+    let path = scratch_path("theme-font");
+    c.save_at(&path).expect("save");
+    let read = Config::load_or_create_default_at(&path).expect("load");
+    assert_eq!(read.themes.font(ThemeKind::Barbie), "Trebuchet MS");
+    assert_eq!(read.themes.font_weight(ThemeKind::Barbie), FontWeight::Bold);
+    let body = std::fs::read_to_string(&path).expect("read");
+    assert!(body.contains("font = \"Trebuchet MS\""), "{body}");
+    let _ = std::fs::remove_dir_all(path.parent().unwrap());
+}
+
+#[test]
+fn a_file_written_before_the_font_moved_keeps_the_font_it_had() {
+    // Until 0.2.5 the family and the weight were one setting for the
+    // whole app, at the top of the file. It is the font that user was
+    // looking at, so the palette they were looking at keeps it — and
+    // the top-level keys are gone from the file the next time one is
+    // written.
+    let path = scratch_path("legacy-font");
+    std::fs::create_dir_all(path.parent().unwrap()).expect("mkdir");
+    std::fs::write(
+        &path,
+        "theme_kind = \"Tokyo\"\nfont = \"Trebuchet MS\"\nfont_weight = \"bold\"\n",
+    )
+    .expect("write");
+    let read = Config::load_or_create_default_at(&path).expect("load");
+    assert_eq!(read.font(), "Trebuchet MS");
+    assert_eq!(read.font_weight(), FontWeight::Bold);
+    // Only that palette: the others keep the family their preset
+    // ships, which is the whole point of the move.
+    assert_eq!(
+        read.themes.font(ThemeKind::Cosmic),
+        ThemeKind::Cosmic.get().font
+    );
+
+    read.save_at(&path).expect("save");
+    let body = std::fs::read_to_string(&path).expect("read");
+    // Gone from the top of the file — the only `font` left in it is
+    // the one inside a palette.
+    let top_level = body.split("\n[").next().unwrap_or_default();
+    assert!(!top_level.contains("font"), "{body}");
+    let back = Config::load_or_create_default_at(&path).expect("reload");
+    assert_eq!(back.font(), "Trebuchet MS");
+    assert_eq!(back.font_weight(), FontWeight::Bold);
+    let _ = std::fs::remove_dir_all(path.parent().unwrap());
+}
+
+#[test]
+fn the_recommended_families_are_a_priority_order() {
+    // The order is the fallback's: the first family on this list the
+    // host actually has is the one a palette naming a font nobody
+    // installed is drawn in.
+    assert_eq!(RECOMMENDED_FONTS.first(), Some(&"SF Pro Display"));
+    assert_eq!(RECOMMENDED_FONTS.last(), Some(&"zilverstone eYe/FS"));
+    assert_eq!(RECOMMENDED_FONTS[2], "Adwaita Sans");
+
+    // No repeats: a family listed twice would be a second chance at a
+    // priority it already had.
+    let mut seen = RECOMMENDED_FONTS.to_vec();
+    seen.sort_unstable();
+    let before = seen.len();
+    seen.dedup();
+    assert_eq!(seen.len(), before);
+
+    assert!(is_recommended_font("Adwaita Sans"));
+    assert!(!is_recommended_font("Nimbus Sans"));
+    // The default is on the list, so a host that has it never has to
+    // fall back past it.
+    assert!(is_recommended_font(DEFAULT_FONT));
+}
+
+#[test]
+fn every_palette_names_a_family_and_a_weight() {
+    for kind in ThemeKind::ALL {
+        let theme = kind.get();
+        assert!(!theme.font.trim().is_empty(), "{}", theme.display_name);
+        assert!(theme.font.len() <= MAX_FONT_NAME_LEN, "{}", theme.font);
+        // A palette asks for a family the app would have reached for
+        // on its own, so a host that has none of them falls back to a
+        // family it does have rather than to another name it lacks.
+        assert!(
+            is_recommended_font(&theme.font),
+            "{} asks for {}, which is not one of the recommended families",
+            theme.display_name,
+            theme.font
+        );
+    }
 }

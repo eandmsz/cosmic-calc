@@ -10,6 +10,7 @@
 //! what the window is painted with — see [`super::ThemeTable`].
 
 use crate::color::rgba;
+use crate::config::FontWeight;
 
 use super::{ButtonColors, StateColors, Theme, ThemeKind};
 
@@ -19,6 +20,8 @@ pub(super) fn preset(kind: ThemeKind) -> Theme {
         ThemeKind::CupertinoDark => Theme {
             id: ThemeKind::CupertinoDark,
             display_name: "Cupertino Dark".to_string(),
+            font: "SF Pro Display".to_string(),
+            font_weight: FontWeight::Regular,
             app_bg: rgba("#283133FF"),
             display_bg: rgba("#283133FF"),
             sidepanel_bg: rgba("#283133FF"),
@@ -114,6 +117,8 @@ pub(super) fn preset(kind: ThemeKind) -> Theme {
         ThemeKind::CupertinoLight => Theme {
             id: ThemeKind::CupertinoLight,
             display_name: "Cupertino Light".to_string(),
+            font: "SF Pro Display".to_string(),
+            font_weight: FontWeight::Regular,
             app_bg: rgba("#4C4C4CFF"),
             display_bg: rgba("#4C4C4CFF"),
             sidepanel_bg: rgba("#4C4C4CFF"),
@@ -209,6 +214,8 @@ pub(super) fn preset(kind: ThemeKind) -> Theme {
         ThemeKind::RedmondDark => Theme {
             id: ThemeKind::RedmondDark,
             display_name: "Redmond Dark".to_string(),
+            font: "Segoe UI".to_string(),
+            font_weight: FontWeight::Regular,
             app_bg: rgba("#202020FF"),
             display_bg: rgba("#202020FF"),
             sidepanel_bg: rgba("#202020FF"),
@@ -304,6 +311,8 @@ pub(super) fn preset(kind: ThemeKind) -> Theme {
         ThemeKind::RedmondLight => Theme {
             id: ThemeKind::RedmondLight,
             display_name: "Redmond Light".to_string(),
+            font: "Segoe UI".to_string(),
+            font_weight: FontWeight::Regular,
             app_bg: rgba("#F3F3F3FF"),
             display_bg: rgba("#F3F3F3FF"),
             sidepanel_bg: rgba("#F3F3F3FF"),
@@ -399,6 +408,8 @@ pub(super) fn preset(kind: ThemeKind) -> Theme {
         ThemeKind::HighContrastDark => Theme {
             id: ThemeKind::HighContrastDark,
             display_name: "High Contrast Dark".to_string(),
+            font: "Bahnschrift".to_string(),
+            font_weight: FontWeight::Bold,
             app_bg: rgba("#242424FF"),
             display_bg: rgba("#242424FF"),
             sidepanel_bg: rgba("#F3F3F3FF"),
@@ -494,6 +505,8 @@ pub(super) fn preset(kind: ThemeKind) -> Theme {
         ThemeKind::HighContrastLight => Theme {
             id: ThemeKind::HighContrastLight,
             display_name: "High Contrast Light".to_string(),
+            font: "Bahnschrift".to_string(),
+            font_weight: FontWeight::Bold,
             app_bg: rgba("#DBDBDBFF"),
             display_bg: rgba("#DBDBDBFF"),
             sidepanel_bg: rgba("#DBDBDBFF"),
@@ -589,6 +602,8 @@ pub(super) fn preset(kind: ThemeKind) -> Theme {
         ThemeKind::Cosmic => Theme {
             id: ThemeKind::Cosmic,
             display_name: "Cosmic".to_string(),
+            font: "Adwaita Sans".to_string(),
+            font_weight: FontWeight::Regular,
             app_bg: rgba("#1B1B1BFF"),
             display_bg: rgba("#1B1B1BFF"),
             sidepanel_bg: rgba("#272727FF"),
@@ -684,6 +699,8 @@ pub(super) fn preset(kind: ThemeKind) -> Theme {
         ThemeKind::Texas => Theme {
             id: ThemeKind::Texas,
             display_name: "Texas".to_string(),
+            font: "Consolas".to_string(),
+            font_weight: FontWeight::Regular,
             app_bg: rgba("#1E2329FF"),
             display_bg: rgba("#1E2329FF"),
             sidepanel_bg: rgba("#1E2329FF"),
@@ -779,6 +796,8 @@ pub(super) fn preset(kind: ThemeKind) -> Theme {
         ThemeKind::Tokyo => Theme {
             id: ThemeKind::Tokyo,
             display_name: "Tokyo".to_string(),
+            font: "Noto Sans".to_string(),
+            font_weight: FontWeight::Regular,
             app_bg: rgba("#283133FF"),
             display_bg: rgba("#283133FF"),
             sidepanel_bg: rgba("#283133FF"),
@@ -874,6 +893,8 @@ pub(super) fn preset(kind: ThemeKind) -> Theme {
         ThemeKind::Cyberpunk => Theme {
             id: ThemeKind::Cyberpunk,
             display_name: "Cyberpunk".to_string(),
+            font: "BigBlue_TerminalPlus Nerd Font Mono".to_string(),
+            font_weight: FontWeight::Regular,
             app_bg: rgba("#283133FF"),
             display_bg: rgba("#283133FF"),
             sidepanel_bg: rgba("#283133FF"),
@@ -969,6 +990,8 @@ pub(super) fn preset(kind: ThemeKind) -> Theme {
         ThemeKind::Plastic => Theme {
             id: ThemeKind::Plastic,
             display_name: "Plastic".to_string(),
+            font: "Comfortaa".to_string(),
+            font_weight: FontWeight::Medium,
             app_bg: rgba("#283133FF"),
             display_bg: rgba("#283133FF"),
             sidepanel_bg: rgba("#283133FF"),
@@ -1064,6 +1087,8 @@ pub(super) fn preset(kind: ThemeKind) -> Theme {
         ThemeKind::Crystal => Theme {
             id: ThemeKind::Crystal,
             display_name: "Crystal".to_string(),
+            font: "Cantarell".to_string(),
+            font_weight: FontWeight::Light,
             app_bg: rgba("#283133FF"),
             display_bg: rgba("#283133FF"),
             sidepanel_bg: rgba("#283133FF"),
@@ -1159,6 +1184,8 @@ pub(super) fn preset(kind: ThemeKind) -> Theme {
         ThemeKind::Barbie => Theme {
             id: ThemeKind::Barbie,
             display_name: "Barbie".to_string(),
+            font: "Comic Sans MS".to_string(),
+            font_weight: FontWeight::Regular,
             app_bg: rgba("#283133FF"),
             display_bg: rgba("#283133FF"),
             sidepanel_bg: rgba("#283133FF"),
@@ -1254,6 +1281,8 @@ pub(super) fn preset(kind: ThemeKind) -> Theme {
         ThemeKind::TouchLight => Theme {
             id: ThemeKind::TouchLight,
             display_name: "Touch Light".to_string(),
+            font: "SF Compact Text".to_string(),
+            font_weight: FontWeight::Regular,
             app_bg: rgba("#283133FF"),
             display_bg: rgba("#283133FF"),
             sidepanel_bg: rgba("#283133FF"),
@@ -1349,6 +1378,8 @@ pub(super) fn preset(kind: ThemeKind) -> Theme {
         ThemeKind::TouchDark => Theme {
             id: ThemeKind::TouchDark,
             display_name: "Touch Dark".to_string(),
+            font: "SF Compact Text".to_string(),
+            font_weight: FontWeight::Regular,
             app_bg: rgba("#283133FF"),
             display_bg: rgba("#283133FF"),
             sidepanel_bg: rgba("#283133FF"),
@@ -1444,6 +1475,8 @@ pub(super) fn preset(kind: ThemeKind) -> Theme {
         ThemeKind::EmeraldLight => Theme {
             id: ThemeKind::EmeraldLight,
             display_name: "Emerald Light".to_string(),
+            font: "Cambria".to_string(),
+            font_weight: FontWeight::Regular,
             app_bg: rgba("#283133FF"),
             display_bg: rgba("#283133FF"),
             sidepanel_bg: rgba("#283133FF"),
@@ -1539,6 +1572,8 @@ pub(super) fn preset(kind: ThemeKind) -> Theme {
         ThemeKind::EmeraldDark => Theme {
             id: ThemeKind::EmeraldDark,
             display_name: "Emerald Dark".to_string(),
+            font: "Cambria".to_string(),
+            font_weight: FontWeight::Regular,
             app_bg: rgba("#283133FF"),
             display_bg: rgba("#283133FF"),
             sidepanel_bg: rgba("#283133FF"),
@@ -1634,6 +1669,8 @@ pub(super) fn preset(kind: ThemeKind) -> Theme {
         ThemeKind::FlatOrangeDark => Theme {
             id: ThemeKind::FlatOrangeDark,
             display_name: "Flat Orange Dark".to_string(),
+            font: "Trebuchet MS".to_string(),
+            font_weight: FontWeight::Regular,
             app_bg: rgba("#283133FF"),
             display_bg: rgba("#283133FF"),
             sidepanel_bg: rgba("#283133FF"),
@@ -1729,6 +1766,8 @@ pub(super) fn preset(kind: ThemeKind) -> Theme {
         ThemeKind::FlatGreenLight => Theme {
             id: ThemeKind::FlatGreenLight,
             display_name: "Flat Green Light".to_string(),
+            font: "Trebuchet MS".to_string(),
+            font_weight: FontWeight::Regular,
             app_bg: rgba("#283133FF"),
             display_bg: rgba("#283133FF"),
             sidepanel_bg: rgba("#283133FF"),

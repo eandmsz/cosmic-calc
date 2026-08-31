@@ -14,6 +14,7 @@
 use serde::{Deserialize, Deserializer};
 
 use crate::color::Rgba;
+use crate::config::FontWeight;
 
 /// A field that should be text, taking anything else as absent.
 /// Wired in with `#[serde(deserialize_with = "lenient::text")]`.
@@ -24,6 +25,25 @@ where
     Ok(Lenient::<String>::deserialize(deserializer)?
         .0
         .unwrap_or_default())
+}
+
+/// A field that should be text, as `Some` only when the file wrote
+/// one — for a field that has to tell "the file did not say" from
+/// "the file said something else", which is what a setting being
+/// migrated out of the file needs.
+pub(crate) fn optional_text<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    Ok(Lenient::<String>::deserialize(deserializer)?.0)
+}
+
+/// The same for a font weight: one of the nine names, or nothing.
+pub(crate) fn optional_font_weight<'de, D>(deserializer: D) -> Result<Option<FontWeight>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    Ok(Lenient::<FontWeight>::deserialize(deserializer)?.0)
 }
 
 /// The colour a TOML value spells, if it spells one.
@@ -59,6 +79,19 @@ impl<'de> Deserialize<'de> for Lenient<Rgba> {
     {
         let value = toml::Value::deserialize(deserializer)?;
         Ok(Self(color_of(&value)))
+    }
+}
+
+/// A weight the file may have spelled as something other than one of
+/// the nine names — a number, a typo, a table. Anything that is not
+/// one of them is absent, and the caller keeps what it had.
+impl<'de> Deserialize<'de> for Lenient<FontWeight> {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = toml::Value::deserialize(deserializer)?;
+        Ok(Self(FontWeight::deserialize(value).ok()))
     }
 }
 
