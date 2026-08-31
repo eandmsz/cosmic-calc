@@ -193,8 +193,16 @@ pub enum Mode {
 /// the buttons *outside* the keypad (the settings rows, the history
 /// rows) have no such height to scale against and take a fixed
 /// number. The keypad recomputes its own and ignores the radius here.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
+///
+/// `config.toml` spells these the way the settings panel offers them
+/// — `system`, `50%`, `25%`, `10%`, `0%` — so the file says what the
+/// keypad is actually drawn like rather than naming a preset the
+/// reader has to look up. The five are the whole vocabulary: a
+/// percentage of the user's own invention is not a shape this build
+/// can draw, and `button_shape = "37%"` falls back to the shipped
+/// value the way any other unusable entry does. See
+/// [`ButtonShape::from_key`].
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum ButtonShape {
     #[default]
     Auto,
@@ -234,6 +242,57 @@ impl ButtonShape {
         }
     }
 
+    /// The name `config.toml` records, which is what the settings
+    /// panel calls it: a file saying `25%` and a panel showing 25%
+    /// are describing the same corner, and neither asks the reader to
+    /// remember which preset `slightlyround` was.
+    pub fn key(self) -> &'static str {
+        match self {
+            ButtonShape::Auto => "system",
+            ButtonShape::Round => "50%",
+            ButtonShape::SlightlyRound => "25%",
+            ButtonShape::BarelyRound => "10%",
+            ButtonShape::Square => "0%",
+        }
+    }
+
+    /// The shape this key names, or `None` for anything else.
+    ///
+    /// The five keys are the whole vocabulary. A percentage reads as
+    /// a number the user could pick from, and they cannot: the keypad
+    /// draws these four corners and the desktop's own, so `37%` is
+    /// not a shape to be rounded to the nearest one — it is a value
+    /// this build has no meaning for, and it is refused here so the
+    /// entry falls back to the shipped shape like any other unusable
+    /// one. See [`crate::lenient`].
+    ///
+    /// Case and surrounding space are not the point of a hand-edited
+    /// file, so `"System"` and `" 50% "` are the keys they obviously
+    /// are. The names earlier versions wrote — `auto`, `round`,
+    /// `slightlyround`, `barelyround`, `square` — are still read, so
+    /// upgrading keeps the corner the user chose; the next save
+    /// writes the percentage.
+    pub fn from_key(key: &str) -> Option<ButtonShape> {
+        /// The names earlier versions wrote, in the same order.
+        const LEGACY: [(&str, ButtonShape); 5] = [
+            ("auto", ButtonShape::Auto),
+            ("round", ButtonShape::Round),
+            ("slightlyround", ButtonShape::SlightlyRound),
+            ("barelyround", ButtonShape::BarelyRound),
+            ("square", ButtonShape::Square),
+        ];
+        let key = key.trim();
+        ButtonShape::ALL
+            .into_iter()
+            .find(|shape| shape.key().eq_ignore_ascii_case(key))
+            .or_else(|| {
+                LEGACY
+                    .into_iter()
+                    .find(|(name, _)| name.eq_ignore_ascii_case(key))
+                    .map(|(_, shape)| shape)
+            })
+    }
+
     /// Resolve the preset to the (corner_radius, spacing) it pins.
     /// `Auto` returns `None` so callers can fall back to whatever the
     /// cosmic theme reports. The rounded presets report a placeholder
@@ -248,6 +307,33 @@ impl ButtonShape {
             ButtonShape::BarelyRound => Some((2.0, 2.0 * 0.25)),
             ButtonShape::Square => Some((0.0, 1.0)),
         }
+    }
+}
+
+/// A shape is written as the percentage it draws — see
+/// [`ButtonShape::key`] — and read back through
+/// [`ButtonShape::from_key`], which knows five names and no sixth.
+/// Anything else is an error rather than a repair, so the lenient
+/// wrapper the config reads through can tell "the file said something
+/// this build has no shape for" from "the file said nothing" and put
+/// the shipped value back either way.
+impl Serialize for ButtonShape {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(self.key())
+    }
+}
+
+impl<'de> Deserialize<'de> for ButtonShape {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const KEYS: [&str; 5] = ["system", "50%", "25%", "10%", "0%"];
+        let name = String::deserialize(deserializer)?;
+        ButtonShape::from_key(&name).ok_or_else(|| serde::de::Error::unknown_variant(&name, &KEYS))
     }
 }
 

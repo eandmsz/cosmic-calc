@@ -8,7 +8,10 @@
 use crate::config::{
     is_recommended_font, Config, FontWeight, MAX_FONT_NAME_LEN, RECOMMENDED_FONTS,
 };
-use crate::ui::font::{available_fonts, is_installed, recommended_fallback, resolved_font};
+use crate::ui::font::{
+    available_fonts, group_weight, is_installed, recommended_fallback, resolved_font,
+    resolved_weight, weights_for,
+};
 
 /// A family the host has whose name survives the config's own
 /// sanitising unchanged, so a test can assert on the name it set.
@@ -102,4 +105,56 @@ fn switching_palettes_switches_the_family() {
 
     config.theme_kind = started_on;
     assert_eq!(config.font(), installed);
+}
+
+#[test]
+fn a_group_without_a_weight_of_its_own_takes_the_palettes() {
+    // Which is what all but two of the two hundred and eighty shipped
+    // groups say. Nothing is named, so nothing is set: those labels
+    // are drawn in the interface font, which is already the palette's
+    // family at the palette's weight.
+    let installed = an_installed_family();
+    let mut config = Config::default();
+    config.set_font(installed.to_string());
+    assert_eq!(group_weight(&config, None), None);
+}
+
+#[test]
+fn a_group_with_a_weight_gets_a_face_the_family_really_has() {
+    // A group naming a weight is asking for a face, and a family that
+    // has no Black is drawn at the nearest it does have rather than
+    // at a weight the renderer would have to invent.
+    let installed = an_installed_family();
+    let mut config = Config::default();
+    config.set_font(installed.to_string());
+
+    let asked = FontWeight::Black;
+    let drawn = group_weight(&config, Some(asked)).expect("the family is installed");
+    assert_eq!(drawn, resolved_weight(installed, asked));
+    assert!(weights_for(installed).contains(&drawn), "{drawn:?}");
+}
+
+#[test]
+fn a_group_weight_is_dropped_with_the_family_it_was_chosen_for() {
+    // The same rule the palette's own weight follows: a palette
+    // standing in a recommended family is set at that family's
+    // default throughout, because a Bold picked for one face says
+    // nothing about how another should be set.
+    let mut config = Config::default();
+    config.set_font("No Such Family At All".to_string());
+    let drawn = group_weight(&config, Some(FontWeight::Bold));
+
+    match recommended_fallback() {
+        // There is a substitute, so the group goes to it at its
+        // default weight along with everything else on the keypad.
+        Some(_) => assert_eq!(drawn, None),
+        // And on a machine with no substitute to reach for, the name
+        // stands and the group is set at whatever face the renderer
+        // finds under it — which is what the interface font, carrying
+        // the palette's own weight, is snapped to as well.
+        None => assert_eq!(
+            drawn,
+            Some(resolved_weight("No Such Family At All", FontWeight::Bold))
+        ),
+    }
 }

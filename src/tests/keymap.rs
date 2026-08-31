@@ -129,7 +129,7 @@ fn the_shipped_keypad_reads_as_designed() {
     assert_eq!(
         drawn(LayoutKind::Scientific),
         [
-            "2nd ( ) 𝑒 EE AC ⌫ % ÷",
+            "2ⁿᵈ ( ) 𝑒 EE AC ⌫ % ÷",
             "x² x³ xʸ 𝑒ˣ 10ˣ 7 8 9 ×",
             "²√x ³√x ʸ√x ln log 4 5 6 −",
             "x! sin cos tan π 1 2 3 +",
@@ -139,7 +139,7 @@ fn the_shipped_keypad_reads_as_designed() {
     assert_eq!(
         drawn(LayoutKind::ScientificSecond),
         [
-            "2nd ( ) 𝑒 EE AC ⌫ % ÷",
+            "2ⁿᵈ ( ) 𝑒 EE AC ⌫ % ÷",
             "x² x³ xʸ yˣ 2ˣ 7 8 9 ×",
             "²√x ³√x ʸ√x logᵧ log₂ 4 5 6 −",
             "x! sin⁻¹ cos⁻¹ tan⁻¹ π 1 2 3 +",
@@ -247,6 +247,9 @@ fn borrowed_letter(text: &str, up: bool) -> String {
     match (text, up) {
         ("x", true) => "ˣ".to_string(),
         ("y", true) => "ʸ".to_string(),
+        // The ordinal suffix of the `2nd` latch, which Unicode also
+        // has only as modifier letters.
+        ("nd", true) => "ⁿᵈ".to_string(),
         ("y", false) => "ᵧ".to_string(),
         // The two fraction faces: a subscript `x` and a subscript
         // minus, neither of which is in the subscript digit block
@@ -298,6 +301,16 @@ fn the_keys_with_scripts_are_the_ones_that_have_them() {
     assert_eq!(shifts(Button::YPowX), vec![Shift::OnLine, Shift::Up]);
     assert_eq!(shifts(Button::TwoPowX), vec![Shift::OnLine, Shift::Up]);
     assert_eq!(shifts(Button::Asin), vec![Shift::OnLine, Shift::Up]);
+    // The latch is an ordinal, so its suffix rides above the line
+    // rather than sitting beside the digit.
+    assert_eq!(shifts(Button::Second), vec![Shift::OnLine, Shift::Up]);
+    assert_eq!(
+        label_parts(Button::Second, ctx)
+            .iter()
+            .map(|p| p.text)
+            .collect::<Vec<_>>(),
+        vec!["2", "nd"]
+    );
     assert_eq!(shifts(Button::LogY), vec![Shift::OnLine, Shift::Down]);
     assert_eq!(shifts(Button::Log2), vec![Shift::OnLine, Shift::Down]);
     // A degree is written into the radical that follows it, so it

@@ -1823,11 +1823,16 @@ impl AppModel {
         let radius = metrics.radius * (btn_height / metrics.button_height);
         let edge = layout.edge_spacing;
         let cell_w = crate::ui::keypad::button_cell_width(self.content_width(), 5, spacing, edge);
-        let font = crate::ui::font::resolved_font(&self.config).0;
+        // Every key on this row is a top-row key, so the face is
+        // worked out once rather than five times.
+        let face = crate::ui::keypad::LabelFace {
+            family: crate::ui::font::resolved_font(&self.config).0,
+            weight: crate::ui::font::group_weight(&self.config, t.toprow.font_weight),
+        };
         widget::row::with_capacity(5)
             .push(mem_btn(
                 &t,
-                font,
+                face,
                 angle_label(self.config.angle_mode),
                 Button::ToggleAngleMode,
                 radius,
@@ -1836,7 +1841,7 @@ impl AppModel {
             ))
             .push(mem_btn(
                 &t,
-                font,
+                face,
                 "MC",
                 Button::MemClear,
                 radius,
@@ -1845,7 +1850,7 @@ impl AppModel {
             ))
             .push(mem_btn(
                 &t,
-                font,
+                face,
                 "MR",
                 Button::MemRecall,
                 radius,
@@ -1854,7 +1859,7 @@ impl AppModel {
             ))
             .push(mem_btn(
                 &t,
-                font,
+                face,
                 "M+",
                 Button::MemAdd,
                 radius,
@@ -1863,7 +1868,7 @@ impl AppModel {
             ))
             .push(mem_btn(
                 &t,
-                font,
+                face,
                 "M-",
                 Button::MemSub,
                 radius,
@@ -2361,10 +2366,11 @@ fn is_valid_rand_input(s: &str) -> bool {
 
 /// Small helper for the 5-way memory button row. Paints each key in
 /// the active theme's top-row slot so it matches the other control
-/// buttons.
+/// buttons — and sets it at that slot's weight, where it asks for one
+/// of its own.
 fn mem_btn(
     theme: &Theme,
-    font: &str,
+    face: crate::ui::keypad::LabelFace<'_>,
     label: &'static str,
     button: Button,
     corner_radius: f32,
@@ -2373,7 +2379,7 @@ fn mem_btn(
 ) -> Element<'static, Message> {
     widget::container(crate::ui::keypad::control_button(
         theme,
-        font,
+        face,
         &[crate::ui::keymap::LabelPart::on_line(label)],
         button,
         crate::ui::keypad::CellGeometry {

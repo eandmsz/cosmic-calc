@@ -834,10 +834,12 @@ pub fn settings_panel<'a>(
         .push(shape_buttons)
         .push(significant_digits_label)
         .push(significant_digits_slider)
-        .push(widget::text::caption("Random: min (incl.) max (excl.)"))
-        .push(rand_bounds)
         .push(rand_decimals_label)
         .push(rand_decimals_slider)
+        .push(widget::text::caption(
+            "Random range (min included, max excluded)",
+        ))
+        .push(rand_bounds)
         .push(widget::text::caption("Theme"))
         .push(theme_selector)
         .push(widget::text::caption("Font"))

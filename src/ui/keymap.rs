@@ -299,6 +299,16 @@ pub fn label_parts(button: Button, ctx: LabelContext) -> Vec<LabelPart> {
         Button::TwoPowX => vec![LabelPart::on_line("2"), LabelPart::raised("x")],
         Button::EPowX => vec![LabelPart::on_line("𝑒"), LabelPart::raised("x")],
 
+        // The second-function latch is an ordinal, and an ordinal
+        // wears its suffix raised: a `2` with `nd` over it rather
+        // than three characters sitting in a row. The suffix is
+        // letters rather than digits, so Unicode's superscript block
+        // has nothing for it — `ⁿᵈ` are modifier letters, drawn
+        // by whichever face on the system happens to carry them —
+        // which is exactly the case the pieces exist for: the key's
+        // own face at 60%, one step off the line.
+        Button::Second => vec![LabelPart::on_line("2"), LabelPart::raised("nd")],
+
         // The two fraction faces, written as the fractions they are:
         // numerator up, fraction slash on the line, denominator down.
         // Both used to sit flat on the line, where `1⁄x` read as a
@@ -356,7 +366,12 @@ pub fn label_for(button: Button, ctx: LabelContext) -> &'static str {
 
         Button::Clear => ctx.clear,
         Button::Equals => "=",
-        Button::Second => "2nd",
+        // The ordinal as one string, spelled the way the scripts
+        // above it are: with the raised glyphs Unicode has, here the
+        // two modifier letters. The face the keypad draws is
+        // [`label_parts`], which raises the suffix itself rather than
+        // asking the font for these.
+        Button::Second => "2ⁿᵈ",
         Button::LeftParen => "(",
         Button::RightParen => ")",
         Button::CursorLeft => "←",

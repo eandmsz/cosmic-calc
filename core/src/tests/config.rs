@@ -54,19 +54,57 @@ fn the_corner_radius_presets_are_offered_as_what_they_draw() {
         assert!((spacing - r * 0.25).abs() < 1e-6, "{shape:?}");
     }
 
-    // The key the file records is the variant's own, so renaming a
-    // label cannot orphan a config somebody already has.
+    // The file records the same name the panel offers, so a shape in
+    // `config.toml` says what the keypad is drawn like rather than
+    // naming a preset the reader has to look up.
     #[derive(serde::Serialize, serde::Deserialize)]
     struct Wrap {
         shape: ButtonShape,
     }
     for shape in ButtonShape::ALL {
         let toml = toml::to_string(&Wrap { shape }).unwrap();
+        assert!(
+            toml.contains(&format!("shape = \"{}\"", shape.key())),
+            "{toml}"
+        );
         let back: Wrap = toml::from_str(&toml).unwrap();
         assert_eq!(back.shape, shape, "{toml}");
     }
-    let back: Wrap = toml::from_str(r#"shape = "auto""#).unwrap();
-    assert_eq!(back.shape, ButtonShape::Auto);
+    let keys: Vec<_> = ButtonShape::ALL.iter().map(|s| s.key()).collect();
+    assert_eq!(keys, ["system", "50%", "25%", "10%", "0%"]);
+
+    // Case and stray space in a hand-edited file are not the point.
+    for (written, shape) in [(" 50% ", ButtonShape::Round), ("System", ButtonShape::Auto)] {
+        assert_eq!(ButtonShape::from_key(written), Some(shape), "{written}");
+    }
+
+    // The names earlier versions wrote still read, so upgrading keeps
+    // the corner the user chose.
+    for (legacy, shape) in [
+        ("auto", ButtonShape::Auto),
+        ("round", ButtonShape::Round),
+        ("slightlyround", ButtonShape::SlightlyRound),
+        ("barelyround", ButtonShape::BarelyRound),
+        ("square", ButtonShape::Square),
+    ] {
+        let back: Wrap = toml::from_str(&format!(r#"shape = "{legacy}""#)).unwrap();
+        assert_eq!(back.shape, shape, "{legacy}");
+    }
+
+    // And the five are the whole vocabulary. A percentage looks like
+    // a number the user could pick from and is not: anything but the
+    // five is refused here, which is what leaves the shipped shape in
+    // place rather than a corner this build cannot draw.
+    for invented in ["37%", "60%", "12", "pill", ""] {
+        assert!(
+            ButtonShape::from_key(invented).is_none(),
+            "{invented} was taken for a shape"
+        );
+        assert!(
+            toml::from_str::<Wrap>(&format!(r#"shape = "{invented}""#)).is_err(),
+            "{invented} was taken for a shape"
+        );
+    }
 }
 
 #[test]
@@ -706,7 +744,7 @@ fn the_button_shape_belongs_to_the_palette_that_is_on_screen() {
         ThemeKind::Cosmic.get().button_shape
     );
     let body = std::fs::read_to_string(&path).expect("read");
-    assert!(body.contains("button_shape = \"barelyround\""), "{body}");
+    assert!(body.contains("button_shape = \"10%\""), "{body}");
     let _ = std::fs::remove_dir_all(path.parent().unwrap());
 }
 
