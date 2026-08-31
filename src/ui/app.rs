@@ -1579,7 +1579,7 @@ impl AppModel {
                     t.class(cosmic::theme::Text::Color(inactive_color))
                 };
                 let drift = crate::ui::font_metrics::baseline_nudge(family, &seg.text, size);
-                row = row.push(place_segment(t, seg, drift, size, main_line_h));
+                row = row.push(place_segment(t, seg, family, drift, size, main_line_h));
             }
             row.into()
         };
@@ -1611,7 +1611,8 @@ impl AppModel {
                     ))
                     .class(cosmic::theme::Text::Color(inactive_color));
                 let drift = crate::ui::font_metrics::baseline_nudge(family, &seg.text, size);
-                caption_row = caption_row.push(place_segment(t, seg, drift, size, caption_line_h));
+                caption_row =
+                    caption_row.push(place_segment(t, seg, family, drift, size, caption_line_h));
             }
             let caption_inner: Element<'_, Message> = widget::container(caption_row)
                 .width(Length::Fill)
@@ -2042,23 +2043,55 @@ struct DisplayMetrics {
 /// height and cannot squeeze the text it holds. `0.0` for a caller
 /// that places its label as a whole and has nothing beside it to line
 /// up with.
+///
+/// A degree may also have to climb a little further than its script
+/// asks for, and `family` is what says whether it does: the sideways
+/// slide puts it in the opening of the sign, and how high that
+/// opening reaches is a matter of the outline the family draws it
+/// with. See [`degree_climb`].
 pub(crate) fn place_segment<'a>(
     text: widget::Text<'a, cosmic::Theme>,
     seg: &crate::ui::display::DisplaySegment,
+    family: &str,
     drift: f32,
     size: f32,
     line_h: f32,
 ) -> Element<'a, Message> {
     let raise = seg.script.raise;
     let slide = seg.nudge * size * crate::ui::keypad::LABEL_CHAR_WIDTH_RATIO;
-    if raise == 0.0 && slide == 0.0 && drift == 0.0 {
+    let climb = degree_climb(family, seg, size, line_h);
+    if raise == 0.0 && slide == 0.0 && drift == 0.0 && climb == 0.0 {
         return text.into();
     }
     widget::container(text)
         .height(Length::Fixed(line_h.max(1.0)))
         .align_y(Alignment::Center)
-        .padding(segment_padding(raise, slide, drift, line_h))
+        .padding(segment_padding(raise, slide, drift - climb, line_h))
         .into()
+}
+
+/// How far this piece climbs out of the radical it is written into:
+/// nothing at all unless it is a root degree, and nothing then either
+/// unless the family draws the two into each other. See
+/// [`crate::ui::font_metrics::root_degree_climb`], which does the
+/// measuring; everything here is which sizes to measure at.
+fn degree_climb(
+    family: &str,
+    seg: &crate::ui::display::DisplaySegment,
+    size: f32,
+    line_h: f32,
+) -> f32 {
+    if !seg.is_root_degree() {
+        return 0.0;
+    }
+    crate::ui::font_metrics::root_degree_climb(
+        family,
+        crate::ui::display::ROOT_DEGREE_OVERLAP,
+        seg.script.step_taken(),
+        line_h,
+        size,
+        seg.script.parent_size(size),
+    )
 }
 
 /// The box padding that places one piece: the vertical halves move it

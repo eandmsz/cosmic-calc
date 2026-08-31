@@ -77,6 +77,11 @@ fn row_class(theme: &Theme, radius: f32, selected: bool) -> ButtonClass {
 /// Gap between one row of a scrolling list and the next.
 const LIST_ROW_SPACING: f32 = 2.0;
 
+/// What stands between the two random bounds: an en dash, which is
+/// the mark a range is written with. A hyphen there would read as the
+/// minus the keypad has a key for, and the pair as a subtraction.
+const RANGE_DASH: &str = "–";
+
 /// What a row of the font list says about a family the app would fall
 /// back to on its own — see [`crate::config::RECOMMENDED_FONTS`].
 const RECOMMENDED_TAG: &str = "(Recommended)";
@@ -559,6 +564,11 @@ pub fn settings_panel<'a>(
     // Decimal separator — one button per choice, so the three are
     // readable at a glance and switching is a single click rather than
     // a menu. `Auto` defers to the OS locale (resolved at render time).
+    //
+    // Each choice is named rather than named *and* spelled: a `Dot .`
+    // put the glyph on the button beside the word for it, and the two
+    // said the same thing twice — the second of them in a mark small
+    // enough at the panel's row size to read as a speck on the key.
     let decimal_options = [
         DecimalSeparator::Auto,
         DecimalSeparator::Dot,
@@ -572,8 +582,8 @@ pub fn settings_panel<'a>(
         |d| {
             String::from(match d {
                 DecimalSeparator::Auto => "System",
-                DecimalSeparator::Dot => "Dot .",
-                DecimalSeparator::Comma => "Comma ,",
+                DecimalSeparator::Dot => "Dot",
+                DecimalSeparator::Comma => "Comma",
             })
         },
         Message::SetDecimalSeparator,
@@ -607,8 +617,8 @@ pub fn settings_panel<'a>(
             String::from(match t {
                 ThousandsSeparator::Auto => "System",
                 ThousandsSeparator::Space => "Space",
-                ThousandsSeparator::Comma => "Comma ,",
-                ThousandsSeparator::Dot => "Dot .",
+                ThousandsSeparator::Comma => "Comma",
+                ThousandsSeparator::Dot => "Dot",
                 ThousandsSeparator::None => "None",
             })
         },
@@ -765,6 +775,20 @@ pub fn settings_panel<'a>(
     if max_invalid {
         rand_max_input = rand_max_input.error("max must be larger than min");
     }
+    // The two bounds are one setting, so they are drawn as one: a
+    // single caption naming both ends, and under it the fields side by
+    // side sharing the panel's width with a range dash between them.
+    // Stacked, each under a caption of its own, they read as two
+    // unrelated numbers that happen to sit together; a range is what
+    // they are, and this is how a range is written.
+    let rand_bounds = widget::row::with_capacity(3)
+        .push(rand_min_input.width(Length::Fill))
+        .push(widget::text(RANGE_DASH))
+        .push(rand_max_input.width(Length::Fill))
+        .spacing(8)
+        .align_y(Alignment::Center)
+        .width(Length::Fill);
+
     // The slider's upper bound tracks rand_max_excl in real time so a
     // user typing larger numbers into the max field immediately sees
     // the available decimal-digit count shrink.
@@ -810,10 +834,8 @@ pub fn settings_panel<'a>(
         .push(shape_buttons)
         .push(significant_digits_label)
         .push(significant_digits_slider)
-        .push(widget::text::caption("Random min (inclusive)"))
-        .push(rand_min_input)
-        .push(widget::text::caption("Random max (exclusive)"))
-        .push(rand_max_input)
+        .push(widget::text::caption("Random: min (incl.) max (excl.)"))
+        .push(rand_bounds)
         .push(rand_decimals_label)
         .push(rand_decimals_slider)
         .push(widget::text::caption("Theme"))

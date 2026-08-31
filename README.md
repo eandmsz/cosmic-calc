@@ -107,6 +107,21 @@ make check                         # fmt + clippy + the whole workspace
 	  for the rest — the two paths read a face's vertical metrics
 	  through different libraries, and where those disagree the
 	  same split opens up in a family that does have the sign
+	- The degree of a root stands clear of the sign it is written
+	  into. It is slid into the radical's opening rather than left
+	  beside it — `⁴√` is one symbol, not a small 4 beside a stroke
+	  — and how high that opening reaches is the outline's business
+	  rather than the metrics': in a good many families the foot of
+	  the degree came down on the stroke. So the sign is measured
+	  where the degree covers it, walking the outline over those
+	  columns rather than taking a bounding box that would put the
+	  bar away to the right into the answer, and the degree is
+	  lifted by what it is short of and no further. A family that
+	  already draws the two apart is left exactly where it was, and
+	  no degree climbs out of its own line: the room it is given is
+	  the room the face leaves over a digit. Nothing in the
+	  measurement depends on which characters the degree is spelled
+	  with, so every piece of a `¹²√` moves together
 	- Both the square and cube root keys wear the whole operation —
 	  `²√x` and `³√x`, the way `ʸ√x` does with its degree left
 	  open — rather than a bare sign that says which radical it is
@@ -636,8 +651,13 @@ make check                         # fmt + clippy + the whole workspace
 	  stretched to the full width of the panel, so a choice between
 	  two ends at the same edge as a choice between four instead of
 	  trailing off in the middle. What each button gets of that
-	  width is its share of the names on its line, so a `Comma ,`
+	  width is its share of the names on its line, so a `System`
 	  is drawn wider than the `None` beside it
+	- Each separator is named rather than named *and* spelled:
+	  `Dot` and `Comma`, not `Dot .` and `Comma ,`. The glyph on
+	  the button beside the word for it said the same thing twice,
+	  and at the panel's row size the second of them read as a
+	  speck on the key rather than as a mark
 	- Theme is a list rather than a row of buttons: one palette per
 	  line, in the scroll box the font families are browsed in and
 	  bounded to the same height. Twenty names wrapped across the
@@ -652,6 +672,13 @@ make check                         # fmt + clippy + the whole workspace
 	  radius is a fraction of the button's own height, so `50%`
 	  is a pill at every window size where a fixed pixel count
 	  would stop being round as the buttons grew
+	- The two random bounds are one setting and are drawn as one:
+	  a single `Random: min (incl.) max (excl.)` over the two
+	  fields, side by side and sharing the panel's width with a
+	  range dash between them. Stacked, each under a caption of its
+	  own, they read as two unrelated numbers that happen to sit
+	  together — a range is what they are, and this is how a range
+	  is written
 	- Both lists open at the row in force — the palette you are
 	  using, the family you are using — rather than at the top of
 	  twenty palettes or of an alphabetical list of every family
@@ -723,7 +750,10 @@ make check                         # fmt + clippy + the whole workspace
 	  out of the text's own budget rather than off the keypad.
 	  There is none to match at the top: what wanted the space was
 	  the descender, and the ascender already has the leading above
-	  it
+	  it — which is why the gap under the readout is deliberately
+	  the larger of the two, and half as much again as it started
+	  out, since a sixteenth of the slot still left the `g` of a
+	  `log` against the floor in the families it was put there for
 - "Save history" keeps the history list in `config.toml` and reads it
   back on the next start, updated as each calculation is recorded.
   Turning it off empties it from the file straight away; turning it on

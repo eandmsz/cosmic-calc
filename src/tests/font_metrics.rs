@@ -146,3 +146,114 @@ fn the_measurement_is_free_of_the_font_size_until_it_is_applied() {
     assert_eq!(baseline_nudge("Nimbus Sans", "5", 0.0), 0.0);
     assert_eq!(baseline_nudge("Nimbus Sans", "5", f32::NAN), 0.0);
 }
+
+// --- keeping a root degree out of its radical ------------------------
+
+#[test]
+fn a_degree_that_already_stands_clear_is_left_where_it_is() {
+    use crate::ui::font_metrics::degree_climb;
+
+    // The sign reaches 20 up in the columns the degree covers and the
+    // degree's baseline is at 30: there is daylight between them, and
+    // a degree that is not in the way is not moved.
+    assert_eq!(degree_climb(20.0, 30.0, 2.0, 10.0), 0.0);
+    // Exactly the clearance apart is still clear.
+    assert_eq!(degree_climb(20.0, 22.0, 2.0, 10.0), 0.0);
+}
+
+#[test]
+fn a_degree_resting_on_the_sign_climbs_off_it() {
+    use crate::ui::font_metrics::degree_climb;
+
+    // Foot of the degree at 18, top of the stroke under it at 20: it
+    // is in the stroke by 2, and comes up by that plus the clearance.
+    assert_eq!(degree_climb(20.0, 18.0, 2.0, 10.0), 4.0);
+    // And by no more than it is short of — the degree belongs in the
+    // opening of the sign, not above the whole radical.
+    assert!(degree_climb(20.0, 19.5, 2.0, 10.0) < degree_climb(20.0, 18.0, 2.0, 10.0));
+}
+
+#[test]
+fn a_degree_never_climbs_out_of_its_own_line() {
+    use crate::ui::font_metrics::degree_climb;
+
+    // A face whose opening reaches higher than there is room to climb
+    // gets as much of the lift as the line box holds and no more:
+    // going further would trade a degree touching its sign for one
+    // reaching into the row above it.
+    assert_eq!(degree_climb(100.0, 0.0, 2.0, 10.0), 10.0);
+    // No room at all is a legal answer, and asks for nothing.
+    assert_eq!(degree_climb(100.0, 0.0, 2.0, 0.0), 0.0);
+    assert_eq!(degree_climb(100.0, 0.0, 2.0, -5.0), 0.0);
+}
+
+#[test]
+fn nothing_a_broken_measurement_says_moves_a_degree() {
+    use crate::ui::font_metrics::degree_climb;
+
+    assert_eq!(degree_climb(f32::NAN, 0.0, 2.0, 10.0), 0.0);
+    assert_eq!(degree_climb(20.0, 0.0, 2.0, f32::INFINITY), 0.0);
+}
+
+#[test]
+fn the_radical_is_measured_at_its_opening_rather_than_its_bar() {
+    use crate::ui::display::ROOT_DEGREE_OVERLAP;
+    use crate::ui::font_metrics::radical_band_top;
+
+    // The degree covers the left-hand sliver of the sign, so what it
+    // has to clear is the short stroke there — the bar is away to the
+    // right of it and does not come into the answer. Whatever the
+    // host has installed, that is somewhere above the baseline and
+    // below the top of the sign.
+    for family in crate::ui::font::available_fonts().iter().take(40) {
+        let Some(top) = radical_band_top(family, ROOT_DEGREE_OVERLAP) else {
+            continue;
+        };
+        assert!(top > 0.0 && top < 2.0, "{family}: {top}");
+        // A wider band can only find more of the sign, never less.
+        let wider = radical_band_top(family, ROOT_DEGREE_OVERLAP * 2.0).unwrap_or(top);
+        assert!(wider >= top - 1e-6, "{family}: {wider} vs {top}");
+    }
+    // A band with nothing in it is nothing measured, not a zero.
+    assert_eq!(radical_band_top("DejaVu Sans", 0.0), None);
+    assert_eq!(radical_band_top("DejaVu Sans", f32::NAN), None);
+}
+
+#[test]
+fn the_lift_is_the_same_for_every_piece_of_one_degree() {
+    use crate::ui::display::ROOT_DEGREE_OVERLAP;
+    use crate::ui::font_metrics::root_degree_climb;
+
+    // Nothing about the measurement depends on which characters the
+    // degree is spelled with — the signature has no text in it — and
+    // that is what keeps a `12` on one line: every piece of a degree
+    // is placed on its own, so a lift read off one piece's ink would
+    // stand the two digits at different heights. What it does depend
+    // on is the size, and it scales with it.
+    for family in crate::ui::font::available_fonts().iter().take(40) {
+        let small = root_degree_climb(family, ROOT_DEGREE_OVERLAP, 0.2, 31.0, 15.9, 26.5);
+        let large = root_degree_climb(family, ROOT_DEGREE_OVERLAP, 0.2, 62.0, 31.8, 53.0);
+        assert!(small >= 0.0 && large >= 0.0, "{family}");
+        assert!(large >= small - 1e-6, "{family}: {large} vs {small}");
+        // And it stays a nudge: a degree is moved within its own line,
+        // never by a whole line.
+        assert!(large < 31.8, "{family}: {large}");
+    }
+}
+
+#[test]
+fn a_degree_is_not_moved_by_a_font_that_cannot_be_read() {
+    use crate::ui::display::ROOT_DEGREE_OVERLAP;
+    use crate::ui::font_metrics::root_degree_climb;
+
+    // Every degenerate way the geometry can arrive asks for no move
+    // rather than for a NaN of one.
+    let climb = |band, step, line_h, size, radical| {
+        root_degree_climb("DejaVu Sans", band, step, line_h, size, radical)
+    };
+    assert_eq!(climb(f32::NAN, 0.2, 62.0, 31.8, 53.0), 0.0);
+    assert_eq!(climb(ROOT_DEGREE_OVERLAP, f32::NAN, 62.0, 31.8, 53.0), 0.0);
+    assert_eq!(climb(ROOT_DEGREE_OVERLAP, 0.2, f32::NAN, 31.8, 53.0), 0.0);
+    assert_eq!(climb(ROOT_DEGREE_OVERLAP, 0.2, 62.0, 0.0, 53.0), 0.0);
+    assert_eq!(climb(ROOT_DEGREE_OVERLAP, 0.2, 62.0, 31.8, f32::NAN), 0.0);
+}

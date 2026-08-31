@@ -212,7 +212,7 @@ pub fn control_button(
         width: cell_width,
     } = cell;
     let font_size = label_font_size_for(button_height, cell_width, parts_width_units(label));
-    let centred = widget::container(label_row(label, font_size))
+    let centred = widget::container(label_row(font_family, label, font_size))
         .padding(centring_padding(
             font_family,
             &on_line_text(label),
@@ -259,7 +259,7 @@ pub fn control_button(
 /// hair under what a face actually draws; without this a label that
 /// only just overflows — `+⁄−` in a nine-column keypad — breaks across
 /// two lines rather than sitting on one.
-fn label_row(parts: &[LabelPart], font_size: f32) -> Element<'static, Message> {
+fn label_row(font_family: &str, parts: &[LabelPart], font_size: f32) -> Element<'static, Message> {
     let line_h = font_size * TEXT_BOX_LINE_HEIGHT;
     let mut row = widget::row::with_capacity(parts.len());
     for part in parts {
@@ -287,9 +287,17 @@ fn label_row(parts: &[LabelPart], font_size: f32) -> Element<'static, Message> {
         // No baseline correction: a key's pieces are not read against
         // anything else on their line, and the label as a whole is
         // already placed on its ink by `centring_padding`, which
-        // measures the fallback face the same way.
+        // measures the fallback face the same way. The family is
+        // still handed over, because a `³√x` on a key has its degree
+        // in the same radical the display writes one into, and clears
+        // the stroke by the same measurement.
         row = row.push(crate::ui::app::place_segment(
-            piece, &seg, 0.0, size, line_h,
+            piece,
+            &seg,
+            font_family,
+            0.0,
+            size,
+            line_h,
         ));
     }
     row.into()
