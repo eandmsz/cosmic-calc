@@ -541,6 +541,37 @@ fn a_name_that_would_break_its_button_is_repaired() {
 }
 
 #[test]
+fn a_palette_that_copies_a_desktop_copies_its_corner() {
+    use crate::config::ButtonShape;
+
+    // The shape is part of the look the palette is imitating, so the
+    // two that copy a desktop's keys copy the corner those keys have.
+    for kind in [ThemeKind::CupertinoDark, ThemeKind::CupertinoLight] {
+        assert_eq!(kind.get().button_shape, ButtonShape::Round, "{kind:?}");
+    }
+    for kind in [ThemeKind::RedmondDark, ThemeKind::RedmondLight] {
+        assert_eq!(kind.get().button_shape, ButtonShape::Square, "{kind:?}");
+    }
+    // Cosmic Desktop tracks the desktop the app is drawn for, and the
+    // corner is part of what it tracks.
+    assert_eq!(ThemeKind::Cosmic.get().button_shape, ButtonShape::Auto);
+    // Every other palette is where they all started, so switching to
+    // one changes nothing about the shape of the keypad.
+    for kind in ThemeKind::ALL {
+        if matches!(
+            kind,
+            ThemeKind::CupertinoDark
+                | ThemeKind::CupertinoLight
+                | ThemeKind::RedmondDark
+                | ThemeKind::RedmondLight
+        ) {
+            continue;
+        }
+        assert_eq!(kind.get().button_shape, ButtonShape::Auto, "{kind:?}");
+    }
+}
+
+#[test]
 fn a_palette_carries_the_shape_its_buttons_are_drawn_in() {
     use crate::config::ButtonShape;
 

@@ -237,8 +237,12 @@ pub struct Theme {
     /// choosing one in the settings panel changes the palette on
     /// screen and leaves the other nineteen alone.
     ///
-    /// Every shipped palette asks for `Auto`, which is the desktop's
-    /// own, so nothing changes shape until somebody chooses one.
+    /// A palette that copies a desktop copies its corner: Cupertino
+    /// is pills, Redmond is corners, and Cosmic Desktop asks for
+    /// `Auto` — the running desktop's own — because tracking that
+    /// desktop is what it is for. The rest ask for `Auto` too, which
+    /// is where every palette started, so switching to one of them
+    /// changes nothing about the keypad's shape.
     pub button_shape: ButtonShape,
     /// Behind the window as a whole: the keypad's gaps, the top bar.
     pub app_bg: Rgba,

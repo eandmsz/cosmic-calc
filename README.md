@@ -683,21 +683,28 @@ make check                         # fmt + clippy + the whole workspace
 	  without reading as rounded — the step between a square key
 	  and a quarter-round one was the widest on the row
 	- The corner belongs to the palette, like the font does. A
-	  corner is part of a look in the way a colour or a face is —
-	  a Cupertino keypad is pills and a Wolfenstein one is corners
-	  — and one setting for the whole app meant picking a shape
-	  and wearing it on all twenty. So choosing one changes the
+	  corner is part of a look in the way a colour or a face is,
+	  so a palette that copies a desktop copies its corner:
+	  Cupertino Dark and Light are pills (`50%`), Redmond Dark and
+	  Light are corners (`0%`), and Cosmic Desktop asks for
+	  `System` because tracking the running desktop is what it is
+	  for. The other fifteen ask for `System` too, which is where
+	  they all started, so switching to one of them changes
+	  nothing about the shape of the keypad
+	- One setting for the whole app meant picking a shape and
+	  wearing it on all twenty. Choosing one now changes the
 	  palette on screen and leaves the other nineteen alone, and
 	  switching palettes brings each one's own shape back with it.
 	  It is written into that palette's entry in `config.toml` —
 	  `[themes.Cosmic] button_shape` — with the one in force
 	  mirrored at the top of the file beside `theme_kind`, `font`
 	  and `font_weight`, so the answer to "what shape is this
-	  keypad" is where the rest of the answer already is. Every
-	  shipped palette asks for `System`, so nothing changes shape
-	  until you pick one, and a `config.toml` written before the
-	  move gives its shape to the palette that was on screen when
-	  it was written
+	  keypad" is where the rest of the answer already is
+	- A `config.toml` written before the move gives its shape to
+	  the palette that was on screen when it was written — the
+	  palette you chose that shape while looking at — so the
+	  keypad you are looking at comes back exactly as you left it,
+	  whatever the palettes you are not looking at now ask for
 	- The two random bounds are one setting and are drawn as one:
 	  a single `Random: min (incl.) max (excl.)` over the two
 	  fields, side by side and sharing the panel's width with a
@@ -723,7 +730,9 @@ make check                         # fmt + clippy + the whole workspace
   picking a family changes the palette you are looking at and leaves
   the other nineteen alone. Both are written into that palette's entry
   in `config.toml`, and the pair in force is written again at the top
-  of the file beside `theme_kind` — see below
+  of the file beside `theme_kind` — see below. The corner the keys are
+  drawn with belongs to the palette the same way, and is carried and
+  read back in exactly the same places
 	- A palette naming a family your machine does not have is drawn
 	  in the best one it does: the first of the recommended families
 	  installed, in the priority order below. The settings panel
