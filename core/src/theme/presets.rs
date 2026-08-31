@@ -1,4 +1,4 @@
-//! The nineteen shipped palettes, one `Theme` each.
+//! The twenty shipped palettes, one `Theme` each.
 //!
 //! Every arm is a table and nothing in it is computed: read down a
 //! column to see one state of a button, across a row to see one of
@@ -601,8 +601,8 @@ pub(super) fn preset(kind: ThemeKind) -> Theme {
         },
         ThemeKind::Cosmic => Theme {
             id: ThemeKind::Cosmic,
-            display_name: "Cosmic".to_string(),
-            font: "Adwaita Sans".to_string(),
+            display_name: "Cosmic Desktop".to_string(),
+            font: "Open Sans".to_string(),
             font_weight: FontWeight::Regular,
             app_bg: rgba("#1B1B1BFF"),
             display_bg: rgba("#1B1B1BFF"),
@@ -893,7 +893,7 @@ pub(super) fn preset(kind: ThemeKind) -> Theme {
         ThemeKind::Cyberpunk => Theme {
             id: ThemeKind::Cyberpunk,
             display_name: "Cyberpunk".to_string(),
-            font: "BigBlue_TerminalPlus Nerd Font Mono".to_string(),
+            font: "Adwaita Mono".to_string(),
             font_weight: FontWeight::Regular,
             app_bg: rgba("#283133FF"),
             display_bg: rgba("#283133FF"),
@@ -1858,6 +1858,103 @@ pub(super) fn preset(kind: ThemeKind) -> Theme {
                 StateColors::new(rgba("#585E60FF"), rgba("#6D7477FF"), rgba("#4F5556FF")), // fill
                 StateColors::new(rgba("#D4D4D4FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")), // label
                 StateColors::new(rgba("#D4D4D4FF"), rgba("#D4D4D4FF"), rgba("#D4D4D4FF")), // border
+            ),
+        },
+        ThemeKind::Wolfenstein => Theme {
+            id: ThemeKind::Wolfenstein,
+            display_name: "Wolfenstein".to_string(),
+            font: "Bahnschrift".to_string(),
+            font_weight: FontWeight::Bold,
+            app_bg: rgba("#1A1614FF"),
+            display_bg: rgba("#241F1BFF"),
+            sidepanel_bg: rgba("#201B18FF"),
+            text_active: rgba("#E8DCC0FF"),
+            text_inactive: rgba("#E8DCC04D"),
+            accent: rgba("#B22222FF"),
+            button_border_percent: 4.0,
+            science: ButtonColors::grid(
+                //               resting            hover              pressed
+                StateColors::new(rgba("#3A332CFF"), rgba("#4C443AFF"), rgba("#2E2822FF")), // fill
+                StateColors::new(rgba("#E8DCC0FF"), rgba("#F6ECD4FF"), rgba("#C9BC9EFF")), // label
+                StateColors::new(rgba("#6B5B44FF"), rgba("#8A765AFF"), rgba("#4F4333FF")), // border
+            ),
+            second: ButtonColors::grid(
+                //               resting            hover              pressed
+                StateColors::new(rgba("#4A3B22FF"), rgba("#5E4B2CFF"), rgba("#3A2E1AFF")), // fill
+                StateColors::new(rgba("#F0D890FF"), rgba("#FFE9A8FF"), rgba("#D2BC79FF")), // label
+                StateColors::new(rgba("#C8A44AFF"), rgba("#E2BC5CFF"), rgba("#9C7F38FF")), // border
+            ),
+            toprow: ButtonColors::grid(
+                //               resting            hover              pressed
+                StateColors::new(rgba("#463D33FF"), rgba("#5A4F42FF"), rgba("#382F27FF")), // fill
+                StateColors::new(rgba("#E8DCC0FF"), rgba("#F6ECD4FF"), rgba("#C9BC9EFF")), // label
+                StateColors::new(rgba("#6B5B44FF"), rgba("#8A765AFF"), rgba("#4F4333FF")), // border
+            ),
+            delete: ButtonColors::grid(
+                //               resting            hover              pressed
+                StateColors::new(rgba("#463D33FF"), rgba("#5A4F42FF"), rgba("#382F27FF")), // fill
+                StateColors::new(rgba("#E8DCC0FF"), rgba("#F6ECD4FF"), rgba("#C9BC9EFF")), // label
+                StateColors::new(rgba("#6B5B44FF"), rgba("#8A765AFF"), rgba("#4F4333FF")), // border
+            ),
+            bracket: ButtonColors::grid(
+                //               resting            hover              pressed
+                StateColors::new(rgba("#463D33FF"), rgba("#5A4F42FF"), rgba("#382F27FF")), // fill
+                StateColors::new(rgba("#E8DCC0FF"), rgba("#F6ECD4FF"), rgba("#C9BC9EFF")), // label
+                StateColors::new(rgba("#6B5B44FF"), rgba("#8A765AFF"), rgba("#4F4333FF")), // border
+            ),
+            basicop: ButtonColors::grid(
+                //               resting            hover              pressed
+                StateColors::new(rgba("#8B2020FF"), rgba("#A82929FF"), rgba("#6E1818FF")), // fill
+                StateColors::new(rgba("#F3E3C4FF"), rgba("#FFF1D8FF"), rgba("#D6C4A2FF")), // label
+                StateColors::new(rgba("#C8A44AFF"), rgba("#E2BC5CFF"), rgba("#9C7F38FF")), // border
+            ),
+            equals: ButtonColors::grid(
+                //               resting            hover              pressed
+                StateColors::new(rgba("#C8A44AFF"), rgba("#E2BC5CFF"), rgba("#A8873BFF")), // fill
+                StateColors::new(rgba("#241F1BFF"), rgba("#1A1614FF"), rgba("#241F1BFF")), // label
+                StateColors::new(rgba("#F0D890FF"), rgba("#FFE9A8FF"), rgba("#D2BC79FF")), // border
+            ),
+            percent: ButtonColors::grid(
+                //               resting            hover              pressed
+                StateColors::new(rgba("#3A332CFF"), rgba("#4C443AFF"), rgba("#2E2822FF")), // fill
+                StateColors::new(rgba("#E8DCC0FF"), rgba("#F6ECD4FF"), rgba("#C9BC9EFF")), // label
+                StateColors::new(rgba("#6B5B44FF"), rgba("#8A765AFF"), rgba("#4F4333FF")), // border
+            ),
+            reciprocal: ButtonColors::grid(
+                //               resting            hover              pressed
+                StateColors::new(rgba("#3A332CFF"), rgba("#4C443AFF"), rgba("#2E2822FF")), // fill
+                StateColors::new(rgba("#E8DCC0FF"), rgba("#F6ECD4FF"), rgba("#C9BC9EFF")), // label
+                StateColors::new(rgba("#6B5B44FF"), rgba("#8A765AFF"), rgba("#4F4333FF")), // border
+            ),
+            trig: ButtonColors::grid(
+                //               resting            hover              pressed
+                StateColors::new(rgba("#3A332CFF"), rgba("#4C443AFF"), rgba("#2E2822FF")), // fill
+                StateColors::new(rgba("#E8DCC0FF"), rgba("#F6ECD4FF"), rgba("#C9BC9EFF")), // label
+                StateColors::new(rgba("#6B5B44FF"), rgba("#8A765AFF"), rgba("#4F4333FF")), // border
+            ),
+            rand: ButtonColors::grid(
+                //               resting            hover              pressed
+                StateColors::new(rgba("#3A332CFF"), rgba("#4C443AFF"), rgba("#2E2822FF")), // fill
+                StateColors::new(rgba("#E8DCC0FF"), rgba("#F6ECD4FF"), rgba("#C9BC9EFF")), // label
+                StateColors::new(rgba("#6B5B44FF"), rgba("#8A765AFF"), rgba("#4F4333FF")), // border
+            ),
+            negate: ButtonColors::grid(
+                //               resting            hover              pressed
+                StateColors::new(rgba("#463D33FF"), rgba("#5A4F42FF"), rgba("#382F27FF")), // fill
+                StateColors::new(rgba("#E8DCC0FF"), rgba("#F6ECD4FF"), rgba("#C9BC9EFF")), // label
+                StateColors::new(rgba("#6B5B44FF"), rgba("#8A765AFF"), rgba("#4F4333FF")), // border
+            ),
+            decimal: ButtonColors::grid(
+                //               resting            hover              pressed
+                StateColors::new(rgba("#2C2621FF"), rgba("#3D352DFF"), rgba("#221D19FF")), // fill
+                StateColors::new(rgba("#E8DCC0FF"), rgba("#F6ECD4FF"), rgba("#C9BC9EFF")), // label
+                StateColors::new(rgba("#6B5B44FF"), rgba("#8A765AFF"), rgba("#4F4333FF")), // border
+            ),
+            number: ButtonColors::grid(
+                //               resting            hover              pressed
+                StateColors::new(rgba("#2C2621FF"), rgba("#3D352DFF"), rgba("#221D19FF")), // fill
+                StateColors::new(rgba("#E8DCC0FF"), rgba("#F6ECD4FF"), rgba("#C9BC9EFF")), // label
+                StateColors::new(rgba("#6B5B44FF"), rgba("#8A765AFF"), rgba("#4F4333FF")), // border
             ),
         },
     }

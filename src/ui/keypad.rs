@@ -284,7 +284,13 @@ fn label_row(parts: &[LabelPart], font_size: f32) -> Element<'static, Message> {
                 0.0
             },
         };
-        row = row.push(crate::ui::app::place_segment(piece, &seg, size, line_h));
+        // No baseline correction: a key's pieces are not read against
+        // anything else on their line, and the label as a whole is
+        // already placed on its ink by `centring_padding`, which
+        // measures the fallback face the same way.
+        row = row.push(crate::ui::app::place_segment(
+            piece, &seg, 0.0, size, line_h,
+        ));
     }
     row.into()
 }

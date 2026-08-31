@@ -63,7 +63,11 @@ pub fn max_decimals_for_rand_max(rand_max_excl: f64) -> u8 {
 pub const MAX_CORNER_RADIUS: f32 = 50.0;
 pub const MAX_BUTTON_SPACING: f32 = 20.0;
 
-pub const DEFAULT_FONT: &str = "Adwaita Sans";
+/// The family the default palette is drawn in, and the one a lookup
+/// with no palette to ask falls back to. Kept in step with the
+/// [`crate::theme::ThemeKind::Cosmic`] preset, which is the palette a
+/// fresh `config.toml` starts on.
+pub const DEFAULT_FONT: &str = "Open Sans";
 
 /// Longest font family name the config will carry. Family names are
 /// short; a longer one is a hand-edit that has gone wrong, and the
@@ -94,6 +98,7 @@ pub const RECOMMENDED_FONTS: [&str; 22] = [
     "SF Pro Display",
     "SF Compact Text",
     "Adwaita Sans",
+    "Open Sans",
     "Trebuchet MS",
     "Segoe UI",
     "Bahnschrift",
@@ -111,7 +116,6 @@ pub const RECOMMENDED_FONTS: [&str; 22] = [
     "DHF Harry's Brush",
     "Vivaldi",
     "Montez",
-    "BigBlue_TerminalPlus Nerd Font Mono",
     "zilverstone eYe/FS",
 ];
 
@@ -445,30 +449,38 @@ pub struct Config {
     /// says which. See [`ThemeKind`].
     pub theme_kind: ThemeKind,
 
-    /// The family a file written before the font moved into the
-    /// palette carried for the whole app, and the weight beside it.
+    /// The family and weight the palette in force is set in, written
+    /// at the top of the file beside `theme_kind`.
     ///
-    /// Neither is written back. `validate_and_clamp` moves the pair
-    /// into the palette that was in force when the file was written —
-    /// which is the palette the user chose that font while looking at
-    /// — and every other palette keeps the family its preset ships.
-    /// See [`crate::theme::Theme::font`].
+    /// The face is a property of the palette and is carried in the
+    /// palette's own entry — `[themes.Cosmic] font` — which is where
+    /// it is edited and where all twenty of them are. This pair says
+    /// which of those twenty is actually on screen, so the answer to
+    /// "what is this window set in" sits at the top of the file
+    /// beside the palette that chose it, rather than in whichever of
+    /// twenty tables happens to be the live one.
+    /// [`Config::save_at`] fills it in from the palette in force at
+    /// every write, so it cannot drift from what is drawn.
+    ///
+    /// It is read back for one reason: a file written before the font
+    /// moved into the palette carried exactly this pair and nothing
+    /// else, and those files still have to load. So on the way in it
+    /// is applied only to a palette that is still wearing the family
+    /// its preset ships — see [`Config::validate_and_clamp`]. A
+    /// palette the file gave a face of its own keeps it, whether the
+    /// settings panel or a hand-edit put it there, and the mirror
+    /// above is rewritten from it on the next save.
     ///
     /// Public only because every field of this struct is: nothing
-    /// outside the load path has any business reading either, and
-    /// after one they are empty.
-    #[serde(
-        rename = "font",
-        skip_serializing,
-        deserialize_with = "crate::lenient::optional_text"
-    )]
-    pub legacy_font: Option<String>,
+    /// outside the load and save paths has any business reading
+    /// either, and after a load they are empty.
+    #[serde(rename = "font", deserialize_with = "crate::lenient::optional_text")]
+    pub font_in_force: Option<String>,
     #[serde(
         rename = "font_weight",
-        skip_serializing,
         deserialize_with = "crate::lenient::optional_font_weight"
     )]
-    pub legacy_font_weight: Option<FontWeight>,
+    pub font_weight_in_force: Option<FontWeight>,
 
     /// Keypad layout.
     pub mode: Mode,
@@ -540,8 +552,8 @@ impl Default for Config {
 
             theme_kind: ThemeKind::default(),
 
-            legacy_font: None,
-            legacy_font_weight: None,
+            font_in_force: None,
+            font_weight_in_force: None,
 
             mode: Mode::default(),
 
@@ -627,14 +639,27 @@ impl Config {
         self.keypad.normalize();
         self.themes.normalize();
 
-        // After `normalize`, so the palette the legacy pair belongs to
-        // is certain to be in the table to receive it, and so the
-        // family it names is sanitized on its way in.
-        if let Some(font) = self.legacy_font.take() {
-            self.themes.set_font(self.theme_kind, font);
-        }
-        if let Some(weight) = self.legacy_font_weight.take() {
-            self.themes.set_font_weight(self.theme_kind, weight);
+        // The pair at the top of the file, applied to the palette in
+        // force — but only where that palette is still wearing the
+        // face its preset ships, i.e. where its own entry said
+        // nothing. A file written before the font moved into the
+        // palette is exactly that case and loads with the face it
+        // named; a file whose `[themes.<id>]` gives a family keeps it,
+        // and the mirror is rewritten from the palette on the next
+        // save. Either way the pair is spent here and the palette is
+        // the only thing the rest of the app reads.
+        //
+        // After `normalize`, so the palette is certain to be in the
+        // table to receive it, and so the family is sanitized on its
+        // way in.
+        let (font, weight) = (self.font_in_force.take(), self.font_weight_in_force.take());
+        if self.themes.wears_preset_face(self.theme_kind) {
+            if let Some(font) = font {
+                self.themes.set_font(self.theme_kind, font);
+            }
+            if let Some(weight) = weight {
+                self.themes.set_font_weight(self.theme_kind, weight);
+            }
         }
 
         // Last, so a migration added above still sees the version the
@@ -734,6 +759,21 @@ impl Config {
     /// `kind` — the user's own name for it when they have renamed it.
     pub fn theme_display_name(&self, kind: ThemeKind) -> &str {
         self.themes.display_name(kind)
+    }
+
+    /// This config with the top-of-file `font`/`font_weight` pair
+    /// filled in from the palette in force — the shape
+    /// [`Config::save_at`] writes.
+    ///
+    /// Derived at the write rather than kept as state, so the pair
+    /// cannot fall out of step with the palette it mirrors however
+    /// the palette or the family got changed. See
+    /// [`Config::font_in_force`].
+    pub fn for_saving(&self) -> Config {
+        let mut out = self.clone();
+        out.font_in_force = Some(self.font().to_string());
+        out.font_weight_in_force = Some(self.font_weight());
+        out
     }
 }
 
@@ -835,7 +875,7 @@ impl Config {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
-        let body = toml::to_string_pretty(self)?;
+        let body = toml::to_string_pretty(&self.for_saving())?;
         let tmp = path.with_extension("toml.tmp");
         fs::write(&tmp, body)?;
         match fs::rename(&tmp, path) {

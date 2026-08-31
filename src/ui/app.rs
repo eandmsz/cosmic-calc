@@ -47,11 +47,15 @@ pub enum Message {
 
     // --- settings panel -------------------------------------------------
     /// Put the panel's two scrolling lists — the palettes and the font
-    /// families — where the chosen row is. Sent when the settings
-    /// panel opens rather than done there and then: a widget
-    /// operation is applied to the view tree as it stands, and the
-    /// panel holding the lists is only built once the press that
-    /// opened it has been handled.
+    /// families — where the chosen row is.
+    ///
+    /// Sent from [`AppModel::show_panels`], the moment the settings
+    /// panel goes on screen, rather than from the key that asked for
+    /// it: a widget operation is applied to the view tree as it
+    /// stands, and the panel is drawn from `panels_shown`, which is
+    /// only set once the window has the width to stand it in. Sent
+    /// any earlier there is nothing with these ids in the tree and
+    /// the scroll is silently dropped.
     ScrollListsToSelection,
     SetTheme(ThemeKind),
     SetDecimalSeparator(DecimalSeparator),
@@ -455,18 +459,10 @@ impl AppModel {
             }
             ButtonEffect::ToggleSettingsPanel => {
                 self.ui.settings_panel_open = !self.ui.settings_panel_open;
-                let resize = self.request_panel_resize();
-                if !self.ui.settings_panel_open {
-                    return resize;
-                }
-                // The panel opens with the palette and the font in
-                // force in view, rather than at the top of nineteen
-                // palettes and an alphabetical list of every family
-                // on the machine.
-                return Task::batch([
-                    resize,
-                    Task::done(cosmic::action::app(Message::ScrollListsToSelection)),
-                ]);
+                // The scroll that opens the lists at the rows in force
+                // goes out from `show_panels`, when the panel really
+                // reaches the view tree — see there.
+                return self.request_panel_resize();
             }
             ButtonEffect::ToggleMode => {
                 self.config.mode = toggled_layout(self.config.mode);
@@ -507,6 +503,27 @@ impl AppModel {
     /// included.
     fn panels_width(&self) -> f32 {
         self.panels_shown.width()
+    }
+
+    /// Put `panels` on screen, and — when the settings panel is one of
+    /// the ones arriving — ask for its two lists to be scrolled to the
+    /// rows in force.
+    ///
+    /// The scroll has to be asked for from here rather than from the
+    /// toggle that started it. `view` draws the panel from
+    /// `panels_shown`, which is set once the window has the width for
+    /// it and not when the key is pressed, so at the toggle there is
+    /// no font list in the view tree for a widget operation to find
+    /// and the operation is dropped on the floor. This is the moment
+    /// the lists exist.
+    fn show_panels(&mut self, panels: PanelsShown) -> Task<Message> {
+        let arriving = self.panels_shown.settings_arriving(panels);
+        self.panels_shown = panels;
+        if arriving {
+            Task::done(cosmic::action::app(Message::ScrollListsToSelection))
+        } else {
+            Task::none()
+        }
     }
 
     /// The panels the user has asked for, which is what the next
@@ -651,14 +668,14 @@ impl AppModel {
         // width it keeps while the window changes size around it.
         let content_width = self.content_width();
         let show_now = |model: &mut Self| {
-            model.panels_shown = wanted;
+            let scroll = model.show_panels(wanted);
             model.panel_resize = None;
+            scroll
         };
         let Some(id) = self.core.main_window_id() else {
             // Nothing to resize against, so there is nothing to wait
             // for either: the panel goes on screen as it is.
-            show_now(self);
-            return Task::none();
+            return show_now(self);
         };
         // The floor moves with the panels: while one is docked the
         // window may not be dragged in past the calculator's own
@@ -668,8 +685,7 @@ impl AppModel {
             // The window is already the width the panel needs — a
             // maximised window, a second panel there is no room for —
             // so it goes straight on screen.
-            show_now(self);
-            return limits;
+            return Task::batch([limits, show_now(self)]);
         }
         // A panel that is arriving waits for the width it is going to
         // stand in: drawn a frame early it would be laid out beside a
@@ -679,15 +695,18 @@ impl AppModel {
         // goes now, since the width it frees is the calculator's own
         // and the column is held at that width until the window
         // catches up.
-        if wanted.width() <= self.panels_shown.width() {
-            self.panels_shown = wanted;
-        }
+        let leaving = if wanted.width() <= self.panels_shown.width() {
+            self.show_panels(wanted)
+        } else {
+            Task::none()
+        };
         self.panel_resize = Some(PanelResize {
             panels: wanted,
             content_width,
         });
         let mut tasks = vec![
             limits,
+            leaving,
             cosmic::iced::window::resize(id, Size::new(new_width, self.window_height)),
         ];
         // The move goes out with the resize, so the two land in the
@@ -1031,12 +1050,14 @@ impl Application for AppModel {
                 // again. Any other width is the user at the window
                 // edge, and the panels keep the share they hold.
                 let pending = self.panel_resize.take();
-                if let Some(resize) = pending {
-                    self.panels_shown = resize.panels;
-                }
+                let arrived = match pending {
+                    Some(resize) => self.show_panels(resize.panels),
+                    None => Task::none(),
+                };
                 self.adopt_window_width(w, pending.is_some());
                 self.window_height = h;
                 self.note_window_size();
+                return arrived;
             }
             Message::PanelOrigin(origin) => {
                 self.window_origin = origin;
@@ -1525,6 +1546,7 @@ impl AppModel {
             widget::text::title1("0")
                 .size(main_size)
                 .font(display_font)
+                .shaping(DISPLAY_SHAPING)
                 .line_height(cosmic::iced::widget::text::LineHeight::Absolute(
                     main_line_h.into(),
                 ))
@@ -1537,6 +1559,7 @@ impl AppModel {
                 let t = widget::text::title1(seg.text.clone())
                     .size(size)
                     .font(display_font)
+                    .shaping(DISPLAY_SHAPING)
                     // The readout is drawn into a box one line high
                     // and clipped, and the width it is fitted to is a
                     // per-character estimate that can run a hair
@@ -1555,7 +1578,8 @@ impl AppModel {
                 } else {
                     t.class(cosmic::theme::Text::Color(inactive_color))
                 };
-                row = row.push(place_segment(t, seg, size, main_line_h));
+                let drift = crate::ui::font_metrics::baseline_nudge(family, &seg.text, size);
+                row = row.push(place_segment(t, seg, drift, size, main_line_h));
             }
             row.into()
         };
@@ -1580,12 +1604,14 @@ impl AppModel {
                 let t = widget::text::caption(seg.text.clone())
                     .size(size)
                     .font(display_font)
+                    .shaping(DISPLAY_SHAPING)
                     .wrapping(cosmic::iced::advanced::text::Wrapping::None)
                     .line_height(cosmic::iced::widget::text::LineHeight::Absolute(
                         (caption_line_h * scale).into(),
                     ))
                     .class(cosmic::theme::Text::Color(inactive_color));
-                caption_row = caption_row.push(place_segment(t, seg, size, caption_line_h));
+                let drift = crate::ui::font_metrics::baseline_nudge(family, &seg.text, size);
+                caption_row = caption_row.push(place_segment(t, seg, drift, size, caption_line_h));
             }
             let caption_inner: Element<'_, Message> = widget::container(caption_row)
                 .width(Length::Fill)
@@ -1958,6 +1984,24 @@ const STATUS_SPACING: f32 = display_metrics::STATUS_SPACING;
 /// back goes to the display slot, which the readout scales up to fill.
 const SECTION_GAP_RATIO: f32 = 0.5;
 
+/// How every piece of the expression display is shaped.
+///
+/// Named rather than left to the default because the default is
+/// `Shaping::Auto`, which picks per piece: `Basic` for one that is all
+/// ASCII, `Advanced` for one that is not. The two paths read the face's
+/// vertical metrics through different libraries, and where those two
+/// disagree about a face — serif and non-Latin families are where they
+/// usually do — an all-ASCII piece and its neighbour land on baselines
+/// a hair apart. The row is a line of separate pieces, so that shows:
+/// it is the other half of why the `(` after a radical could sit low.
+/// One strategy for the whole row and the question does not arise.
+///
+/// `Advanced` is the one that can be used for all of it: `Basic` does
+/// no font fallback, and a family with no radical sign would draw a
+/// blank box instead of borrowing one.
+const DISPLAY_SHAPING: cosmic::iced::advanced::text::Shaping =
+    cosmic::iced::advanced::text::Shaping::Advanced;
+
 /// Measured display fonts for the expression area.
 struct DisplayMetrics {
     /// Caption pieces as rendered, so `view` does not have to derive
@@ -1990,26 +2034,36 @@ struct DisplayMetrics {
 /// what puts the tail of the degree over the sign. `size` is the font
 /// size this piece is drawn at, since the shift is measured in its own
 /// characters and a script's are smaller than the line's.
+///
+/// `drift` moves the piece back onto the baseline the rest of the row
+/// is written on, for a caller whose pieces are read against each
+/// other — see [`crate::ui::font_metrics::baseline_nudge`]. It is
+/// applied equal and opposite like the slide, so it costs the box no
+/// height and cannot squeeze the text it holds. `0.0` for a caller
+/// that places its label as a whole and has nothing beside it to line
+/// up with.
 pub(crate) fn place_segment<'a>(
     text: widget::Text<'a, cosmic::Theme>,
     seg: &crate::ui::display::DisplaySegment,
+    drift: f32,
     size: f32,
     line_h: f32,
 ) -> Element<'a, Message> {
     let raise = seg.script.raise;
     let slide = seg.nudge * size * crate::ui::keypad::LABEL_CHAR_WIDTH_RATIO;
-    if raise == 0.0 && slide == 0.0 {
+    if raise == 0.0 && slide == 0.0 && drift == 0.0 {
         return text.into();
     }
     widget::container(text)
         .height(Length::Fixed(line_h.max(1.0)))
         .align_y(Alignment::Center)
-        .padding(segment_padding(raise, slide, line_h))
+        .padding(segment_padding(raise, slide, drift, line_h))
         .into()
 }
 
-/// The box padding that places one piece: the vertical half moves it
-/// off the line, the horizontal half slides it sideways.
+/// The box padding that places one piece: the vertical halves move it
+/// off the line and back onto its baseline, the horizontal one slides
+/// it sideways.
 ///
 /// The box centres what it holds, so a piece moves half of whatever
 /// padding is put under (or over) it — hence the doubling. The two
@@ -2017,14 +2071,21 @@ pub(crate) fn place_segment<'a>(
 /// slide an overlap rather than a gap: the box keeps the width of its
 /// text, the row lays out as though nothing had moved, and the ink
 /// inside hangs over the piece that follows.
-pub(crate) fn segment_padding(raise: f32, slide: f32, line_h: f32) -> Padding {
+///
+/// `drift` is padded the same equal-and-opposite way, for the same
+/// reason turned on its side: the piece is already exactly as tall as
+/// the box, so a correction that ate height would squeeze the text out
+/// of the space it was measured for. The script's own lift is not,
+/// because a raised piece is smaller than the box by exactly what the
+/// lift takes — that is what keeps it inside the line it belongs to.
+pub(crate) fn segment_padding(raise: f32, slide: f32, drift: f32, line_h: f32) -> Padding {
     let lift = 2.0 * raise.abs() * line_h;
     let (top, bottom) = if raise > 0.0 {
         (0.0, lift)
     } else {
         (lift, 0.0)
     };
-    Padding::from([top, -slide, bottom, slide])
+    Padding::from([top + drift, -slide, bottom - drift, slide])
 }
 
 /// What a row of segments costs the layout: how many characters it
@@ -2120,6 +2181,17 @@ impl PanelsShown {
             true => crate::ui::panels::SETTINGS_PANEL_WIDTH + crate::ui::panels::PANEL_SPACING,
             false => 0.0,
         }
+    }
+
+    /// Whether the settings panel arrives on screen in the step from
+    /// `self` to `next` — the frame its palette and font lists first
+    /// exist for a scroll to reach. See [`AppModel::show_panels`].
+    ///
+    /// Only the arrival: a panel that was already up is where the user
+    /// left it, and re-scrolling it under them on an unrelated resize
+    /// would take the list they were reading away.
+    pub fn settings_arriving(self, next: PanelsShown) -> bool {
+        next.settings && !self.settings
     }
 }
 

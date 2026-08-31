@@ -10,9 +10,10 @@ fn defaults_sit_in_valid_ranges() {
     assert_eq!(c.significant_digits, 15);
     assert_eq!(c.window_startup_width, 300);
     assert_eq!(c.window_startup_height, 700);
-    // The font is the palette's now, and Cosmic — the palette a
-    // fresh file opens on — asks for the desktop's own family.
-    assert_eq!(c.font(), "Adwaita Sans");
+    // The font is the palette's now, and Cosmic Desktop — the palette
+    // a fresh file opens on — asks for Open Sans.
+    assert_eq!(c.font(), "Open Sans");
+    assert_eq!(c.font(), DEFAULT_FONT);
     assert_eq!(c.font_weight(), FontWeight::Regular);
     // First run opens on the Basic keypad.
     assert_eq!(c.mode, Mode::Basic);
@@ -656,10 +657,9 @@ fn the_font_belongs_to_the_palette_that_is_on_screen() {
 #[test]
 fn a_file_written_before_the_font_moved_keeps_the_font_it_had() {
     // Until 0.2.5 the family and the weight were one setting for the
-    // whole app, at the top of the file. It is the font that user was
-    // looking at, so the palette they were looking at keeps it — and
-    // the top-level keys are gone from the file the next time one is
-    // written.
+    // whole app, at the top of the file, and a file that old has
+    // nothing else to say about a face. It is the font that user was
+    // looking at, so the palette they were looking at keeps it.
     let path = scratch_path("legacy-font");
     std::fs::create_dir_all(path.parent().unwrap()).expect("mkdir");
     std::fs::write(
@@ -678,14 +678,66 @@ fn a_file_written_before_the_font_moved_keeps_the_font_it_had() {
     );
 
     read.save_at(&path).expect("save");
-    let body = std::fs::read_to_string(&path).expect("read");
-    // Gone from the top of the file — the only `font` left in it is
-    // the one inside a palette.
-    let top_level = body.split("\n[").next().unwrap_or_default();
-    assert!(!top_level.contains("font"), "{body}");
     let back = Config::load_or_create_default_at(&path).expect("reload");
     assert_eq!(back.font(), "Trebuchet MS");
     assert_eq!(back.font_weight(), FontWeight::Bold);
+    let _ = std::fs::remove_dir_all(path.parent().unwrap());
+}
+
+#[test]
+fn the_face_in_force_is_written_at_the_top_of_the_file() {
+    // The face belongs to the palette and is carried in the palette's
+    // own entry, but the file also says at the top which of the
+    // twenty is on screen and what it is set in — so "what is this
+    // window drawn in" is answered where `theme_kind` answers "which
+    // palette", rather than in whichever of twenty tables happens to
+    // be the live one.
+    let path = scratch_path("face-in-force");
+    let mut cfg = Config::load_or_create_default_at(&path).expect("create");
+    let created = std::fs::read_to_string(&path).expect("read");
+    let top_level = created.split("\n[").next().unwrap_or_default();
+    assert!(top_level.contains("font = \"Open Sans\""), "{created}");
+    assert!(top_level.contains("font_weight = \"regular\""), "{created}");
+
+    // And it follows the settings panel: picking a family writes the
+    // palette's entry and the pair at the top in the same save.
+    cfg.set_font("Comfortaa".to_string());
+    cfg.set_font_weight(FontWeight::Bold);
+    cfg.save_at(&path).expect("save");
+    let body = std::fs::read_to_string(&path).expect("read");
+    let top_level = body.split("\n[").next().unwrap_or_default();
+    assert!(top_level.contains("font = \"Comfortaa\""), "{body}");
+    assert!(top_level.contains("font_weight = \"bold\""), "{body}");
+    assert!(body.contains("[themes.Cosmic]"), "{body}");
+    let back = Config::load_or_create_default_at(&path).expect("reload");
+    assert_eq!(back.font(), "Comfortaa");
+    assert_eq!(back.font_weight(), FontWeight::Bold);
+    let _ = std::fs::remove_dir_all(path.parent().unwrap());
+}
+
+#[test]
+fn a_palette_that_names_its_own_face_outranks_the_pair_at_the_top() {
+    // The pair at the top is a mirror of the palette in force, and a
+    // stale one is what a hand-edit of the palette's own entry leaves
+    // behind. The entry is where the face is edited, so it wins; the
+    // mirror is rewritten from it on the next save.
+    let path = scratch_path("face-hand-edit");
+    std::fs::create_dir_all(path.parent().unwrap()).expect("mkdir");
+    std::fs::write(
+        &path,
+        "theme_kind = \"Cosmic\"\nfont = \"Comfortaa\"\nfont_weight = \"bold\"\n\n\
+         [themes.Cosmic]\nfont = \"Cantarell\"\nfont_weight = \"light\"\n",
+    )
+    .expect("write");
+    let read = Config::load_or_create_default_at(&path).expect("load");
+    assert_eq!(read.font(), "Cantarell");
+    assert_eq!(read.font_weight(), FontWeight::Light);
+
+    read.save_at(&path).expect("save");
+    let body = std::fs::read_to_string(&path).expect("read");
+    let top_level = body.split("\n[").next().unwrap_or_default();
+    assert!(top_level.contains("font = \"Cantarell\""), "{body}");
+    assert!(top_level.contains("font_weight = \"light\""), "{body}");
     let _ = std::fs::remove_dir_all(path.parent().unwrap());
 }
 

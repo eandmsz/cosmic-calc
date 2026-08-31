@@ -91,6 +91,22 @@ make check                         # fmt + clippy + the whole workspace
 	  rather than the single `∛` glyph a good many fonts do not carry
 	  and draw as a box. The buffer and the clipboard still say
 	  `cbrt(8)`
+	- The radical stands on the same line as the rest of the
+	  expression whichever family you set. The display is a row of
+	  separate pieces so each can be coloured and sized on its own,
+	  and each is shaped on its own too, so a piece carrying a
+	  character the family does not have — `√` in a good many of
+	  them — is stood on the fallback face's taller line band and
+	  lands on a baseline of its own. The bracket sharing that
+	  piece was what showed it, sitting lower than the `)` closing
+	  it in Noto Sans Arabic, STIX Two Text, Bahnschrift and their
+	  like. The band each piece is really laid out on is now
+	  measured from the faces its characters come from and the
+	  difference taken back out, and every piece of the row is
+	  shaped the one way rather than one way for ASCII and another
+	  for the rest — the two paths read a face's vertical metrics
+	  through different libraries, and where those disagree the
+	  same split opens up in a family that does have the sign
 	- Both the square and cube root keys wear the whole operation —
 	  `²√x` and `³√x`, the way `ʸ√x` does with its degree left
 	  open — rather than a bare sign that says which radical it is
@@ -291,7 +307,7 @@ make check                         # fmt + clippy + the whole workspace
 	  the cursor still in the base slot, and `x²` there is `(3⁶)²`
 	  where it used to write `3^2^6` — the 3 raised to the
 	  sixty-fourth
-- Nineteen palettes, and every colour in one is written down rather
+- Twenty palettes, and every colour in one is written down rather
   than worked out. A button group carries a fill, a label colour and a
   border colour for each of its three states — resting, hovered,
   pressed — and the window draws what the table says. A formula cannot
@@ -353,15 +369,17 @@ make check                         # fmt + clippy + the whole workspace
 	  row says what you renamed it to. `font` and `font_weight` are
 	  the face that palette is set in, and a family your machine
 	  does not have is stood in for rather than rewritten — see
-	  the font notes above
+	  the font notes above. The same two keys appear once more at
+	  the top of the file, outside any `[themes.…]` table, naming
+	  the face the palette in force is set in
 	- A file written by an earlier version listed the palettes as a
 	  `[[themes]]` array with the id inside each entry, spelled the
 	  border `button_border_thickness`, and carried one `font` and
-	  `font_weight` for the whole app at the top of the file rather
-	  than one per palette. Those files still load, with everything
-	  tuned in them intact, and the next save rewrites them in the
-	  shape above — the migration is a start of the app rather than
-	  a hand-edit
+	  `font_weight` for the whole app at the top of the file with
+	  none in the palettes at all. Those files still load, with
+	  everything tuned in them intact, and the next save rewrites
+	  them in the shape above — the migration is a start of the app
+	  rather than a hand-edit
 	- Nothing in that section is trusted. Reading it is a repair
 	  pass rather than a parse: a colour that is not `#RRGGBB(AA)`,
 	  a border percentage that is not a number in range, a whole
@@ -408,10 +426,10 @@ make check                         # fmt + clippy + the whole workspace
 	  transparent, because the colour a transparency was written in
 	  was deciding how transparent it was
 	- Borders are opt-in per palette — `button_border_percent`,
-	  zero in most of them and non-zero in Cupertino Dark and
-	  Cyberpunk — and are a percentage of the button's height
-	  rather than a pixel count, so an outline keeps its
-	  proportion as the window grows
+	  zero in most of them and non-zero in Cupertino Dark,
+	  Cyberpunk and Wolfenstein — and are a percentage of the
+	  button's height rather than a pixel count, so an outline
+	  keeps its proportion as the window grows
 	  and a settings row does not wear the same heavy line as a
 	  keypad key three times its size. The width is rounded to a
 	  whole logical pixel — a border is a hairline of solid colour,
@@ -422,8 +440,8 @@ make check                         # fmt + clippy + the whole workspace
 	  theme's accent colour. libcosmic's own toggler reads the
 	  desktop palette and offers no way in, so the switch is built
 	  from the pieces the app already styles
-- The Cosmic palette is the one that is not fixed: it tracks the
-  running COSMIC desktop, and takes that desktop's own component
+- The Cosmic Desktop palette is the one that is not fixed: it tracks
+  the running COSMIC desktop, and takes that desktop's own component
   colours — base, hover, pressed, the text on them and their border —
   rather than deriving any of them. An accent-coloured key therefore
   wears the accent's *own* text colour, which is where the contrast
@@ -622,7 +640,7 @@ make check                         # fmt + clippy + the whole workspace
 	  is drawn wider than the `None` beside it
 	- Theme is a list rather than a row of buttons: one palette per
 	  line, in the scroll box the font families are browsed in and
-	  bounded to the same height. Nineteen names wrapped across the
+	  bounded to the same height. Twenty names wrapped across the
 	  panel took a third of it and had to be read across and down;
 	  one to a line is a list, and adding a palette no longer
 	  pushes the rest of the settings further away
@@ -636,39 +654,56 @@ make check                         # fmt + clippy + the whole workspace
 	  would stop being round as the buttons grew
 	- Both lists open at the row in force — the palette you are
 	  using, the family you are using — rather than at the top of
-	  nineteen palettes or of an alphabetical list of every family
+	  twenty palettes or of an alphabetical list of every family
 	  on the machine, with the rows either side of it on screen to
-	  compare against
-- The font belongs to the palette. Each of the nineteen names the
+	  compare against. The scroll goes out the frame the panel
+	  actually reaches the screen in, which is the frame after the
+	  window has been given the width to stand it in: asked for at
+	  the key press that started the resize it was applied to a
+	  view with no panel in it yet, went nowhere, and both lists
+	  opened at the top
+- The font belongs to the palette. Each of the twenty names the
   family and the weight it was designed for — Cupertino asks for SF
-  Pro Display, Redmond for Segoe UI, Barbie for Comic Sans MS,
-  Cyberpunk for a terminal face — so switching palettes switches the
-  face the calculator is set in, and picking a family changes the
-  palette you are looking at and leaves the other eighteen alone. Both
-  are written into that palette's entry in `config.toml`
+  Pro Display, Redmond for Segoe UI, Cosmic Desktop for Open Sans,
+  Barbie for Comic Sans MS, Cyberpunk for a terminal face — so
+  switching palettes switches the face the calculator is set in, and
+  picking a family changes the palette you are looking at and leaves
+  the other nineteen alone. Both are written into that palette's entry
+  in `config.toml`, and the pair in force is written again at the top
+  of the file beside `theme_kind` — see below
 	- A palette naming a family your machine does not have is drawn
 	  in the best one it does: the first of the recommended families
 	  installed, in the priority order below. The settings panel
 	  marks those families `(Recommended)` against the right-hand
 	  edge of their rows, and the row it lights is the family being
 	  drawn rather than the one named in the file
-	- SF Pro Display, SF Compact Text, Adwaita Sans, Trebuchet MS,
-	  Segoe UI, Bahnschrift, Comfortaa, Cambria, Caladea, Noto Sans,
-	  Lucidia Console, Cantarell, Consolas, SF Pro Rounded, Comic
-	  Sans MS, SF Mono, Adwaita Mono, DHF Harry's Brush, Vivaldi,
-	  Montez, BigBlue_TerminalPlus Nerd Font Mono, zilverstone
-	  eYe/FS — highest first
+	- SF Pro Display, SF Compact Text, Adwaita Sans, Open Sans,
+	  Trebuchet MS, Segoe UI, Bahnschrift, Comfortaa, Cambria,
+	  Caladea, Noto Sans, Lucidia Console, Cantarell, Consolas, SF
+	  Pro Rounded, Comic Sans MS, SF Mono, Adwaita Mono, DHF Harry's
+	  Brush, Vivaldi, Montez, zilverstone eYe/FS — highest first
 	- The substitution is never written back. The palette keeps the
 	  family it names, so installing that font later is all it takes
 	  to get it, with nothing to edit. A family stood in for is drawn
 	  at the regular weight, since a Black chosen for one face says
 	  nothing about how another should be set
-	- Until 0.2.5 the family and the weight were one setting for the
-	  whole app, at the top of `config.toml`. A file written by one
-	  of those versions gives its font to the palette that was on
-	  screen when it was written — the palette you chose that font
-	  while looking at — and the top-level keys are gone the next
-	  time a file is written
+	- `font` and `font_weight` are also written at the top of
+	  `config.toml`, beside `theme_kind`: the palette's entry is
+	  where the face is edited and where all twenty of them are,
+	  and the pair at the top says which of the twenty is on
+	  screen and what it is set in, so "what is this window drawn
+	  in" is answered where "which palette" is. It is filled in
+	  from the palette in force at every write, so it cannot drift
+	  from what you are looking at
+	- The palette's own entry wins. Where a `[themes.<id>]` gives a
+	  family, that is the face — from the settings panel or from a
+	  hand-edit — and the pair at the top is rewritten from it on
+	  the next save. The pair is only read back for a palette still
+	  wearing the family its preset ships, which is what a file
+	  written before 0.2.5 looks like: the family and the weight
+	  were one setting for the whole app then, and such a file
+	  gives its font to the palette that was on screen when it was
+	  written — the palette you chose that font while looking at
 - The font's weight is a choice of its own, under the family: only the
   faces that family actually ships, so one with a Light and a Black
   offers both and one that comes in a single face offers just the one.
