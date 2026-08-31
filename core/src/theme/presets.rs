@@ -309,7 +309,13 @@ pub(super) fn preset(kind: ThemeKind) -> Theme {
                 StateColors::new(rgba("#3C3C3CFF"), rgba("#535353FF"), rgba("#363636FF")), // fill
                 StateColors::new(rgba("#FFFFFFFF"), rgba("#FFFFFFFF"), rgba("#FFFFFFFF")), // label
                 StateColors::new(rgba("#FFFFFFFF"), rgba("#FFFFFFFF"), rgba("#FFFFFFFF")), // border
-            ),
+            )
+            // The digits are set heavier than the keys around
+            // them, which is how this desktop draws its own
+            // calculator: the numbers are what the keypad is
+            // read for, and the weight is what marks them out
+            // where the colour barely does.
+            .weighted(FontWeight::Bold),
         },
         ThemeKind::RedmondLight => Theme {
             id: ThemeKind::RedmondLight,
@@ -407,7 +413,13 @@ pub(super) fn preset(kind: ThemeKind) -> Theme {
                 StateColors::new(rgba("#FFFFFFFF"), rgba("#FFFFFFFF"), rgba("#E6E6E6FF")), // fill
                 StateColors::new(rgba("#000000FF"), rgba("#000000FF"), rgba("#000000FF")), // label
                 StateColors::new(rgba("#000000FF"), rgba("#000000FF"), rgba("#000000FF")), // border
-            ),
+            )
+            // The digits are set heavier than the keys around
+            // them, which is how this desktop draws its own
+            // calculator: the numbers are what the keypad is
+            // read for, and the weight is what marks them out
+            // where the colour barely does.
+            .weighted(FontWeight::Bold),
         },
         ThemeKind::HighContrastDark => Theme {
             id: ThemeKind::HighContrastDark,

@@ -14,7 +14,7 @@ use cosmic::iced::{Length, Padding};
 use cosmic::widget;
 use cosmic::Element;
 
-use crate::config::{ButtonShape, Config};
+use crate::config::{ButtonShape, Config, FontWeight};
 use crate::engine::script::Shift;
 use crate::layout::SCIENTIFIC_COLUMNS;
 use crate::theme::Theme;
@@ -196,6 +196,21 @@ fn label_font_size_for(button_height: f32, button_width: f32, units: f32) -> f32
         .min(from_width)
 }
 
+/// The face one key's label is set in: the family the window is
+/// really drawn in — a palette naming a family the host does not have
+/// is drawn in a recommended substitute — and the weight the key's
+/// own group asks for.
+///
+/// `weight` is `None` for a group with no weight of its own, which is
+/// almost all of them: those labels take the interface font as it
+/// stands, and so the palette's own weight. See
+/// [`crate::ui::font::group_weight`], which resolves it.
+#[derive(Debug, Clone, Copy)]
+pub struct LabelFace<'a> {
+    pub family: &'a str,
+    pub weight: Option<FontWeight>,
+}
+
 /// Size and shape of one button cell.
 #[derive(Debug, Clone, Copy)]
 pub struct CellGeometry {
@@ -209,9 +224,12 @@ pub struct CellGeometry {
 /// latched toggle (the `2nd` key while it is armed) in its on colour;
 /// `flashing` shows the key as held down while its keyboard equivalent
 /// is pressed.
+///
+/// `face` is the family and the weight the label is set in — see
+/// [`LabelFace`].
 pub fn control_button(
     theme: &Theme,
-    font_family: &str,
+    face: LabelFace<'_>,
     label: &[LabelPart],
     button: Button,
     cell: CellGeometry,
@@ -223,8 +241,9 @@ pub fn control_button(
         height: button_height,
         width: cell_width,
     } = cell;
+    let font_family = face.family;
     let font_size = label_font_size_for(button_height, cell_width, parts_width_units(label));
-    let centred = widget::container(label_row(font_family, label, font_size))
+    let centred = widget::container(label_row(face, label, font_size))
         .padding(centring_padding(
             font_family,
             &on_line_text(label),
@@ -271,19 +290,34 @@ pub fn control_button(
 /// hair under what a face actually draws; without this a label that
 /// only just overflows — `+⁄−` in a nine-column keypad — breaks across
 /// two lines rather than sitting on one.
-fn label_row(font_family: &str, parts: &[LabelPart], font_size: f32) -> Element<'static, Message> {
+fn label_row(
+    face: LabelFace<'_>,
+    parts: &[LabelPart],
+    font_size: f32,
+) -> Element<'static, Message> {
+    let LabelFace {
+        family: font_family,
+        weight,
+    } = face;
     let line_h = font_size * TEXT_BOX_LINE_HEIGHT;
+    // A group with a weight of its own names the font outright; one
+    // without says nothing and is drawn in the interface font, which
+    // is the palette's family at the palette's weight.
+    let font = weight.map(|weight| crate::ui::font::font_for(font_family, weight));
     let mut row = widget::row::with_capacity(parts.len());
     for part in parts {
         let script = Script::ON_LINE.shifted(part.shift);
         let scale = script.scale();
         let size = font_size * scale;
-        let piece = widget::text(part.text)
+        let mut piece = widget::text(part.text)
             .size(size)
             .wrapping(cosmic::iced::advanced::text::Wrapping::None)
             .line_height(cosmic::iced::widget::text::LineHeight::Absolute(
                 (line_h * scale).into(),
             ));
+        if let Some(font) = font {
+            piece = piece.font(font);
+        }
         let seg = DisplaySegment {
             text: part.text.to_string(),
             active: true,
@@ -521,7 +555,15 @@ fn grid(
             let element = match cell {
                 Some(button) => control_button(
                     layout.theme,
-                    font_family,
+                    LabelFace {
+                        family: font_family,
+                        weight: crate::ui::font::group_weight(
+                            layout.config,
+                            button_style::category_for(*button)
+                                .colors(layout.theme)
+                                .font_weight,
+                        ),
+                    },
                     &keymap::label_parts(*button, labels),
                     *button,
                     CellGeometry {

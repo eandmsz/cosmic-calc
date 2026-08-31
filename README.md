@@ -134,6 +134,12 @@ make check                         # fmt + clippy + the whole workspace
 	  `logᵧ`, and those came out at whatever height and weight the
 	  face that happened to carry them drew. Placed instead of found,
 	  every exponent on the keypad sits at the same height
+	- The second-function latch is an ordinal and is set like one:
+	  a `2` with a small raised `nd` over it rather than three
+	  characters sitting in a row. The suffix is letters, so
+	  Unicode has only modifier letters for it — exactly the case
+	  the placed scripts exist for, and it rides at the same height
+	  as every other script on the keypad
 	- What goes up is the text itself, drawn smaller and moved off the
 	  line, rather than a superscript glyph swapped in for it. So
 	  anything can go up: a decimal separator (`2¹·⁵` in either
@@ -354,6 +360,35 @@ make check                         # fmt + clippy + the whole workspace
 	  theme *can* mark those keys out; every shipped theme paints
 	  each new group exactly as the one it was split from, so
 	  nothing has moved
+	- A group can also be set at a weight of its own. Add a
+	  `font_weight` to the group's own table and that group's
+	  labels are drawn at it; leave it out — which is what almost
+	  every group everywhere does — and they are drawn at the
+	  `font_weight` the palette names at the top, so a palette
+	  that wants one weight throughout says it once:
+
+	  ```toml
+	  [themes.RedmondDark.number]
+	  fill   = "#3C3C3CFF #535353FF #363636FF"
+	  label  = "#FFFFFFFF #FFFFFFFF #FFFFFFFF"
+	  border = "#FFFFFFFF #FFFFFFFF #FFFFFFFF"
+	  font_weight = "bold"
+	  ```
+
+	  It takes the nine names the top-of-palette weight does —
+	  `thin`, `extra_light`, `light`, `regular`, `medium`,
+	  `semi_bold`, `bold`, `extra_bold`, `black` — and only the
+	  weight: the family is the palette's, since a second family
+	  on one keypad is a different palette rather than a heavier
+	  group of keys. Redmond Dark and Redmond Light ship with
+	  their digits `bold`, which is how that desktop draws its own
+	  calculator — the fill barely tells the numbers from the keys
+	  around them, so the weight does. A group's weight is
+	  honoured on the same terms as the palette's own: a palette
+	  standing in a recommended family because the host lacks the
+	  one it names is drawn at that family's default throughout,
+	  and a weight the family has no face for is drawn at the
+	  nearest it does have
 	- Every palette is written into `config.toml` in full — its
 	  name, its surfaces and the nine colours of each group — and
 	  the file is what the window is painted with, so any of it can
@@ -367,7 +402,7 @@ make check                         # fmt + clippy + the whole workspace
 	  display_name = "Cupertino Dark"
 	  font = "SF Pro Display"
 	  font_weight = "regular"
-	  button_shape = "auto"
+	  button_shape = "50%"
 	  app_bg = "#283133FF"
 	  button_border_percent = 1.0
 
@@ -386,12 +421,19 @@ make check                         # fmt + clippy + the whole workspace
 	  the face that palette is set in, and a family your machine
 	  does not have is stood in for rather than rewritten — see
 	  the font notes above. `button_shape` is how round that
-	  palette's buttons are drawn — `auto`, `round`,
-	  `slightlyround`, `barelyround` or `square`, which the panel
-	  offers as System, 50%, 25%, 10% and 0%. All three keys appear
-	  once more at the top of the file, outside any `[themes.…]`
-	  table, naming the face and the shape the palette in force
-	  wears
+	  palette's buttons are drawn, spelled the way the settings
+	  panel offers it — `system`, `50%`, `25%`, `10%` or `0%` — so
+	  the file says what the keypad looks like rather than naming
+	  a preset you have to look up. Those five are the whole
+	  vocabulary: a percentage reads like a number you could pick
+	  from and is not one, so `37%` is not a corner this build can
+	  draw and falls back to the shipped value like any other
+	  unusable entry. The names earlier versions wrote — `auto`,
+	  `round`, `slightlyround`, `barelyround`, `square` — are
+	  still read, so upgrading keeps the corner you chose and the
+	  next save writes the percentage. All three keys appear once
+	  more at the top of the file, outside any `[themes.…]` table,
+	  naming the face and the shape the palette in force wears
 	- A file written by an earlier version listed the palettes as a
 	  `[[themes]]` array with the id inside each entry, spelled the
 	  border `button_border_thickness`, and carried one `font`,
@@ -706,12 +748,19 @@ make check                         # fmt + clippy + the whole workspace
 	  keypad you are looking at comes back exactly as you left it,
 	  whatever the palettes you are not looking at now ask for
 	- The two random bounds are one setting and are drawn as one:
-	  a single `Random: min (incl.) max (excl.)` over the two
-	  fields, side by side and sharing the panel's width with a
-	  range dash between them. Stacked, each under a caption of its
-	  own, they read as two unrelated numbers that happen to sit
-	  together — a range is what they are, and this is how a range
-	  is written
+	  a single `Random range (min included, max excluded)` over
+	  the two fields, side by side and sharing the panel's width
+	  with a range dash between them. Stacked, each under a
+	  caption of its own, they read as two unrelated numbers that
+	  happen to sit together — a range is what they are, and this
+	  is how a range is written. The caption says which end is in
+	  and which is out in words, since `(incl.)` and `(excl.)`
+	  abbreviated the one thing the caption is there to make plain
+	- The decimal count sits above the range rather than under it,
+	  so the panel's two sliders — displayed significant digits
+	  and random decimals — are next to each other instead of
+	  separated by a row of text fields, and the range is the last
+	  thing in that group rather than something read past
 	- Both lists open at the row in force — the palette you are
 	  using, the family you are using — rather than at the top of
 	  twenty palettes or of an alphabetical list of every family

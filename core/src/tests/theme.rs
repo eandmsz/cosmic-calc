@@ -300,6 +300,94 @@ fn the_table_round_trips_every_palette() {
 }
 
 #[test]
+fn a_group_can_be_set_at_a_weight_of_its_own() {
+    // A palette is one face, but not every group of keys has to be
+    // set at the same weight of it. What the group does not say is
+    // the palette's own weight, which is what all but a couple of the
+    // two hundred and eighty shipped groups say.
+    let table = table_from(
+        r##"
+        [themes.Texas.number]
+        font_weight = "black"
+
+        [themes.Texas.basicop]
+        fill = ["#111111FF", "#222222FF", "#333333FF"]
+
+        [themes.Texas.equals]
+        font_weight = "not a weight"
+        "##,
+    );
+    let t = table.get(ThemeKind::Texas);
+    assert_eq!(t.number.font_weight, Some(FontWeight::Black));
+    // A group that says nothing about a weight has none of its own,
+    // and is drawn at the palette's.
+    assert_eq!(t.basicop.font_weight, None);
+    // And one that says something unusable is one that said nothing,
+    // the same rule every colour in the file follows.
+    assert_eq!(t.equals.font_weight, None);
+    // The colours are untouched by any of it.
+    assert_eq!(t.basicop.fill_row().hover, rgba("#222222FF"));
+    assert_eq!(
+        t.number.fill_row(),
+        ThemeKind::Texas.get().number.fill_row()
+    );
+}
+
+#[test]
+fn the_two_redmond_palettes_set_their_digits_bold() {
+    // The desktop those two copy draws its own calculator this way:
+    // the digits carry the weight, because the fill barely tells them
+    // from the keys around them.
+    for kind in [ThemeKind::RedmondDark, ThemeKind::RedmondLight] {
+        let t = kind.get();
+        assert_eq!(t.number.font_weight, Some(FontWeight::Bold), "{kind:?}");
+        // Only the digits: everything else is the palette's own
+        // weight, which is where every other palette leaves all
+        // fourteen.
+        assert_eq!(t.decimal.font_weight, None, "{kind:?}");
+        assert_eq!(t.basicop.font_weight, None, "{kind:?}");
+        assert_eq!(t.font_weight, FontWeight::Regular, "{kind:?}");
+    }
+    for kind in ThemeKind::ALL {
+        if matches!(kind, ThemeKind::RedmondDark | ThemeKind::RedmondLight) {
+            continue;
+        }
+        for (name, group) in groups(&kind.get()) {
+            assert_eq!(group.font_weight, None, "{kind:?} {name}");
+        }
+    }
+}
+
+#[test]
+fn a_group_weight_is_written_into_the_group_it_belongs_to() {
+    // In the group's own table, under the three colour rows, and only
+    // where there is one to write: fourteen `font_weight` lines per
+    // palette saying what the palette already said once at the top is
+    // fourteen lines of noise in a file meant to be read.
+    #[derive(serde::Serialize)]
+    struct Wrap {
+        themes: ThemeTable,
+    }
+    let text = toml::to_string_pretty(&Wrap {
+        themes: ThemeTable::default(),
+    })
+    .unwrap();
+    let redmond = text
+        .split("[themes.RedmondDark.number]")
+        .nth(1)
+        .expect("the digits of Redmond Dark");
+    let entry = redmond.split("[themes.").next().unwrap();
+    assert!(entry.contains("font_weight = \"bold\""), "{entry}");
+
+    let cosmic = text
+        .split("[themes.Cosmic.number]")
+        .nth(1)
+        .expect("the digits of Cosmic");
+    let entry = cosmic.split("[themes.").next().unwrap();
+    assert!(!entry.contains("font_weight"), "{entry}");
+}
+
+#[test]
 fn what_the_file_says_is_what_gets_painted() {
     // The whole point of carrying the palettes in the file: an edit
     // there reaches the window without a rebuild. Each palette is a
@@ -581,13 +669,16 @@ fn a_palette_carries_the_shape_its_buttons_are_drawn_in() {
     let table = table_from(
         r##"
         [themes.Texas]
-        button_shape = "barelyround"
+        button_shape = "10%"
 
         [themes.Tokyo]
-        button_shape = "square"
+        button_shape = "0%"
+
+        [themes.EmeraldDark]
+        button_shape = "barelyround"
 
         [themes.Barbie]
-        button_shape = "10%"
+        button_shape = "37%"
 
         [themes.Plastic]
         button_shape = 10
@@ -598,9 +689,16 @@ fn a_palette_carries_the_shape_its_buttons_are_drawn_in() {
         ButtonShape::BarelyRound
     );
     assert_eq!(table.button_shape(ThemeKind::Tokyo), ButtonShape::Square);
-    // The file names the variant, not the percentage the panel draws
-    // it as, so anything else is nothing said and the palette keeps
-    // the shape its preset ships.
+    // The name an earlier version wrote in that slot still reads, so
+    // upgrading keeps the corner the palette was given.
+    assert_eq!(
+        table.button_shape(ThemeKind::EmeraldDark),
+        ButtonShape::BarelyRound
+    );
+    // The file names one of the five shapes and nothing else. A
+    // percentage of the user's own is not one of them — nor is a bare
+    // number — so both are nothing said and the palette keeps the
+    // shape its preset ships.
     assert_eq!(
         table.button_shape(ThemeKind::Barbie),
         ThemeKind::Barbie.get().button_shape
@@ -754,6 +852,15 @@ fn the_cosmic_override_takes_the_desktop_at_its_word() {
             "{group} was left behind by the overlay"
         );
     }
+
+    // The desktop publishes colours and nothing else, so a weight a
+    // group was given is still the group's after the overlay.
+    let mut base = ThemeKind::Cosmic.get();
+    base.number = base.number.weighted(FontWeight::Black);
+    let t = apply_cosmic_override(base, over);
+    assert_eq!(t.number.font_weight, Some(FontWeight::Black));
+    assert_eq!(t.number.normal.background, surface.base);
+    assert_eq!(t.decimal.font_weight, None);
 }
 
 /// Every button group of a palette, named, so a test can walk them.

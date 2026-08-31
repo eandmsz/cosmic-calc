@@ -122,6 +122,32 @@ pub fn resolved_font(config: &Config) -> (&str, FontWeight) {
     }
 }
 
+/// The weight one button group's labels are really set at, or `None`
+/// for a group that has no weight of its own — those are drawn in the
+/// interface font as it stands, which is the palette's own weight.
+///
+/// A group's weight is a step off the palette's face rather than a
+/// face of its own, so it is honoured on exactly the terms the
+/// palette's own weight is — see [`resolved_font`]. A palette standing
+/// in a recommended family is set at that family's default
+/// throughout, so a group's weight is dropped with the family it was
+/// chosen for; on a machine with no recommended family to fall back
+/// to, the name stands and so does the weight, again as the palette's
+/// does.
+///
+/// What comes back is a weight the family actually has a face for, so
+/// a group asking for a Black in a family that stops at Bold is drawn
+/// at the Bold rather than at a synthesised weight — the same
+/// snapping [`apply_interface_font`] does to the palette's.
+pub fn group_weight(config: &Config, group: Option<FontWeight>) -> Option<FontWeight> {
+    let wanted = group?;
+    let family = config.font();
+    if !is_installed(family) && recommended_fallback().is_some() {
+        return None;
+    }
+    Some(resolved_weight(family, wanted))
+}
+
 /// Mutate the libcosmic-wide interface font so every widget that
 /// renders via the default font (`button::standard`, drop-downs,
 /// sliders, etc.) picks up the new family on the next render. Without

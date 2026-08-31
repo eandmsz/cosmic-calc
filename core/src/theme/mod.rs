@@ -113,7 +113,9 @@ impl StateColors {
     }
 }
 
-/// A button category in each of the three states it is drawn in.
+/// A button category in each of the three states it is drawn in, and
+/// the one thing about a category that is not a colour: the weight
+/// its labels are set at.
 ///
 /// Nothing is derived from anything: a theme that wants its hover to
 /// be darker than its base, or its pressed label a different colour
@@ -126,15 +128,42 @@ pub struct ButtonColors {
     pub hover: ButtonFace,
     /// While the button is held down.
     pub pressed: ButtonFace,
+    /// Which of the palette family's faces this category's labels
+    /// are set in, where the category asks for one of its own.
+    ///
+    /// `None` — which is what almost every category everywhere says —
+    /// is the palette's own [`Theme::font_weight`], so a palette that
+    /// wants one weight throughout names it once and says nothing
+    /// down here. A category that names one gets it, and only it: the
+    /// digits can be set heavier than the operators around them
+    /// without a second family or a second palette, which is how a
+    /// good many desktop calculators draw their keypad.
+    ///
+    /// The family is not part of this. A palette is one face, and a
+    /// second family on the same keypad is a different palette rather
+    /// than a heavier group of keys.
+    pub font_weight: Option<FontWeight>,
 }
 
 impl ButtonColors {
     /// In the order the fields are declared: resting, hover, pressed.
+    /// The labels take the palette's own weight; see
+    /// [`ButtonColors::weighted`] for a category that wants its own.
     pub const fn new(normal: ButtonFace, hover: ButtonFace, pressed: ButtonFace) -> Self {
         Self {
             normal,
             hover,
             pressed,
+            font_weight: None,
+        }
+    }
+
+    /// This category with its labels set at `weight` rather than at
+    /// the palette's own.
+    pub const fn weighted(self, weight: FontWeight) -> Self {
+        Self {
+            font_weight: Some(weight),
+            ..self
         }
     }
 
@@ -504,16 +533,23 @@ impl<'de> Deserialize<'de> for ThemeKind {
 }
 
 /// A category as `config.toml` writes it: three rows of three
-/// colours, the same grid the palette tables use.
+/// colours, the same grid the palette tables use, and under them the
+/// weight — only where the category asks for one of its own, since a
+/// `font_weight` on every one of the fourteen would be fourteen lines
+/// saying what the palette already said once at the top.
 impl Serialize for ButtonColors {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
-        let mut row = serializer.serialize_struct("ButtonColors", 3)?;
+        let fields = 3 + usize::from(self.font_weight.is_some());
+        let mut row = serializer.serialize_struct("ButtonColors", fields)?;
         row.serialize_field("fill", &self.fill_row())?;
         row.serialize_field("label", &self.label_row())?;
         row.serialize_field("border", &self.border_row())?;
+        if let Some(weight) = self.font_weight {
+            row.serialize_field("font_weight", &weight)?;
+        }
         row.end()
     }
 }
@@ -874,22 +910,35 @@ impl RawTheme {
 }
 
 /// One button category off disk: three rows, each of up to three
-/// colours, any of which may be missing or unusable.
+/// colours, any of which may be missing or unusable, and the weight
+/// the category asks its labels be set at.
 #[derive(Debug, Default, Deserialize)]
 #[serde(default)]
 struct RawGroup {
     fill: RawRow,
     label: RawRow,
     border: RawRow,
+    font_weight: Lenient<FontWeight>,
 }
 
 impl RawGroup {
     fn resolve(self, base: ButtonColors) -> ButtonColors {
-        ButtonColors::grid(
+        let colors = ButtonColors::grid(
             self.fill.resolve(base.fill_row()),
             self.label.resolve(base.label_row()),
             self.border.resolve(base.border_row()),
-        )
+        );
+        ButtonColors {
+            // Same rule the colours follow: what the file does not
+            // give usably is the shipped value, which for all but a
+            // couple of categories is no weight of their own — and
+            // that is the palette's own weight when the keypad is
+            // drawn. A category that wants a different one says so,
+            // and one that wants the palette's own where the shipped
+            // category asks for a weight says *that*, by naming it.
+            font_weight: self.font_weight.0.or(base.font_weight),
+            ..colors
+        }
     }
 }
 
@@ -994,11 +1043,19 @@ pub struct CosmicOverride {
 /// Overlay a running COSMIC palette on top of the Cosmic preset.
 /// Every colour it touches is one the desktop published; nothing is
 /// derived. The fields it does not mention — the name, the border
-/// thickness — are the preset's own.
+/// thickness — are the preset's own, and so is every category's
+/// weight: the desktop publishes colours, and how heavily the digits
+/// are set is still the palette's to say.
 pub fn apply_cosmic_override(base: Theme, over: CosmicOverride) -> Theme {
     let component = over.component.colors();
     let surface = over.surface_component.colors();
     let accent = over.accent.colors();
+    // The desktop's colours, still set at the weight the palette
+    // asked this category for.
+    let weighed = |colors: ButtonColors, was: ButtonColors| ButtonColors {
+        font_weight: was.font_weight,
+        ..colors
+    };
     Theme {
         app_bg: over.window_bg,
         display_bg: over.window_bg,
@@ -1006,20 +1063,20 @@ pub fn apply_cosmic_override(base: Theme, over: CosmicOverride) -> Theme {
         text_active: over.interface_text,
         text_inactive: over.interface_text_dim,
         accent: over.accent.base,
-        science: component,
-        second: component,
-        toprow: component,
-        delete: component,
-        bracket: component,
-        percent: component,
-        reciprocal: component,
-        trig: component,
-        rand: component,
-        negate: component,
-        basicop: accent,
-        equals: accent,
-        number: surface,
-        decimal: surface,
+        science: weighed(component, base.science),
+        second: weighed(component, base.second),
+        toprow: weighed(component, base.toprow),
+        delete: weighed(component, base.delete),
+        bracket: weighed(component, base.bracket),
+        percent: weighed(component, base.percent),
+        reciprocal: weighed(component, base.reciprocal),
+        trig: weighed(component, base.trig),
+        rand: weighed(component, base.rand),
+        negate: weighed(component, base.negate),
+        basicop: weighed(accent, base.basicop),
+        equals: weighed(accent, base.equals),
+        number: weighed(surface, base.number),
+        decimal: weighed(surface, base.decimal),
         ..base
     }
 }
