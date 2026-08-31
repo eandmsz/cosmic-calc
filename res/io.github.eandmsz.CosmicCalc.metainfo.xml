@@ -34,6 +34,15 @@
   </categories>
 
   <releases>
+    <release version="0.2.4" date="2026-08-31">
+      <description>
+        <ul>
+          <li>A side panel gives back exactly the width it took, so the keypad is the same size after closing one as it was before opening it. A panel is a fixed width and stays drawn at it, so width a drag of the window edge takes comes off the calculator column and width it adds goes to the calculator column — dragging in to the floor with a panel open used to charge every pixel of the drag to the panel, and closing it then handed back less than the panel was really holding and the keypad sprang wider than the window it had been resized in. The same bookkeeping decides the width the window opens at next time, which had been recording a calculator wider than the one on screen</li>
+          <li>The memory register starts off. Nothing is stored at startup, so the row under the display opened given over to the word "Memory:"; "Show memory contents" in the settings panel puts it back. MC, MR, M+ and M− work whether or not the register is on screen</li>
+          <li>app_bg's alpha channel means the same thing every other colour's does: 00 is invisible whatever colour it is written in, FF is the colour exactly as configured, and the values between are that colour as tinted glass over whatever is behind the window. The window background is the one colour the renderer does not blend — it is what the surface is cleared to, and a compositor reads those pixels as premultiplied — so #FFFFFF00 had been painting an opaque white window and #28313300 a tinted one, with only #00000000 coming out transparent</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.2.3" date="2026-08-30">
       <description>
         <ul>

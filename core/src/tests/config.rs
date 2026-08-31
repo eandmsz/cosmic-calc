@@ -458,21 +458,26 @@ fn a_file_that_still_carries_a_palette_loads_without_it() {
 }
 
 #[test]
-fn the_new_toggles_default_to_what_the_app_always_did() {
+fn each_toggle_starts_where_a_fresh_window_should_open() {
     let c = Config::default();
-    // The memory register is on: it used to be shown unconditionally,
-    // just in a place only the history panel could reach.
-    assert!(c.show_memory);
+    // The memory register is off: empty until something is stored, it
+    // would otherwise open as a row of the display saying `Memory:`.
+    assert!(!c.show_memory);
     // The window size has always been remembered.
     assert!(c.save_window_size);
     // The history never has, so keeping it is the user's to ask for.
     assert!(!c.save_history);
     assert!(c.history.is_empty());
-    // Either half of the row under the display is reason enough to
-    // draw it.
-    assert!(c.status_row_visible());
-    assert!(!Config {
-        show_memory: false,
+    // With both halves off there is no row under the display at all,
+    // and either one alone is reason enough to draw it.
+    assert!(!c.status_row_visible());
+    assert!(Config {
+        show_memory: true,
+        ..Config::default()
+    }
+    .status_row_visible());
+    assert!(Config {
+        property_testing: true,
         ..Config::default()
     }
     .status_row_visible());

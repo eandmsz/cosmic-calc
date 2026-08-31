@@ -3,7 +3,9 @@
 //! the resize lands in full, lands in part, or is refused outright,
 //! and the user may drag the window edge in between.
 
-use crate::ui::app::{min_window_width, panel_origin_shift, split_panel_width, PanelsShown};
+use crate::ui::app::{
+    keep_panel_width, min_window_width, panel_origin_shift, split_panel_width, PanelsShown,
+};
 use crate::ui::panels::{HISTORY_PANEL_WIDTH, PANEL_SPACING, SETTINGS_PANEL_WIDTH};
 
 /// What one open history panel asks the window for.
@@ -71,6 +73,88 @@ fn a_window_narrower_than_the_split_resets_it() {
     // there is nothing left for the panel to be holding.
     let (bare, held) = split_panel_width(400.0, 480.0, HISTORY, HISTORY);
     assert!((bare - 400.0).abs() < f32::EPSILON, "bare={bare}");
+    assert_eq!(held, 0.0);
+}
+
+// --- a width the panels had nothing to do with -----------------------
+
+#[test]
+fn dragging_the_window_edge_takes_from_the_calculator_not_the_panel() {
+    // The panel is a fixed width and stays drawn at it, so every pixel
+    // the drag takes comes off the calculator column. Crediting the
+    // panel with less instead is what made the keypad spring wider
+    // when the panel closed: it handed back less width than the panel
+    // was really holding.
+    let (bare, held) = keep_panel_width(480.0 + HISTORY - 120.0, HISTORY);
+    assert!((bare - 360.0).abs() < f32::EPSILON, "bare={bare}");
+    assert!((held - HISTORY).abs() < f32::EPSILON, "held={held}");
+
+    // The same in the other direction: width the user drags in is the
+    // calculator's, and the panel's share does not grow with it.
+    let (bare, held) = keep_panel_width(480.0 + HISTORY + 200.0, HISTORY);
+    assert!((bare - 680.0).abs() < f32::EPSILON, "bare={bare}");
+    assert!((held - HISTORY).abs() < f32::EPSILON, "held={held}");
+}
+
+#[test]
+fn a_panel_cannot_hold_width_the_window_does_not_have() {
+    // Nothing should get the window this narrow — the floor moves with
+    // the panels — but the split still has to come out with a column
+    // of nothing rather than a negative one.
+    let (bare, held) = keep_panel_width(HISTORY - 40.0, HISTORY);
+    assert_eq!(bare, 0.0);
+    assert!(
+        (held - (HISTORY - 40.0)).abs() < f32::EPSILON,
+        "held={held}"
+    );
+}
+
+#[test]
+fn with_no_panel_open_the_whole_width_is_the_calculators() {
+    let (bare, held) = keep_panel_width(640.0, 0.0);
+    assert!((bare - 640.0).abs() < f32::EPSILON, "bare={bare}");
+    assert_eq!(held, 0.0);
+}
+
+#[test]
+fn a_panel_gives_back_what_it_took_from_a_window_dragged_to_its_floor() {
+    // The sequence from the bug: open a panel, drag the window in to
+    // the floor that panel raised, then close it. The calculator has
+    // to come out of that the width it went in at — the keypad neither
+    // grows into the panel's space nor shrinks away from it.
+    let opened = 480.0 + HISTORY;
+    // The resize granting the panel its width: the panel is credited
+    // with what the window gained.
+    let (_, held) = split_panel_width(opened, 480.0, HISTORY, 0.0);
+    assert!((held - HISTORY).abs() < f32::EPSILON, "held={held}");
+
+    // Dragged in to the floor, which with the panel open is the
+    // keypad's own plus the panel's width.
+    let floor = min_window_width(
+        KEYPAD_MIN,
+        PanelsShown {
+            history: true,
+            settings: false,
+        },
+        Some(1920.0),
+    );
+    assert!(floor < opened, "floor={floor}");
+    let (bare, held) = keep_panel_width(floor, held);
+    assert!((bare - KEYPAD_MIN).abs() < f32::EPSILON, "bare={bare}");
+
+    // Closing hands the panel's whole share back, so the window ends
+    // up exactly the width the calculator column already had.
+    let closed = floor - held;
+    assert!(
+        (closed - KEYPAD_MIN).abs() < f32::EPSILON,
+        "closed={closed}"
+    );
+    assert!(
+        closed >= min_window_width(KEYPAD_MIN, PanelsShown::default(), Some(1920.0)),
+        "closed={closed}"
+    );
+    let (bare, held) = split_panel_width(closed, bare, 0.0, held);
+    assert!((bare - KEYPAD_MIN).abs() < f32::EPSILON, "bare={bare}");
     assert_eq!(held, 0.0);
 }
 

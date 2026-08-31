@@ -388,6 +388,18 @@ make check                         # fmt + clippy + the whole workspace
 	  translating it, and the alpha channel is live everywhere: a
 	  button filled with `#00000000` shows the background through it
 	  and is drawn by its border alone
+	- Alpha means the same thing in every slot, `app_bg` included:
+	  `00` is invisible whatever colour it is written in, `FF` is
+	  the colour exactly as configured, and the values between are
+	  that colour as tinted glass over whatever is behind the
+	  window. The window background is the one colour the renderer
+	  does not blend — it is what the surface is cleared to, and
+	  those pixels go to the compositor as premultiplied alpha — so
+	  it is scaled by its own alpha before it is handed over. Handed
+	  over unscaled, `#FFFFFF00` painted an opaque white window and
+	  `#28313300` a tinted one, and only `#00000000` came out
+	  transparent, because the colour a transparency was written in
+	  was deciding how transparent it was
 	- Borders are opt-in per palette — `button_border_percent`,
 	  zero in most of them and non-zero in Cupertino Dark and
 	  Cyberpunk — and are a percentage of the button's height
@@ -486,6 +498,17 @@ make check                         # fmt + clippy + the whole workspace
 	  that will not tell a window where it is or let it move itself
 	  — Wayland does neither — the window grows rightwards as it
 	  always did
+	- A panel gives back exactly what it took, so the keypad is the
+	  same size after closing one as it was before opening it —
+	  including when the window was dragged about in between. A
+	  panel is a fixed width and stays drawn at it, so width the
+	  drag takes comes off the calculator column and width it adds
+	  goes to the calculator column; the panel's own share is
+	  neither reduced nor grown by it. Dragging in to the floor with
+	  a panel open used to charge every pixel of the drag to the
+	  panel, so closing it handed back less than the panel was
+	  really holding and the keypad sprang wider than the window it
+	  had been resized in
 - One `%` key for both readings, decided by what follows it: on its own
   it is a percentage (`3.5%×230` = 8.05, `200+10%` = 220), and with an
   operand straight after it, it is modulo (`5%3.2` = 1.8, `7%(-3)` = 1)
@@ -556,6 +579,12 @@ make check                         # fmt + clippy + the whole workspace
   dim `Memory:` while nothing is stored, the value beside it once
   something is. It used to be a line at the top of the history panel,
   where it could only be read with that panel open
+	- Off out of the box — "Show memory contents" in the settings
+	  panel turns it on. Nothing is stored at startup, so the row
+	  would otherwise open as a line of the display given over to
+	  the word `Memory:`. `MC`/`MR`/`M+`/`M-` work whether or not
+	  the register is on screen: the toggle is about seeing the
+	  value, not about having one
 	- The space between the word and the number is a no-break one,
 	  so the two are never left on different lines
 	- The register and the property labels grow towards each other —
