@@ -1,0 +1,14 @@
+
+1) Add new themes: "Army" with green/brown colors and "ArmyChalk" font and "Hacker" with "BigBlue_TerminalPlus Nerd Font Mono". It should be possible to assign fonts which are not in the recommended list.
+
+2) The font_weight under button groups should be exposed in the config.toml as well. I expect to see the font_weight bold under [themes.RedmondDark.number] and [themes.RedmondLight.number]
+
+3) Make all the button groups in CupertinoDark and CupertinoLight to have font_weight "regular" setting while the theme itself preserves the "light" setting for places which are not the button groups
+
+4) There should be a 4th column for the colors for the button groups, which is the 2nd toggled state fill, font, border colors. Every button group should have this, even if there is no secondary function assigned for them, since the layout can be changed. The "second" button group which hosts the "2nd" button should get it's toggled color from this column instead how it is done right now (it is not exposed in the config, but somehow derived (maybe inverted) from the existing colors).
+
+5) Rename "debug_raw_formula" to "ascii_mode" in the config.toml
+
+TODO in future:
+ - Implement cosmic frosted glass effect (blur) from the desktop environment
+ - Implement neon glow effect for the border so it shines around its area a little bit
