@@ -34,6 +34,18 @@
   </categories>
 
   <releases>
+    <release version="0.2.8" date="2026-08-31">
+      <description>
+        <ul>
+          <li>The second-function key is set like the ordinal it is: a 2 with a small raised "nd" over it rather than three characters sitting in a row. The suffix is letters, so Unicode has only modifier letters for it — which is exactly the case the keypad's own placed scripts exist for, and it rides at the same height as every other script on the keys</li>
+          <li>A button group can be set at a weight of its own. Add a font_weight to the group's table in config.toml — [themes.RedmondDark.number], say — and that group's labels are drawn at it; leave it out, which is what almost every group does, and they take the weight the palette names at the top. The family stays the palette's: a second family on one keypad is a different palette rather than a heavier group of keys</li>
+          <li>Redmond Dark and Redmond Light ship with their digits bold, which is how that desktop draws its own calculator — the fill barely tells the numbers from the keys around them, so the weight does</li>
+          <li>The random decimal count sits above the random range rather than under it, so the panel's two sliders are next to each other instead of separated by a row of text fields</li>
+          <li>"Random: min (incl.) max (excl.)" is now "Random range (min included, max excluded)". The abbreviations shortened the one thing the caption is there to make plain</li>
+          <li>config.toml spells the button shape the way the settings panel offers it — system, 50%, 25%, 10%, 0% — so the file says what the keypad looks like rather than naming a preset you have to look up. Those five are the whole vocabulary: a percentage of your own, 37%, is not a corner this build can draw and falls back to the shipped value like any other unusable entry. The names earlier versions wrote still read, so upgrading keeps the corner you chose</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.2.7" date="2026-08-31">
       <description>
         <ul>
