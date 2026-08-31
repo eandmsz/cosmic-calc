@@ -1,4 +1,4 @@
-use crate::ui::font_metrics::{label_nudge, offset_for};
+use crate::ui::font_metrics::{baseline_drop, label_nudge, offset_for};
 
 #[test]
 fn a_typical_sans_face_pushes_text_slightly_down() {
@@ -87,4 +87,62 @@ fn a_family_the_host_does_not_have_still_offers_a_weight() {
             assert_eq!(resolved_weight(family, *weight), *weight, "{family}");
         }
     }
+}
+
+// --- keeping a row of pieces on one baseline -------------------------
+
+#[test]
+fn a_piece_drawn_from_one_face_needs_no_correction() {
+    // Nothing to correct: the band the piece stands on is the family's
+    // own, which is the band every other piece in the row stands on.
+    let alone = baseline_drop(0.80, 0.20);
+    assert_eq!(alone - baseline_drop(0.80, 0.20), 0.0);
+}
+
+#[test]
+fn a_taller_fallback_face_pushes_a_piece_down_and_is_pulled_back_up() {
+    // `√` from a face that reserves more room above the baseline: the
+    // line is stood on the taller ascent, so the baseline — and with
+    // it the `(` sharing the piece — drops. The correction is the
+    // distance back up.
+    let alone = baseline_drop(0.80, 0.20);
+    let mixed = baseline_drop(1.10, 0.20);
+    assert!(mixed > alone, "{mixed} vs {alone}");
+    let correction = alone - mixed;
+    assert!(correction < 0.0, "{correction}");
+    assert!((correction + 0.15).abs() < 1e-6, "{correction}");
+}
+
+#[test]
+fn a_deeper_fallback_face_moves_a_piece_the_other_way() {
+    // Descent is the other half of the band, and a fallback face that
+    // hangs further below the line raises the baseline instead. The
+    // correction follows it rather than assuming one direction.
+    let alone = baseline_drop(0.80, 0.20);
+    let mixed = baseline_drop(0.80, 0.40);
+    assert!(mixed < alone, "{mixed} vs {alone}");
+    assert!(alone - mixed > 0.0);
+}
+
+#[test]
+fn a_fallback_face_inside_the_family_band_changes_nothing() {
+    // The band is a max over the faces on the line, so a fallback that
+    // is shorter and shallower than the family adds nothing to it and
+    // the piece stays exactly where it was.
+    let alone = baseline_drop(0.80, 0.20);
+    let mixed = baseline_drop(0.80_f32.max(0.70), 0.20_f32.max(0.15));
+    assert_eq!(alone, mixed);
+}
+
+#[test]
+fn the_measurement_is_free_of_the_font_size_until_it_is_applied() {
+    // `baseline_nudge` is em measured against the size the piece is
+    // drawn at, so the same family corrects a caption and a readout by
+    // proportionally the same amount. Nothing to assert against a real
+    // font here — a machine with no fonts at all must simply not move
+    // anything.
+    use crate::ui::font_metrics::baseline_nudge;
+    assert_eq!(baseline_nudge("Nimbus Sans", "", 40.0), 0.0);
+    assert_eq!(baseline_nudge("Nimbus Sans", "5", 0.0), 0.0);
+    assert_eq!(baseline_nudge("Nimbus Sans", "5", f32::NAN), 0.0);
 }

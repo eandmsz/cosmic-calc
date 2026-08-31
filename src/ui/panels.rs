@@ -87,7 +87,7 @@ const RECOMMENDED_TAG_SIZE: f32 = 11.0;
 
 /// Height each of the panel's two scrolling lists — the palettes and
 /// the font families — is given: enough rows to browse by, and
-/// bounded so nineteen palettes, or a host with hundreds of families,
+/// bounded so twenty palettes, or a host with hundreds of families,
 /// cannot push the rest of the settings off the panel.
 ///
 /// One number for both, so the two read as the same kind of control
@@ -141,7 +141,7 @@ pub fn font_list_offset(config: &Config) -> f32 {
 
 /// How far to scroll the palette list for the palette in force to sit
 /// in the middle of it, with the ones either side of it on screen to
-/// compare against. Nineteen palettes are more than the box holds, so
+/// compare against. There are more palettes than the box holds, so
 /// the one at the bottom of the list would otherwise open out of
 /// sight.
 pub fn theme_list_offset(config: &Config) -> f32 {
@@ -532,7 +532,7 @@ pub fn settings_panel<'a>(
     let header = widget::text::title4("Settings");
 
     // Theme — a scrolling list of one palette per row, the same box
-    // the font families are browsed in. Nineteen of them wrapped
+    // the font families are browsed in. Twenty of them wrapped
     // across the panel as buttons took a third of its height and left
     // the names in a ragged block that had to be read across and
     // down; one to a line is a list, and it is bounded, so adding a
@@ -841,7 +841,7 @@ pub fn settings_panel<'a>(
 
     // The column is taller than the default window, so the panel
     // scrolls as a whole; the palette and font lists keep their own
-    // inner scrollables, so neither the nineteen palettes nor a host
+    // inner scrollables, so neither the twenty palettes nor a host
     // with hundreds of families installed can dominate its height.
     widget::column::with_capacity(2)
         .push(

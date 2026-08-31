@@ -389,11 +389,12 @@ pub enum ThemeKind {
     EmeraldDark,
     FlatOrangeDark,
     FlatGreenLight,
+    Wolfenstein,
 }
 
 impl ThemeKind {
     /// Every palette, in the order the settings panel offers them.
-    pub const ALL: [ThemeKind; 19] = [
+    pub const ALL: [ThemeKind; 20] = [
         ThemeKind::CupertinoDark,
         ThemeKind::CupertinoLight,
         ThemeKind::RedmondDark,
@@ -413,6 +414,7 @@ impl ThemeKind {
         ThemeKind::EmeraldDark,
         ThemeKind::FlatOrangeDark,
         ThemeKind::FlatGreenLight,
+        ThemeKind::Wolfenstein,
     ];
 
     /// The name `config.toml` records, which is the variant's own —
@@ -438,6 +440,7 @@ impl ThemeKind {
             ThemeKind::EmeraldDark => "EmeraldDark",
             ThemeKind::FlatOrangeDark => "FlatOrangeDark",
             ThemeKind::FlatGreenLight => "FlatGreenLight",
+            ThemeKind::Wolfenstein => "Wolfenstein",
         }
     }
 
@@ -548,7 +551,7 @@ impl Serialize for StateColors {
 /// fits on a button is replaced by the shipped one, an entry naming a
 /// palette this build does not have is dropped, a palette named twice
 /// keeps its first entry, and a palette the file leaves out is added
-/// back. What comes out is always all nineteen, in the order the
+/// back. What comes out is always all twenty, in the order the
 /// settings panel offers them, whatever went in.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ThemeTable(Vec<Theme>);
@@ -581,7 +584,7 @@ impl ThemeTable {
     /// The family `kind` asks to be drawn in — see [`Theme::font`].
     /// Borrowed rather than handed back with the whole palette: the
     /// view asks for it once per widget it draws, and cloning
-    /// nineteen colours' worth of palette for a family name is a lot
+    /// a whole palette's worth of colours for a family name is a lot
     /// of copying per frame.
     pub fn font(&self, kind: ThemeKind) -> &str {
         self.0
@@ -602,7 +605,7 @@ impl ThemeTable {
 
     /// Give `kind` a family, held to what a family name can be. A
     /// palette the table does not carry is not created for it: the
-    /// table always holds all nineteen after
+    /// table always holds all twenty after
     /// [`ThemeTable::normalize`], and one that does not has bigger
     /// problems than a font.
     pub fn set_font(&mut self, kind: ThemeKind, font: String) {
@@ -618,8 +621,23 @@ impl ThemeTable {
         }
     }
 
+    /// Whether `kind` is still wearing the family and weight its
+    /// preset ships, which is what the table holds for a palette the
+    /// file said nothing about.
+    ///
+    /// The question the top-of-file `font`/`font_weight` pair is
+    /// answered with: a palette that has a face of its own — from the
+    /// settings panel, or from a hand-edit of its entry — keeps it,
+    /// and one that does not takes the pair, which is how a file
+    /// written before the font moved into the palette is read. See
+    /// [`crate::config::Config::font_in_force`].
+    pub fn wears_preset_face(&self, kind: ThemeKind) -> bool {
+        let preset = presets::preset(kind);
+        self.font(kind) == preset.font && self.font_weight(kind) == preset.font_weight
+    }
+
     /// Put the table back in a state the rest of the app can rely on:
-    /// each of the nineteen presets present exactly once, in
+    /// each of the twenty presets present exactly once, in
     /// [`ThemeKind::ALL`] order, each with a drawable name and border.
     pub fn normalize(&mut self) {
         for theme in &mut self.0 {

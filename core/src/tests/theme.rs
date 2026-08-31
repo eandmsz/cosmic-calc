@@ -167,10 +167,10 @@ fn every_preset_asks_for_a_border_the_renderer_can_draw() {
             assert!(w <= height * MAX_BORDER_PERCENT / 100.0, "{name} {w}");
         }
     }
-    // Cupertino Dark and Cyberpunk carry one; the rest do not. A
-    // count rather than a list, so turning one on or off in a
-    // palette is a one-line change here rather than a hunt.
-    assert_eq!(with_a_border, 2);
+    // Cupertino Dark, Cyberpunk and Wolfenstein carry one; the rest
+    // do not. A count rather than a list, so turning one on or off in
+    // a palette is a one-line change here rather than a hunt.
+    assert_eq!(with_a_border, 3);
 }
 
 #[test]
@@ -213,8 +213,10 @@ fn all_presets_enumerate_in_order() {
     assert_eq!(names[4], "High Contrast Dark");
     assert_eq!(names[5], "High Contrast Light");
     assert_eq!(ThemeKind::ALL[4].key(), "HighContrastDark");
-    assert_eq!(names[6], "Cosmic");
-    assert_eq!(names[names.len() - 1], "Flat Green Light");
+    // The palette that tracks the running desktop says which desktop
+    // it is tracking, rather than sharing a word with the app's name.
+    assert_eq!(names[6], "Cosmic Desktop");
+    assert_eq!(names[names.len() - 1], "Wolfenstein");
     assert_eq!(names.len(), ThemeKind::ALL.len());
     // Each name is its own, so no two buttons in the settings panel
     // read the same.

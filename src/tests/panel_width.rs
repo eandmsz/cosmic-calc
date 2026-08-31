@@ -399,3 +399,40 @@ fn each_panel_reports_the_side_it_docks_on() {
     assert_eq!(PanelsShown::default().history_width(), 0.0);
     assert_eq!(PanelsShown::default().settings_width(), 0.0);
 }
+
+#[test]
+fn the_lists_are_scrolled_when_the_panel_reaches_the_screen() {
+    use crate::ui::app::PanelsShown;
+
+    let none = PanelsShown::default();
+    let settings = PanelsShown {
+        history: false,
+        settings: true,
+    };
+    let both = PanelsShown {
+        history: true,
+        settings: true,
+    };
+    let history = PanelsShown {
+        history: true,
+        settings: false,
+    };
+
+    // The frame the panel arrives in is the frame its lists first
+    // exist in, and the only one worth scrolling. Asked for any
+    // earlier — at the key press that started the resize — there is
+    // nothing with those ids in the view tree and the scroll goes
+    // nowhere, which is what left the lists at the top.
+    assert!(none.settings_arriving(settings));
+    assert!(history.settings_arriving(both));
+
+    // A panel that was already up is where the user left it: opening
+    // the history panel beside it, or any other resize, must not take
+    // the row they were reading away.
+    assert!(!settings.settings_arriving(both));
+    assert!(!settings.settings_arriving(settings));
+
+    // And nothing to scroll when it is leaving, or was never there.
+    assert!(!settings.settings_arriving(none));
+    assert!(!none.settings_arriving(history));
+}

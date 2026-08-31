@@ -34,6 +34,18 @@
   </categories>
 
   <releases>
+    <release version="0.2.6" date="2026-08-31">
+      <description>
+        <ul>
+          <li>Wolfenstein is a twentieth palette: dark steel and brass over a near-black window, a blood-red accent, and a border on every key. It is set in Bahnschrift Bold</li>
+          <li>The Cosmic palette is called "Cosmic Desktop" on its row — it is the one that tracks the running COSMIC desktop, and a name it shared with the app did not say so — and is now set in Open Sans</li>
+          <li>Open Sans takes BigBlue_TerminalPlus Nerd Font Mono's place among the recommended families a palette falls back to, high up with the interface faces rather than down in the tail with the terminal ones. Cyberpunk asked for the family that left, and takes Adwaita Mono instead — still a terminal face, and one the desktop it is drawn for actually ships</li>
+          <li>font and font_weight are written at the top of config.toml again, beside theme_kind. The face belongs to the palette and is still carried in the palette's own entry, which is where it is edited; the pair at the top says which of the twenty is on screen and what it is set in, and is filled in from that palette at every write so it cannot drift from what is drawn. On the way back in the palette's own entry wins, so a hand-edit of it stands</li>
+          <li>The settings panel's palette and font lists open at the row in force again. The scroll was asked for from the key that opened the panel, but the panel is only drawn once the window has been given the width to stand it in — so it was applied to a view with no lists in it yet, went nowhere, and both opened at the top</li>
+          <li>The bracket after a radical sits on the line the rest of the expression is written on. The display is a row of separately shaped pieces, so one carrying a character the family has not got — the radical sign in a good many of them — was stood on the fallback face's taller line band and landed on a baseline of its own, with the bracket beside the sign showing it. The band each piece is really laid out on is now measured and the difference taken back out, and the whole row is shaped one way rather than one way for ASCII and another for the rest</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.2.5" date="2026-08-31">
       <description>
         <ul>

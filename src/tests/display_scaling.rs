@@ -129,10 +129,38 @@ fn a_script_is_padded_on_the_side_it_moves_away_from() {
     // is padded underneath it: an exponent a tenth of the line above
     // the middle gets a fifth of the line under it, and a base the
     // same over it.
-    let raised = segment_padding(0.1, 0.0, 50.0);
+    let raised = segment_padding(0.1, 0.0, 0.0, 50.0);
     assert_eq!((raised.top, raised.bottom), (0.0, 10.0));
-    let lowered = segment_padding(-0.1, 0.0, 50.0);
+    let lowered = segment_padding(-0.1, 0.0, 0.0, 50.0);
     assert_eq!((lowered.top, lowered.bottom), (10.0, 0.0));
+}
+
+#[test]
+fn a_baseline_correction_costs_the_line_no_height() {
+    // The piece is already exactly as tall as the box it is centred
+    // in, so a correction that ate height would squeeze the text out
+    // of the space it was measured for. The two sides cancel: the box
+    // keeps its height and only the ink inside it moves.
+    let down = segment_padding(0.0, 0.0, 3.0, 50.0);
+    assert_eq!(down.top + down.bottom, 0.0);
+    // The box centres what it holds, so the piece moves half the
+    // difference between the two sides.
+    assert_eq!((down.top - down.bottom) / 2.0, 3.0);
+
+    let up = segment_padding(0.0, 0.0, -3.0, 50.0);
+    assert_eq!(up.top + up.bottom, 0.0);
+    assert_eq!((up.top - up.bottom) / 2.0, -3.0);
+
+    // And a correction rides on top of a script's own lift rather
+    // than replacing it: an exponent that also has to come back onto
+    // the baseline does both.
+    let raised = segment_padding(0.1, 0.0, 3.0, 50.0);
+    let plain = segment_padding(0.1, 0.0, 0.0, 50.0);
+    assert_eq!(raised.top + raised.bottom, plain.top + plain.bottom);
+    assert_eq!(
+        (raised.top - raised.bottom) / 2.0 - (plain.top - plain.bottom) / 2.0,
+        3.0
+    );
 }
 
 #[test]
@@ -140,12 +168,12 @@ fn a_slide_costs_the_row_nothing() {
     // What makes a root degree overlap the radical rather than push it
     // along: the two horizontal paddings cancel, so the box is exactly
     // as wide as its text and only the ink inside it moves.
-    let padding = segment_padding(0.1, 4.0, 50.0);
+    let padding = segment_padding(0.1, 4.0, 0.0, 50.0);
     assert_eq!(padding.left, 4.0);
     assert_eq!(padding.right, -4.0);
     assert_eq!(padding.left + padding.right, 0.0);
     // And a piece that is not sliding is not moved sideways at all.
-    let still = segment_padding(0.1, 0.0, 50.0);
+    let still = segment_padding(0.1, 0.0, 0.0, 50.0);
     assert_eq!((still.left, still.right), (0.0, 0.0));
 }
 
