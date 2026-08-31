@@ -55,7 +55,7 @@ use serde::ser::{SerializeMap, SerializeStruct};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::color::Rgba;
-use crate::config::{sanitized_font_name, FontWeight};
+use crate::config::{sanitized_font_name, ButtonShape, FontWeight};
 use crate::lenient::{color_of, Lenient};
 
 mod presets;
@@ -226,6 +226,24 @@ pub struct Theme {
     /// weight, since a Black chosen for one face says nothing about
     /// how another should be set.
     pub font_weight: FontWeight,
+    /// How round this palette's buttons are drawn — see
+    /// [`ButtonShape`].
+    ///
+    /// A corner is part of a look in the way a colour or a face is: a
+    /// Cupertino keypad is pills and a Wolfenstein one is corners, and
+    /// a single setting for the whole app meant picking one and
+    /// wearing it on all twenty. So the shape travels with the palette
+    /// like the font does — switching palettes switches it, and
+    /// choosing one in the settings panel changes the palette on
+    /// screen and leaves the other nineteen alone.
+    ///
+    /// A palette that copies a desktop copies its corner: Cupertino
+    /// is pills, Redmond is corners, and Cosmic Desktop asks for
+    /// `Auto` — the running desktop's own — because tracking that
+    /// desktop is what it is for. The rest ask for `Auto` too, which
+    /// is where every palette started, so switching to one of them
+    /// changes nothing about the keypad's shape.
+    pub button_shape: ButtonShape,
     /// Behind the window as a whole: the keypad's gaps, the top bar.
     pub app_bg: Rgba,
     /// Behind the expression display — the caption, the readout, and
@@ -621,6 +639,34 @@ impl ThemeTable {
         }
     }
 
+    /// How round `kind` asks for its buttons — see
+    /// [`Theme::button_shape`].
+    pub fn button_shape(&self, kind: ThemeKind) -> ButtonShape {
+        self.0
+            .iter()
+            .find(|t| t.id == kind)
+            .map(|t| t.button_shape)
+            .unwrap_or_default()
+    }
+
+    /// Give `kind` a shape.
+    pub fn set_button_shape(&mut self, kind: ThemeKind, shape: ButtonShape) {
+        if let Some(theme) = self.0.iter_mut().find(|t| t.id == kind) {
+            theme.button_shape = shape;
+        }
+    }
+
+    /// Whether `kind` is still wearing the shape its preset ships,
+    /// which is the question the top-of-file `button_shape` is
+    /// answered with — the same rule the face follows, and for the
+    /// same reason: a file written before the shape moved into the
+    /// palette carried one setting for the whole app, and it belongs
+    /// to the palette that was on screen when it was written. See
+    /// [`crate::config::Config::button_shape_in_force`].
+    pub fn wears_preset_shape(&self, kind: ThemeKind) -> bool {
+        self.button_shape(kind) == presets::preset(kind).button_shape
+    }
+
     /// Whether `kind` is still wearing the family and weight its
     /// preset ships, which is what the table holds for a palette the
     /// file said nothing about.
@@ -745,6 +791,7 @@ struct RawTheme {
     display_name: Lenient<String>,
     font: Lenient<String>,
     font_weight: Lenient<FontWeight>,
+    button_shape: Lenient<ButtonShape>,
     app_bg: Lenient<Rgba>,
     display_bg: Lenient<Rgba>,
     sidepanel_bg: Lenient<Rgba>,
@@ -795,6 +842,7 @@ impl RawTheme {
             ),
             font: sanitized_font_name(self.font.0.as_deref().unwrap_or_default(), &base.font),
             font_weight: self.font_weight.0.unwrap_or(base.font_weight),
+            button_shape: self.button_shape.0.unwrap_or(base.button_shape),
             app_bg: self.app_bg.0.unwrap_or(base.app_bg),
             display_bg: self.display_bg.0.unwrap_or(base.display_bg),
             sidepanel_bg: self.sidepanel_bg.0.unwrap_or(base.sidepanel_bg),

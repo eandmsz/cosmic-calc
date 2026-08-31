@@ -155,12 +155,19 @@ const CAPTION_HEIGHT_PORTION: u16 =
 
 /// Fraction of the display slot kept clear under the readout so a
 /// descender is not cut off — see [`display_descender_pad`].
-const DESCENDER_PAD_RATIO: f32 = 0.06;
+///
+/// Half as much again as the room this started at, because a
+/// sixteenth of the slot was not quite enough for the families it was
+/// put there for: the `g` of a `log` in Comic Sans MS still had its
+/// tail against the floor of the display. The gap under the readout
+/// need not match the one over it — what wants the room is the
+/// descender, and only the bottom of the slot has anything to cut off.
+const DESCENDER_PAD_RATIO: f32 = 0.09;
 
 /// Ceiling on that space. Past a point it stops being a descender's
 /// worth of room and starts being a gap between the readout and the
 /// row under it.
-const MAX_DESCENDER_PAD: f32 = 12.0;
+const MAX_DESCENDER_PAD: f32 = 16.0;
 
 /// Space left clear under the main readout, in logical pixels.
 ///

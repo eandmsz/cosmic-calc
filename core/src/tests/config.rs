@@ -28,8 +28,10 @@ fn the_corner_radius_presets_are_offered_as_what_they_draw() {
     // are a fraction of the button's height on the keypad, not a
     // pixel count, and a fixed number would stop being true the
     // moment the window was dragged.
+    // Offered most rounded first, so the row reads down a scale
+    // rather than jumping about it.
     let names: Vec<_> = ButtonShape::ALL.iter().map(|s| s.display_name()).collect();
-    assert_eq!(names, ["System", "50%", "25%", "0%"]);
+    assert_eq!(names, ["System", "50%", "25%", "10%", "0%"]);
 
     // The stored pair is a separate thing: the buttons outside the
     // keypad have no height to scale against and take a fixed radius.
@@ -37,9 +39,20 @@ fn the_corner_radius_presets_are_offered_as_what_they_draw() {
     // desktop.
     assert_eq!(ButtonShape::Auto.resolved(), None);
     assert_eq!(ButtonShape::Square.resolved(), Some((0.0, 1.0)));
-    assert!(
-        ButtonShape::Round.resolved().unwrap().0 > ButtonShape::SlightlyRound.resolved().unwrap().0
-    );
+    let radius = |shape: ButtonShape| shape.resolved().unwrap().0;
+    assert!(radius(ButtonShape::Round) > radius(ButtonShape::SlightlyRound));
+    assert!(radius(ButtonShape::SlightlyRound) > radius(ButtonShape::BarelyRound));
+    assert!(radius(ButtonShape::BarelyRound) > radius(ButtonShape::Square));
+    // Every one of them keeps the gap at a quarter of the corner, so
+    // a keypad's spacing tracks its shape.
+    for shape in [
+        ButtonShape::Round,
+        ButtonShape::SlightlyRound,
+        ButtonShape::BarelyRound,
+    ] {
+        let (r, spacing) = shape.resolved().unwrap();
+        assert!((spacing - r * 0.25).abs() < 1e-6, "{shape:?}");
+    }
 
     // The key the file records is the variant's own, so renaming a
     // label cannot orphan a config somebody already has.
@@ -651,6 +664,84 @@ fn the_font_belongs_to_the_palette_that_is_on_screen() {
     assert_eq!(read.themes.font_weight(ThemeKind::Barbie), FontWeight::Bold);
     let body = std::fs::read_to_string(&path).expect("read");
     assert!(body.contains("font = \"Trebuchet MS\""), "{body}");
+    let _ = std::fs::remove_dir_all(path.parent().unwrap());
+}
+
+#[test]
+fn the_button_shape_belongs_to_the_palette_that_is_on_screen() {
+    // A corner is part of a look the way a colour or a face is, so
+    // the shape travels with the palette: choosing one changes the
+    // palette being looked at and leaves the other nineteen exactly
+    // as they were.
+    let mut c = Config {
+        theme_kind: ThemeKind::Barbie,
+        ..Config::default()
+    };
+    let cosmic_shape = c.themes.button_shape(ThemeKind::Cosmic);
+    c.set_button_shape(ButtonShape::BarelyRound);
+
+    assert_eq!(c.button_shape(), ButtonShape::BarelyRound);
+    assert_eq!(c.themes.button_shape(ThemeKind::Cosmic), cosmic_shape);
+    // And what the keypad is drawn to follows it.
+    assert_eq!(
+        c.effective_button_corner_radius(),
+        ButtonShape::BarelyRound.resolved().unwrap().0
+    );
+
+    c.theme_kind = ThemeKind::Cosmic;
+    assert_eq!(c.button_shape(), cosmic_shape);
+
+    // It survives the file, under the palette it belongs to, and is
+    // mirrored at the top of the file for the palette on screen.
+    let path = scratch_path("theme-shape");
+    c.theme_kind = ThemeKind::Barbie;
+    c.save_at(&path).expect("save");
+    let read = Config::load_or_create_default_at(&path).expect("load");
+    assert_eq!(
+        read.themes.button_shape(ThemeKind::Barbie),
+        ButtonShape::BarelyRound
+    );
+    assert_eq!(
+        read.themes.button_shape(ThemeKind::Cosmic),
+        ThemeKind::Cosmic.get().button_shape
+    );
+    let body = std::fs::read_to_string(&path).expect("read");
+    assert!(body.contains("button_shape = \"barelyround\""), "{body}");
+    let _ = std::fs::remove_dir_all(path.parent().unwrap());
+}
+
+#[test]
+fn a_file_written_before_the_shape_moved_keeps_the_shape_it_had() {
+    // Until 0.2.7 the corner was one setting for the whole app, at
+    // the top of the file, and a file that old has nothing else to
+    // say about a shape. It is the shape that user was looking at, so
+    // the palette they were looking at keeps it.
+    let path = scratch_path("legacy-shape");
+    std::fs::create_dir_all(path.parent().unwrap()).expect("mkdir");
+    std::fs::write(&path, "theme_kind = \"Tokyo\"\nbutton_shape = \"round\"\n").expect("write");
+    let read = Config::load_or_create_default_at(&path).expect("load");
+    assert_eq!(read.button_shape(), ButtonShape::Round);
+    // Only that palette: the others keep the shape their preset
+    // ships, which is the whole point of the move.
+    assert_eq!(
+        read.themes.button_shape(ThemeKind::Cosmic),
+        ThemeKind::Cosmic.get().button_shape
+    );
+
+    read.save_at(&path).expect("save");
+    let back = Config::load_or_create_default_at(&path).expect("reload");
+    assert_eq!(back.button_shape(), ButtonShape::Round);
+
+    // And a palette whose own entry names a shape keeps it: the key
+    // at the top of the file is a mirror of what is on screen, not
+    // an override of what the palette says.
+    std::fs::write(
+        &path,
+        "theme_kind = \"Tokyo\"\nbutton_shape = \"round\"\n\n[themes.Tokyo]\nbutton_shape = \"square\"\n",
+    )
+    .expect("write");
+    let read = Config::load_or_create_default_at(&path).expect("load");
+    assert_eq!(read.button_shape(), ButtonShape::Square);
     let _ = std::fs::remove_dir_all(path.parent().unwrap());
 }
 

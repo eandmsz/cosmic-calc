@@ -34,6 +34,19 @@
   </categories>
 
   <releases>
+    <release version="0.2.7" date="2026-08-31">
+      <description>
+        <ul>
+          <li>The degree of a root stands clear of the radical it is written into. It is slid into the opening of the sign rather than left beside it, and how high that opening reaches is a matter of the outline rather than of the metrics — in a good many families the foot of the degree came down on the stroke. The sign is now measured where the degree really covers it, and the degree lifted by what it is short of and no further, so a family that already draws the two apart is left exactly where it was and no degree climbs out of its own line. The keys are measured the same way, since a cube-root key wears its degree in the same radical the display writes one into</li>
+          <li>The readout sits further off the floor of the display: half as much room again under it, because a sixteenth of the slot still left the tail of a g against the bottom edge in the families the space was put there for. It still comes out of the text's own budget rather than off the keypad</li>
+          <li>The decimal and thousands separators are named rather than named and spelled — "Dot" and "Comma", not "Dot ." and "Comma ,". The glyph on the button beside the word for it said the same thing twice, and at the panel's row size read as a speck on the key</li>
+          <li>The two random bounds are drawn as the one setting they are: a single "Random: min (incl.) max (excl.)" over the two fields, side by side and sharing the panel's width with a range dash between them</li>
+          <li>The button corner radius offers a 10% as well as 50%, 25% and 0% — for a keypad that wants the hard point taken off its corners without reading as rounded. The step between a square key and a quarter-round one was the widest on the row</li>
+          <li>The corner belongs to the palette, the way the font does: choosing a shape changes the palette on screen and leaves the other nineteen alone, and switching palettes brings each one's own shape back with it. It is written into that palette's entry in config.toml, with the one in force mirrored at the top of the file beside theme_kind, font and font_weight. A file written before the move gives its shape to the palette that was on screen when it was written, so the keypad you are looking at comes back as you left it</li>
+          <li>A palette that copies a desktop copies its corner: Cupertino Dark and Light are pills, Redmond Dark and Light are square, and Cosmic Desktop takes the running desktop's own. The other fifteen are where they all started, so switching to one of them changes nothing about the shape of the keypad</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.2.6" date="2026-08-31">
       <description>
         <ul>

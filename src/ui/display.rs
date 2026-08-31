@@ -117,6 +117,26 @@ impl Script {
         }
     }
 
+    /// The size the piece this one is a step away from is drawn at,
+    /// given the size this one is. A script is written against the
+    /// run it stepped out of — a degree against its radical — and
+    /// that run is one step larger.
+    ///
+    /// Meaningless on the line itself, where there is nothing to be
+    /// written against; the callers are all placing a script.
+    pub(crate) fn parent_size(self, size: f32) -> f32 {
+        size / SCRIPT_SCALE
+    }
+
+    /// How far this placement moved from the one it stepped out of,
+    /// as a fraction of the line height — the distance between the
+    /// two boxes, which is what puts a degree above its radical.
+    pub(crate) fn step_taken(self) -> f32 {
+        // Each step moves half of what it gave up in size, measured
+        // at the size it stepped away from — see [`Script::step`].
+        SCRIPT_SHIFT * self.parent_size(self.scale())
+    }
+
     /// A step in either direction: the text shrinks by one factor and
     /// moves by half of what it just gave up, so each step clears the
     /// one it came from without ever reaching past the line above.
@@ -144,6 +164,17 @@ impl Script {
 /// the overlap is a placement the app layer applies, not something
 /// the font is asked for.
 pub(crate) const ROOT_DEGREE_NUDGE: f32 = 0.5;
+
+/// The same slide measured in the radical's own em rather than the
+/// degree's characters: how far into the sign the degree reaches.
+///
+/// A constant, because every term of it is one — the step down in
+/// size a script takes and the per-character width estimate the slide
+/// is spelled in — which is what lets a face be asked once what its
+/// radical does in those columns rather than once a frame. See
+/// [`crate::ui::font_metrics::radical_band_top`].
+pub(crate) const ROOT_DEGREE_OVERLAP: f32 =
+    ROOT_DEGREE_NUDGE * SCRIPT_SCALE * crate::ui::keypad::LABEL_CHAR_WIDTH_RATIO;
 
 /// One piece of the rendered display. Multiple segments line up
 /// horizontally; `active` tells the app layer whether to use the full
@@ -183,6 +214,14 @@ impl DisplaySegment {
     /// hint, an error message.
     pub fn on_line(text: impl Into<String>) -> Self {
         Self::placed(text, true, Script::ON_LINE)
+    }
+
+    /// Whether this piece is part of the degree of a root, written
+    /// into the opening of the radical rather than beside it. The
+    /// slide is what makes one — nothing else in a row carries a
+    /// nudge — and every piece of a degree carries it.
+    pub(crate) fn is_root_degree(&self) -> bool {
+        self.nudge != 0.0
     }
 
     /// A dimmed piece written on the line: what the tests spell an

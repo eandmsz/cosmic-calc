@@ -646,6 +646,32 @@ fn a_root_wears_its_degree_in_front_of_the_sign() {
 }
 
 #[test]
+fn a_degree_is_the_only_piece_written_into_what_follows_it() {
+    // The slide is what makes a degree: every piece of one carries it
+    // and nothing else in the row does, which is how the renderer
+    // knows which pieces have a radical to keep clear of.
+    let items = root("16", &digits("12"));
+    let segs = render_at(&items, NO_CURSOR);
+    assert_eq!(texts(&segs), vec!["12", "√(", "16", ")"]);
+    assert!(segs[0].is_root_degree());
+    assert!(segs[1..].iter().all(|seg| !seg.is_root_degree()));
+
+    // And the sizes a degree is measured against are the ones it
+    // stepped away from: the radical is drawn a step larger, and the
+    // step between the two is what the degree's raise is made of.
+    let degree = segs[0].script;
+    assert!((degree.parent_size(30.0) - 50.0).abs() < 0.01);
+    assert!((degree.step_taken() - degree.raise).abs() < 1e-6);
+
+    // A degree inside a degree steps again, and steps less far: it is
+    // measured against the radical it is really written into and not
+    // against the line.
+    let inner = degree.raised();
+    assert!(inner.step_taken() < degree.step_taken());
+    assert!((inner.parent_size(inner.scale()) - degree.scale()).abs() < 1e-6);
+}
+
+#[test]
 fn a_step_inside_a_step_keeps_its_own_direction() {
     // A root writes its degree before its sign, so a run that has gone
     // off the line can begin on a piece deeper than the step that took

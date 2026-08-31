@@ -181,6 +181,263 @@ pub fn baseline_drop(ascent: f32, descent: f32) -> f32 {
     (ascent - descent) / 2.0
 }
 
+/// How much daylight the degree of a root keeps over the radical
+/// once it has been lifted clear of it, as a fraction of the size the
+/// degree is drawn at.
+///
+/// Small on purpose. The degree belongs *in* the opening of the sign
+/// — that is what the sideways slide is for — so what is wanted is
+/// that its ink stops short of the stroke, not that it stands clear
+/// of the whole radical.
+const DEGREE_CLEARANCE: f32 = 0.06;
+
+/// How far the degree of a root has to climb for its baseline to
+/// stand clear of the radical it is written into, in logical pixels.
+/// Zero — nothing moves — for a face that already draws the two
+/// apart, which is the answer this is meant to give most of the time.
+///
+/// The degree is slid sideways into the sign's opening rather than
+/// left beside it (see [`crate::ui::display::ROOT_DEGREE_NUDGE`]),
+/// and where the two meet is a matter of the outline: a face whose
+/// opening reaches high has the foot of the degree resting on the
+/// stroke, and one whose opening is shallow has the same degree
+/// standing clear of it. So the sign is measured rather than assumed,
+/// in the columns the degree actually covers, and the degree is moved
+/// only by what it is short of.
+///
+/// * `band` is how far the degree reaches into the sign, in em of
+///   the size the *radical* is drawn at.
+/// * `step` is the script step between the two, as a fraction of the
+///   line height both are placed in.
+///
+/// Nothing here depends on which characters the degree is spelled
+/// with, and that is deliberate: every piece of a degree is placed on
+/// its own, and a lift measured from one piece's ink would stand a
+/// `12` at two different heights. So the degree is taken to reach
+/// down to its baseline, which is where a digit really stops, and the
+/// room it may climb into is the one the face leaves over a capital.
+pub fn root_degree_climb(
+    family: &str,
+    band: f32,
+    step: f32,
+    line_h: f32,
+    degree_size: f32,
+    radical_size: f32,
+) -> f32 {
+    if !(band.is_finite() && step.is_finite() && line_h.is_finite()) {
+        return 0.0;
+    }
+    if !(degree_size.is_finite() && radical_size.is_finite()) || degree_size <= 0.0 {
+        return 0.0;
+    }
+    let db = crate::ui::font::system_db();
+    let Some(metrics) = face_id(db, family).and_then(|id| face_metrics(db, id)) else {
+        return 0.0;
+    };
+    let Some(top) = radical_band_top(family, band) else {
+        return 0.0;
+    };
+    // Where the degree's baseline sits above the radical's: the step
+    // it took off the line, plus the difference the two sizes make to
+    // where each of them stands in its own box. Both pieces are put
+    // back on the family's own baseline before they are drawn — see
+    // [`baseline_nudge`] — so it is the family's drop that decides
+    // this and not the face the radical happens to come from.
+    let baseline = step * line_h
+        + baseline_drop(metrics.ascent, metrics.descent) * (radical_size - degree_size);
+    degree_climb(
+        top * radical_size,
+        baseline,
+        DEGREE_CLEARANCE * degree_size,
+        (metrics.ascent - metrics.cap_height).max(0.0) * degree_size,
+    )
+}
+
+/// The arithmetic behind [`root_degree_climb`], in whatever unit the
+/// caller measures in: how far to lift a degree whose ink starts at
+/// `degree_bottom` so it clears a radical reaching `radical_top`,
+/// both measured up from the radical's baseline.
+///
+/// Never negative — a degree that already stands clear is left where
+/// it is rather than dropped onto the sign — and never more than
+/// `headroom`, the room the face leaves over a digit inside the
+/// degree's own line box. Past that the degree would climb out of the
+/// line it belongs to, which is a worse fault than the one being
+/// fixed; a face whose opening reaches higher than that gets as much
+/// of the lift as there is room for.
+pub fn degree_climb(radical_top: f32, degree_bottom: f32, clearance: f32, headroom: f32) -> f32 {
+    let need = radical_top + clearance - degree_bottom;
+    if !need.is_finite() || !headroom.is_finite() {
+        return 0.0;
+    }
+    need.clamp(0.0, headroom.max(0.0))
+}
+
+/// The highest the radical sign reaches inside the first `band` em of
+/// its advance, measured off the face that will really draw it.
+///
+/// What the degree of a root has to clear is not the top of the sign
+/// — that is the bar, away to the right of where the degree sits —
+/// but the top of the short stroke that makes its opening. Where that
+/// is cannot be read off a bounding box, so the outline is walked and
+/// the columns the degree covers are asked how high the sign gets in
+/// them.
+///
+/// `None` when no face on the machine has the sign, which asks for no
+/// lift.
+pub fn radical_band_top(family: &str, band: f32) -> Option<f32> {
+    static CACHE: OnceLock<RwLock<BandTops>> = OnceLock::new();
+    if !band.is_finite() || band <= 0.0 {
+        return None;
+    }
+    let cache = CACHE.get_or_init(|| RwLock::new(HashMap::new()));
+    let key = (family.to_string(), band.to_bits());
+    if let Ok(map) = cache.read() {
+        if let Some(v) = map.get(&key) {
+            return *v;
+        }
+    }
+    let db = crate::ui::font::system_db();
+    let measured = face_for_char(db, face_id(db, family), RADICAL)
+        .and_then(|id| glyph_band_top(db, id, RADICAL, band));
+    if let Ok(mut map) = cache.write() {
+        map.insert(key, measured);
+    }
+    measured
+}
+
+/// What a measured radical is cached against: the family it was asked
+/// for, and the band it was measured over — the bits of it, since a
+/// float is not a key. `None` for a machine with no radical to read.
+type BandTops = HashMap<(String, u32), Option<f32>>;
+
+/// The sign a root is written with, which the display draws at the
+/// head of every one — see [`crate::ui::display`].
+const RADICAL: char = '\u{221a}';
+
+/// Highest ink of one glyph in the columns `0..band` of its own
+/// coordinates, in em. `None` for a glyph with no outline there —
+/// a blank, or a sign whose ink starts further right than the degree
+/// reaches.
+fn glyph_band_top(db: &fontdb::Database, id: fontdb::ID, ch: char, band: f32) -> Option<f32> {
+    with_face(db, id, |face| {
+        let upem = f32::from(face.units_per_em());
+        if upem <= 0.0 {
+            return None;
+        }
+        let gid = face.glyph_index(ch)?;
+        let mut walk = BandTop::new(band * upem);
+        face.outline_glyph(gid, &mut walk)?;
+        walk.top.map(|top| top / upem)
+    })
+    .flatten()
+}
+
+/// Walks a glyph outline and keeps the highest point it reaches
+/// inside a band of columns at its left-hand end.
+///
+/// Curves are flattened into short lines and each line is clipped to
+/// the band before it is counted, so the answer is the top of the ink
+/// in those columns rather than the top of whatever segment happens
+/// to start in them.
+struct BandTop {
+    /// Right-hand edge of the band, in font units. The left-hand edge
+    /// is the glyph's origin.
+    band: f32,
+    at: (f32, f32),
+    started: (f32, f32),
+    top: Option<f32>,
+}
+
+impl BandTop {
+    fn new(band: f32) -> Self {
+        Self {
+            band,
+            at: (0.0, 0.0),
+            started: (0.0, 0.0),
+            top: None,
+        }
+    }
+
+    /// Count one straight edge, clipped to the band.
+    fn edge(&mut self, to: (f32, f32)) {
+        let from = self.at;
+        self.at = to;
+        let (left, right) = if from.0 <= to.0 {
+            (from, to)
+        } else {
+            (to, from)
+        };
+        if right.0 < 0.0 || left.0 > self.band {
+            return;
+        }
+        // A straight edge is highest at one of its ends, so clipping
+        // it to the band and taking the taller end is exact.
+        let low = at_column(left, right, left.0.max(0.0));
+        let high = at_column(left, right, right.0.min(self.band));
+        let reach = low.max(high);
+        self.top = Some(self.top.map_or(reach, |top: f32| top.max(reach)));
+    }
+
+    /// Count a curve as the short lines it is flattened into.
+    fn curve(&mut self, steps: usize, point: impl Fn(f32) -> (f32, f32)) {
+        for step in 1..=steps {
+            self.edge(point(step as f32 / steps as f32));
+        }
+    }
+}
+
+/// Height of the straight edge `left..right` at column `x`.
+fn at_column(left: (f32, f32), right: (f32, f32), x: f32) -> f32 {
+    let run = right.0 - left.0;
+    if run.abs() < f32::EPSILON {
+        return left.1.max(right.1);
+    }
+    left.1 + (right.1 - left.1) * (x - left.0) / run
+}
+
+/// How many lines a curve is flattened into. Enough that the top of a
+/// stroke is not missed between two of them, few enough that walking
+/// a glyph stays the trivial cost it has to be.
+const CURVE_STEPS: usize = 8;
+
+impl ttf_parser::OutlineBuilder for BandTop {
+    fn move_to(&mut self, x: f32, y: f32) {
+        self.at = (x, y);
+        self.started = (x, y);
+    }
+
+    fn line_to(&mut self, x: f32, y: f32) {
+        self.edge((x, y));
+    }
+
+    fn quad_to(&mut self, x1: f32, y1: f32, x: f32, y: f32) {
+        let from = self.at;
+        self.curve(CURVE_STEPS, |t| {
+            let u = 1.0 - t;
+            (
+                u * u * from.0 + 2.0 * u * t * x1 + t * t * x,
+                u * u * from.1 + 2.0 * u * t * y1 + t * t * y,
+            )
+        });
+    }
+
+    fn curve_to(&mut self, x1: f32, y1: f32, x2: f32, y2: f32, x: f32, y: f32) {
+        let from = self.at;
+        self.curve(CURVE_STEPS, |t| {
+            let u = 1.0 - t;
+            (
+                u * u * u * from.0 + 3.0 * u * u * t * x1 + 3.0 * u * t * t * x2 + t * t * t * x,
+                u * u * u * from.1 + 3.0 * u * u * t * y1 + 3.0 * u * t * t * y2 + t * t * t * y,
+            )
+        });
+    }
+
+    fn close(&mut self) {
+        self.edge(self.started);
+    }
+}
+
 /// Vertical nudge for `label`, in logical pixels; positive moves the
 /// label down. Feed it the font size the label is drawn at.
 pub fn label_nudge(family: &str, label: &str, font_size: f32) -> f32 {

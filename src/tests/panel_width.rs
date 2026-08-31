@@ -227,7 +227,7 @@ fn option_rows_pack_by_label_and_always_hold_one() {
     use crate::ui::panels::{option_lines, option_width, OPTION_ROW_WIDTH};
 
     // A short set shares one line.
-    let widths: Vec<f32> = ["System", "Dot .", "Comma ,"]
+    let widths: Vec<f32> = ["System", "Dot", "Comma"]
         .iter()
         .map(|l| option_width(l))
         .collect();
@@ -237,8 +237,8 @@ fn option_rows_pack_by_label_and_always_hold_one() {
     let labels = [
         "System",
         "Space",
-        "Comma ,",
-        "Dot .",
+        "Comma",
+        "Dot",
         "None",
         "Extra Light",
         "Semi Bold",

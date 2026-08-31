@@ -107,6 +107,21 @@ make check                         # fmt + clippy + the whole workspace
 	  for the rest — the two paths read a face's vertical metrics
 	  through different libraries, and where those disagree the
 	  same split opens up in a family that does have the sign
+	- The degree of a root stands clear of the sign it is written
+	  into. It is slid into the radical's opening rather than left
+	  beside it — `⁴√` is one symbol, not a small 4 beside a stroke
+	  — and how high that opening reaches is the outline's business
+	  rather than the metrics': in a good many families the foot of
+	  the degree came down on the stroke. So the sign is measured
+	  where the degree covers it, walking the outline over those
+	  columns rather than taking a bounding box that would put the
+	  bar away to the right into the answer, and the degree is
+	  lifted by what it is short of and no further. A family that
+	  already draws the two apart is left exactly where it was, and
+	  no degree climbs out of its own line: the room it is given is
+	  the room the face leaves over a digit. Nothing in the
+	  measurement depends on which characters the degree is spelled
+	  with, so every piece of a `¹²√` moves together
 	- Both the square and cube root keys wear the whole operation —
 	  `²√x` and `³√x`, the way `ʸ√x` does with its degree left
 	  open — rather than a bare sign that says which radical it is
@@ -352,6 +367,7 @@ make check                         # fmt + clippy + the whole workspace
 	  display_name = "Cupertino Dark"
 	  font = "SF Pro Display"
 	  font_weight = "regular"
+	  button_shape = "auto"
 	  app_bg = "#283133FF"
 	  button_border_percent = 1.0
 
@@ -369,14 +385,20 @@ make check                         # fmt + clippy + the whole workspace
 	  row says what you renamed it to. `font` and `font_weight` are
 	  the face that palette is set in, and a family your machine
 	  does not have is stood in for rather than rewritten — see
-	  the font notes above. The same two keys appear once more at
-	  the top of the file, outside any `[themes.…]` table, naming
-	  the face the palette in force is set in
+	  the font notes above. `button_shape` is how round that
+	  palette's buttons are drawn — `auto`, `round`,
+	  `slightlyround`, `barelyround` or `square`, which the panel
+	  offers as System, 50%, 25%, 10% and 0%. All three keys appear
+	  once more at the top of the file, outside any `[themes.…]`
+	  table, naming the face and the shape the palette in force
+	  wears
 	- A file written by an earlier version listed the palettes as a
 	  `[[themes]]` array with the id inside each entry, spelled the
-	  border `button_border_thickness`, and carried one `font` and
-	  `font_weight` for the whole app at the top of the file with
-	  none in the palettes at all. Those files still load, with
+	  border `button_border_thickness`, and carried one `font`,
+	  `font_weight` and `button_shape` for the whole app at the top
+	  of the file with none in the palettes at all. Those files
+	  still load — each of the three going to the palette that was
+	  on screen when the file was written — with
 	  everything tuned in them intact, and the next save rewrites
 	  them in the shape above — the migration is a start of the app
 	  rather than a hand-edit
@@ -636,8 +658,13 @@ make check                         # fmt + clippy + the whole workspace
 	  stretched to the full width of the panel, so a choice between
 	  two ends at the same edge as a choice between four instead of
 	  trailing off in the middle. What each button gets of that
-	  width is its share of the names on its line, so a `Comma ,`
+	  width is its share of the names on its line, so a `System`
 	  is drawn wider than the `None` beside it
+	- Each separator is named rather than named *and* spelled:
+	  `Dot` and `Comma`, not `Dot .` and `Comma ,`. The glyph on
+	  the button beside the word for it said the same thing twice,
+	  and at the panel's row size the second of them read as a
+	  speck on the key rather than as a mark
 	- Theme is a list rather than a row of buttons: one palette per
 	  line, in the scroll box the font families are browsed in and
 	  bounded to the same height. Twenty names wrapped across the
@@ -647,11 +674,44 @@ make check                         # fmt + clippy + the whole workspace
 	- "System" is what the two separators and the corner radius
 	  call the choice that is not a choice: the separators take
 	  the region's, and the radius the desktop's
-	- "Button corner radius" offers `50%`, `25%` and `0%` rather
-	  than names, because that is what the keypad draws: the
+	- "Button corner radius" offers `50%`, `25%`, `10%` and `0%`
+	  rather than names, because that is what the keypad draws: the
 	  radius is a fraction of the button's own height, so `50%`
 	  is a pill at every window size where a fixed pixel count
-	  would stop being round as the buttons grew
+	  would stop being round as the buttons grew. `10%` is for a
+	  keypad that wants the hard point taken off its corners
+	  without reading as rounded — the step between a square key
+	  and a quarter-round one was the widest on the row
+	- The corner belongs to the palette, like the font does. A
+	  corner is part of a look in the way a colour or a face is,
+	  so a palette that copies a desktop copies its corner:
+	  Cupertino Dark and Light are pills (`50%`), Redmond Dark and
+	  Light are corners (`0%`), and Cosmic Desktop asks for
+	  `System` because tracking the running desktop is what it is
+	  for. The other fifteen ask for `System` too, which is where
+	  they all started, so switching to one of them changes
+	  nothing about the shape of the keypad
+	- One setting for the whole app meant picking a shape and
+	  wearing it on all twenty. Choosing one now changes the
+	  palette on screen and leaves the other nineteen alone, and
+	  switching palettes brings each one's own shape back with it.
+	  It is written into that palette's entry in `config.toml` —
+	  `[themes.Cosmic] button_shape` — with the one in force
+	  mirrored at the top of the file beside `theme_kind`, `font`
+	  and `font_weight`, so the answer to "what shape is this
+	  keypad" is where the rest of the answer already is
+	- A `config.toml` written before the move gives its shape to
+	  the palette that was on screen when it was written — the
+	  palette you chose that shape while looking at — so the
+	  keypad you are looking at comes back exactly as you left it,
+	  whatever the palettes you are not looking at now ask for
+	- The two random bounds are one setting and are drawn as one:
+	  a single `Random: min (incl.) max (excl.)` over the two
+	  fields, side by side and sharing the panel's width with a
+	  range dash between them. Stacked, each under a caption of its
+	  own, they read as two unrelated numbers that happen to sit
+	  together — a range is what they are, and this is how a range
+	  is written
 	- Both lists open at the row in force — the palette you are
 	  using, the family you are using — rather than at the top of
 	  twenty palettes or of an alphabetical list of every family
@@ -670,7 +730,9 @@ make check                         # fmt + clippy + the whole workspace
   picking a family changes the palette you are looking at and leaves
   the other nineteen alone. Both are written into that palette's entry
   in `config.toml`, and the pair in force is written again at the top
-  of the file beside `theme_kind` — see below
+  of the file beside `theme_kind` — see below. The corner the keys are
+  drawn with belongs to the palette the same way, and is carried and
+  read back in exactly the same places
 	- A palette naming a family your machine does not have is drawn
 	  in the best one it does: the first of the recommended families
 	  installed, in the priority order below. The settings panel
@@ -723,7 +785,10 @@ make check                         # fmt + clippy + the whole workspace
 	  out of the text's own budget rather than off the keypad.
 	  There is none to match at the top: what wanted the space was
 	  the descender, and the ascender already has the leading above
-	  it
+	  it — which is why the gap under the readout is deliberately
+	  the larger of the two, and half as much again as it started
+	  out, since a sixteenth of the slot still left the `g` of a
+	  `log` against the floor in the families it was put there for
 - "Save history" keeps the history list in `config.toml` and reads it
   back on the next start, updated as each calculation is recorded.
   Turning it off empties it from the file straight away; turning it on
