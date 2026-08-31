@@ -34,6 +34,17 @@
   </categories>
 
   <releases>
+    <release version="0.2.5" date="2026-08-31">
+      <description>
+        <ul>
+          <li>The font belongs to the palette. Each of the nineteen names the family and the weight it was designed for — Cupertino asks for SF Pro Display, Redmond for Segoe UI, Barbie for Comic Sans MS, Cyberpunk for a terminal face — and both are written into that palette's own entry in config.toml, so switching palettes switches the face the calculator is set in and picking a family changes the palette on screen while leaving the other eighteen alone</li>
+          <li>A palette naming a family your machine does not have is drawn in the best one it does: the first installed of twenty-two recommended families, in priority order, rather than whatever the renderer felt like substituting. The substitution never reaches the file — the palette keeps the family it names, so installing that font later is all it takes to get it — and a family stood in for is drawn at the regular weight, since a Black chosen for one face says nothing about how another should be set</li>
+          <li>The settings panel marks the recommended families "(Recommended)" against the right-hand edge of their rows, and the row it lights, like the weight button beside it, is the family being drawn rather than the one named in the file</li>
+          <li>A config.toml written before this carried one font for the whole app at the top of the file. It is given to the palette that was in force when the file was written, and the top-level keys are gone the next time a file is written</li>
+          <li>The readout sits a little off the floor of the display. A family whose descender reaches past its line box — Comic Sans MS, most script faces — had the tail of a g and the foot of a ( cut off by the bottom of the slot. The room is a fraction of the display rather than a fixed few pixels, so it keeps its proportion as the window grows, and it comes out of the text's own budget rather than off the keypad</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.2.4" date="2026-08-31">
       <description>
         <ul>
