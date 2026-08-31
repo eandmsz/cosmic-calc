@@ -541,6 +541,56 @@ fn a_name_that_would_break_its_button_is_repaired() {
 }
 
 #[test]
+fn a_palette_carries_the_shape_its_buttons_are_drawn_in() {
+    use crate::config::ButtonShape;
+
+    // The corner is the palette's too, so the file writes it inside
+    // the palette's own entry and an edit there reaches the keypad
+    // without touching any other palette.
+    let table = table_from(
+        r##"
+        [themes.Texas]
+        button_shape = "barelyround"
+
+        [themes.Tokyo]
+        button_shape = "square"
+
+        [themes.Barbie]
+        button_shape = "10%"
+
+        [themes.Plastic]
+        button_shape = 10
+        "##,
+    );
+    assert_eq!(
+        table.button_shape(ThemeKind::Texas),
+        ButtonShape::BarelyRound
+    );
+    assert_eq!(table.button_shape(ThemeKind::Tokyo), ButtonShape::Square);
+    // The file names the variant, not the percentage the panel draws
+    // it as, so anything else is nothing said and the palette keeps
+    // the shape its preset ships.
+    assert_eq!(
+        table.button_shape(ThemeKind::Barbie),
+        ThemeKind::Barbie.get().button_shape
+    );
+    assert_eq!(
+        table.button_shape(ThemeKind::Plastic),
+        ThemeKind::Plastic.get().button_shape
+    );
+    // A palette the file did not mention keeps its own.
+    assert_eq!(
+        table.button_shape(ThemeKind::Cosmic),
+        ThemeKind::Cosmic.get().button_shape
+    );
+
+    // And a palette wearing what it shipped is the one the top of the
+    // file may still speak for — see `Config::button_shape_in_force`.
+    assert!(table.wears_preset_shape(ThemeKind::Cosmic));
+    assert!(!table.wears_preset_shape(ThemeKind::Texas));
+}
+
+#[test]
 fn a_palette_carries_the_family_it_is_drawn_in() {
     // The font is the palette's, so the file writes it inside the
     // palette's own entry and an edit there reaches the window

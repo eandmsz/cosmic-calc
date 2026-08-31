@@ -367,6 +367,7 @@ make check                         # fmt + clippy + the whole workspace
 	  display_name = "Cupertino Dark"
 	  font = "SF Pro Display"
 	  font_weight = "regular"
+	  button_shape = "auto"
 	  app_bg = "#283133FF"
 	  button_border_percent = 1.0
 
@@ -384,14 +385,20 @@ make check                         # fmt + clippy + the whole workspace
 	  row says what you renamed it to. `font` and `font_weight` are
 	  the face that palette is set in, and a family your machine
 	  does not have is stood in for rather than rewritten — see
-	  the font notes above. The same two keys appear once more at
-	  the top of the file, outside any `[themes.…]` table, naming
-	  the face the palette in force is set in
+	  the font notes above. `button_shape` is how round that
+	  palette's buttons are drawn — `auto`, `round`,
+	  `slightlyround`, `barelyround` or `square`, which the panel
+	  offers as System, 50%, 25%, 10% and 0%. All three keys appear
+	  once more at the top of the file, outside any `[themes.…]`
+	  table, naming the face and the shape the palette in force
+	  wears
 	- A file written by an earlier version listed the palettes as a
 	  `[[themes]]` array with the id inside each entry, spelled the
-	  border `button_border_thickness`, and carried one `font` and
-	  `font_weight` for the whole app at the top of the file with
-	  none in the palettes at all. Those files still load, with
+	  border `button_border_thickness`, and carried one `font`,
+	  `font_weight` and `button_shape` for the whole app at the top
+	  of the file with none in the palettes at all. Those files
+	  still load — each of the three going to the palette that was
+	  on screen when the file was written — with
 	  everything tuned in them intact, and the next save rewrites
 	  them in the shape above — the migration is a start of the app
 	  rather than a hand-edit
@@ -667,11 +674,30 @@ make check                         # fmt + clippy + the whole workspace
 	- "System" is what the two separators and the corner radius
 	  call the choice that is not a choice: the separators take
 	  the region's, and the radius the desktop's
-	- "Button corner radius" offers `50%`, `25%` and `0%` rather
-	  than names, because that is what the keypad draws: the
+	- "Button corner radius" offers `50%`, `25%`, `10%` and `0%`
+	  rather than names, because that is what the keypad draws: the
 	  radius is a fraction of the button's own height, so `50%`
 	  is a pill at every window size where a fixed pixel count
-	  would stop being round as the buttons grew
+	  would stop being round as the buttons grew. `10%` is for a
+	  keypad that wants the hard point taken off its corners
+	  without reading as rounded — the step between a square key
+	  and a quarter-round one was the widest on the row
+	- The corner belongs to the palette, like the font does. A
+	  corner is part of a look in the way a colour or a face is —
+	  a Cupertino keypad is pills and a Wolfenstein one is corners
+	  — and one setting for the whole app meant picking a shape
+	  and wearing it on all twenty. So choosing one changes the
+	  palette on screen and leaves the other nineteen alone, and
+	  switching palettes brings each one's own shape back with it.
+	  It is written into that palette's entry in `config.toml` —
+	  `[themes.Cosmic] button_shape` — with the one in force
+	  mirrored at the top of the file beside `theme_kind`, `font`
+	  and `font_weight`, so the answer to "what shape is this
+	  keypad" is where the rest of the answer already is. Every
+	  shipped palette asks for `System`, so nothing changes shape
+	  until you pick one, and a `config.toml` written before the
+	  move gives its shape to the palette that was on screen when
+	  it was written
 	- The two random bounds are one setting and are drawn as one:
 	  a single `Random: min (incl.) max (excl.)` over the two
 	  fields, side by side and sharing the panel's width with a

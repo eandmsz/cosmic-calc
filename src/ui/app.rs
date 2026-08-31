@@ -879,7 +879,10 @@ impl Application for AppModel {
             Message::SetTheme(kind) => {
                 self.config.theme_kind = kind;
                 // The font travels with the palette, so switching one
-                // switches the family the interface is drawn in.
+                // switches the family the interface is drawn in. So
+                // does the corner: the keypad is laid out from
+                // `config.button_shape()` on every frame, so that
+                // needs nothing here beyond the palette itself.
                 self.apply_font();
                 self.persist();
             }
@@ -899,7 +902,9 @@ impl Application for AppModel {
                 self.persist();
             }
             Message::SetButtonShape(shape) => {
-                self.config.button_shape = shape;
+                // The palette on screen is the one that gets the
+                // shape; the other nineteen keep theirs.
+                self.config.set_button_shape(shape);
                 self.persist();
             }
             Message::SetFont(font) => {

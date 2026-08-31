@@ -70,7 +70,7 @@ pub struct KeypadMetrics {
 /// per-shape rule for spacing/radius.
 pub fn keypad_metrics_for_area(target_height: f32, config: &Config) -> KeypadMetrics {
     let target = target_height.max(1.0);
-    match config.button_shape {
+    match config.button_shape() {
         // Round: radius = h/2, spacing = radius/4 = h/8.
         // Solve `5h + 4(h/8) == target` → h * 5.5 = target.
         ButtonShape::Round => {
@@ -88,6 +88,18 @@ pub fn keypad_metrics_for_area(target_height: f32, config: &Config) -> KeypadMet
         ButtonShape::SlightlyRound => {
             let h = target / 5.25;
             let radius = h * 0.25;
+            let spacing = radius * 0.25;
+            KeypadMetrics {
+                button_height: h,
+                spacing,
+                radius,
+            }
+        }
+        // BarelyRound: radius = h/10, spacing = radius/4 = h/40.
+        // Solve `5h + 4(h/40) == target` → h * 5.1 = target.
+        ButtonShape::BarelyRound => {
+            let h = target / 5.1;
+            let radius = h * 0.1;
             let spacing = radius * 0.25;
             KeypadMetrics {
                 button_height: h,

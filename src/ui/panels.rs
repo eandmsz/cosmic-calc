@@ -635,7 +635,7 @@ pub fn settings_panel<'a>(
         theme,
         radius,
         &ButtonShape::ALL,
-        config.button_shape,
+        config.button_shape(),
         |s: ButtonShape| s.display_name().to_string(),
         Message::SetButtonShape,
     );

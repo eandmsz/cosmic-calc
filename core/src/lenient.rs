@@ -14,7 +14,7 @@
 use serde::{Deserialize, Deserializer};
 
 use crate::color::Rgba;
-use crate::config::FontWeight;
+use crate::config::{ButtonShape, FontWeight};
 
 /// A field that should be text, taking anything else as absent.
 /// Wired in with `#[serde(deserialize_with = "lenient::text")]`.
@@ -44,6 +44,16 @@ where
     D: Deserializer<'de>,
 {
     Ok(Lenient::<FontWeight>::deserialize(deserializer)?.0)
+}
+
+/// The same for a button shape: one of the five names, or nothing.
+pub(crate) fn optional_button_shape<'de, D>(
+    deserializer: D,
+) -> Result<Option<ButtonShape>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    Ok(Lenient::<ButtonShape>::deserialize(deserializer)?.0)
 }
 
 /// The colour a TOML value spells, if it spells one.
@@ -92,6 +102,20 @@ impl<'de> Deserialize<'de> for Lenient<FontWeight> {
     {
         let value = toml::Value::deserialize(deserializer)?;
         Ok(Self(FontWeight::deserialize(value).ok()))
+    }
+}
+
+/// A shape the file may have spelled as something other than one of
+/// the five names — the percentage it draws, a typo, a number. Same
+/// rule as everything else here: what is not one of them is absent,
+/// and the caller keeps what it had.
+impl<'de> Deserialize<'de> for Lenient<ButtonShape> {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = toml::Value::deserialize(deserializer)?;
+        Ok(Self(ButtonShape::deserialize(value).ok()))
     }
 }
 

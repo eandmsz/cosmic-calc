@@ -177,16 +177,19 @@ pub enum Mode {
 /// and inter-button spacing to a known recipe so the user can pick a
 /// look without juggling two numeric sliders.
 ///
-/// On the keypad the two rounded presets are a *fraction of the
-/// button's height* rather than a pixel count — `Round` is half of
-/// it, which is as round as a rectangle gets, and `SlightlyRound` a
-/// quarter — so the corners keep their proportion as the window
-/// grows. That is what the settings panel shows: 50%, 25%, 0%. The
+/// On the keypad the rounded presets are a *fraction of the button's
+/// height* rather than a pixel count — `Round` is half of it, which
+/// is as round as a rectangle gets, `SlightlyRound` a quarter and
+/// `BarelyRound` a tenth, which takes the hard point off a corner
+/// without the key reading as rounded at all — so the corners keep
+/// their proportion as the window grows. That is what the settings
+/// panel shows: 50%, 25%, 10%, 0%. The
 /// UI crate's `keypad_metrics_for_area` solves the button height and
 /// the radius together, which is why neither is stored here.
 ///
 /// [`ButtonShape::resolved`] carries a pixel pair for each preset
-/// anyway — Round 15/3.75, SlightlyRound 5/1.25, Square 0/1 — because
+/// anyway — Round 15/3.75, SlightlyRound 5/1.25, BarelyRound 2/0.5,
+/// Square 0/1 — because
 /// the buttons *outside* the keypad (the settings rows, the history
 /// rows) have no such height to scale against and take a fixed
 /// number. The keypad recomputes its own and ignores the radius here.
@@ -197,14 +200,20 @@ pub enum ButtonShape {
     Auto,
     Round,
     SlightlyRound,
+    BarelyRound,
     Square,
 }
 
 impl ButtonShape {
-    pub const ALL: [ButtonShape; 4] = [
+    /// Every shape, in the order the settings panel offers them:
+    /// the system's, then the rounded ones from most to least, then
+    /// none at all. A row that read 50, 10, 25 would be a row the
+    /// user has to stop and parse.
+    pub const ALL: [ButtonShape; 5] = [
         ButtonShape::Auto,
         ButtonShape::Round,
         ButtonShape::SlightlyRound,
+        ButtonShape::BarelyRound,
         ButtonShape::Square,
     ];
 
@@ -220,21 +229,23 @@ impl ButtonShape {
             ButtonShape::Auto => "System",
             ButtonShape::Round => "50%",
             ButtonShape::SlightlyRound => "25%",
+            ButtonShape::BarelyRound => "10%",
             ButtonShape::Square => "0%",
         }
     }
 
     /// Resolve the preset to the (corner_radius, spacing) it pins.
     /// `Auto` returns `None` so callers can fall back to whatever the
-    /// cosmic theme reports. `Round` reports a placeholder radius (the
-    /// keypad recomputes it dynamically as `height * 0.5`); spacing is
-    /// also recomputed in the layout path. `SlightlyRound` uses
+    /// cosmic theme reports. The rounded presets report a placeholder
+    /// radius — the keypad recomputes its own from the button height,
+    /// and the spacing with it — and each pairs a radius with
     /// `spacing = radius * 0.25`.
     pub fn resolved(&self) -> Option<(f32, f32)> {
         match self {
             ButtonShape::Auto => None,
             ButtonShape::Round => Some((15.0, 15.0 * 0.25)),
             ButtonShape::SlightlyRound => Some((5.0, 5.0 * 0.25)),
+            ButtonShape::BarelyRound => Some((2.0, 2.0 * 0.25)),
             ButtonShape::Square => Some((0.0, 1.0)),
         }
     }
@@ -346,21 +357,17 @@ pub struct Config {
     pub version: String,
 
     /// Corner radius of every button, in logical pixels. Clamped to
-    /// `[0, MAX_CORNER_RADIUS]`. Ignored when `button_shape` is one of
-    /// the named presets – those pin the radius themselves.
+    /// `[0, MAX_CORNER_RADIUS]`. Read only while the palette in force
+    /// asks for `Auto` — every other shape pins the radius itself.
+    /// One setting for the whole app rather than one per palette: it
+    /// is a hand-edit for somebody who wants a number the panel does
+    /// not offer, and the row of shapes is what the panel offers.
     pub button_corner_radius: f32,
 
     /// Inter-button gap, in logical pixels. Clamped to
-    /// `[0, MAX_BUTTON_SPACING]`. Like `button_corner_radius`, this is
-    /// overridden by a non-`Auto` `button_shape`.
+    /// `[0, MAX_BUTTON_SPACING]`. Like `button_corner_radius`, read
+    /// only under `Auto`.
     pub button_spacing: f32,
-
-    /// Preset shape selector exposed in the settings panel. `Auto`
-    /// honours the manual `button_corner_radius` / `button_spacing`
-    /// fields (or the system theme when those are at defaults); the
-    /// other variants pin both fields to the recipe in
-    /// [`ButtonShape::resolved`].
-    pub button_shape: ButtonShape,
 
     /// Inclusive lower bound for `rand()`.
     pub rand_min_incl: f64,
@@ -482,6 +489,36 @@ pub struct Config {
     )]
     pub font_weight_in_force: Option<FontWeight>,
 
+    /// The shape the palette in force draws its buttons in, written
+    /// at the top of the file beside `theme_kind`.
+    ///
+    /// The shape is a property of the palette and is carried in the
+    /// palette's own entry — `[themes.Cosmic] button_shape` — which
+    /// is where it is edited and where all twenty of them are. This
+    /// says which of those twenty is actually on screen, so the
+    /// answer to "what shape is this keypad" sits at the top of the
+    /// file beside the palette that chose it rather than in whichever
+    /// of twenty tables happens to be the live one.
+    /// [`Config::save_at`] fills it in from the palette in force at
+    /// every write, so it cannot drift from what is drawn.
+    ///
+    /// It is read back for one reason: a file written before the
+    /// shape moved into the palette carried exactly this one key for
+    /// the whole app, and those files still have to load. So on the
+    /// way in it is applied only to a palette still wearing the shape
+    /// its preset ships — see [`Config::validate_and_clamp`] — which
+    /// is what every palette in such a file looks like. A palette the
+    /// file gave a shape of its own keeps it, whether the settings
+    /// panel or a hand-edit put it there.
+    ///
+    /// Public only because every field of this struct is; after a
+    /// load it is empty. Read [`Config::button_shape`] instead.
+    #[serde(
+        rename = "button_shape",
+        deserialize_with = "crate::lenient::optional_button_shape"
+    )]
+    pub button_shape_in_force: Option<ButtonShape>,
+
     /// Keypad layout.
     pub mode: Mode,
 
@@ -525,7 +562,6 @@ impl Default for Config {
 
             button_corner_radius: 8.0,
             button_spacing: 4.0,
-            button_shape: ButtonShape::default(),
 
             rand_min_incl: 0.0,
             rand_max_excl: 1.0,
@@ -554,6 +590,7 @@ impl Default for Config {
 
             font_in_force: None,
             font_weight_in_force: None,
+            button_shape_in_force: None,
 
             mode: Mode::default(),
 
@@ -662,6 +699,18 @@ impl Config {
             }
         }
 
+        // And the same for the shape, which moved into the palette
+        // the same way and for the same reason. A file written while
+        // it was one setting for the whole app gives it to the
+        // palette that was on screen when it was written — the
+        // palette the user chose that shape while looking at.
+        let shape = self.button_shape_in_force.take();
+        if self.themes.wears_preset_shape(self.theme_kind) {
+            if let Some(shape) = shape {
+                self.themes.set_button_shape(self.theme_kind, shape);
+            }
+        }
+
         // Last, so a migration added above still sees the version the
         // file was written by: from here on it names this build.
         self.version = CONFIG_VERSION.to_string();
@@ -705,7 +754,7 @@ impl Config {
     /// applied. Named presets override the manual field; `Auto`
     /// returns the manual value verbatim.
     pub fn effective_button_spacing(&self) -> f32 {
-        self.button_shape
+        self.button_shape()
             .resolved()
             .map(|(_, s)| s)
             .unwrap_or(self.button_spacing)
@@ -714,7 +763,7 @@ impl Config {
     /// Effective button corner radius after the shape preset is
     /// applied. Same fallback rule as `effective_button_spacing`.
     pub fn effective_button_corner_radius(&self) -> f32 {
-        self.button_shape
+        self.button_shape()
             .resolved()
             .map(|(r, _)| r)
             .unwrap_or(self.button_corner_radius)
@@ -755,24 +804,41 @@ impl Config {
         self.themes.set_font_weight(self.theme_kind, weight);
     }
 
+    /// How round the palette in force asks for its buttons. What the
+    /// keypad and every button outside it are drawn to — see
+    /// [`crate::theme::Theme::button_shape`].
+    pub fn button_shape(&self) -> ButtonShape {
+        self.themes.button_shape(self.theme_kind)
+    }
+
+    /// Give the palette in force a shape. Like the font, the shape
+    /// belongs to the palette, so picking one in the settings panel
+    /// changes the palette on screen and leaves the other nineteen as
+    /// they were.
+    pub fn set_button_shape(&mut self, shape: ButtonShape) {
+        self.themes.set_button_shape(self.theme_kind, shape);
+    }
+
     /// What the settings panel writes on the row that selects
     /// `kind` — the user's own name for it when they have renamed it.
     pub fn theme_display_name(&self, kind: ThemeKind) -> &str {
         self.themes.display_name(kind)
     }
 
-    /// This config with the top-of-file `font`/`font_weight` pair
-    /// filled in from the palette in force — the shape
-    /// [`Config::save_at`] writes.
+    /// This config with the top-of-file `font`, `font_weight` and
+    /// `button_shape` filled in from the palette in force — the
+    /// shape [`Config::save_at`] writes.
     ///
-    /// Derived at the write rather than kept as state, so the pair
-    /// cannot fall out of step with the palette it mirrors however
-    /// the palette or the family got changed. See
-    /// [`Config::font_in_force`].
+    /// Derived at the write rather than kept as state, so neither
+    /// can fall out of step with the palette it mirrors however the
+    /// palette, the family or the shape got changed. See
+    /// [`Config::font_in_force`] and
+    /// [`Config::button_shape_in_force`].
     pub fn for_saving(&self) -> Config {
         let mut out = self.clone();
         out.font_in_force = Some(self.font().to_string());
         out.font_weight_in_force = Some(self.font_weight());
+        out.button_shape_in_force = Some(self.button_shape());
         out
     }
 }

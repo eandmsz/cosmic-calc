@@ -42,12 +42,18 @@ fn label_font_caps_by_width_for_long_labels() {
     assert!(tall_narrow <= 80.0 * 0.36);
 }
 
+/// A config whose palette in force asks for `shape` — where the
+/// setting lives now, since the corner is part of a palette's look
+/// rather than one choice for all twenty.
+fn shaped(shape: ButtonShape) -> Config {
+    let mut config = Config::default();
+    config.set_button_shape(shape);
+    config
+}
+
 #[test]
 fn round_metrics_solve_62_percent() {
-    let config = Config {
-        button_shape: ButtonShape::Round,
-        ..Config::default()
-    };
+    let config = shaped(ButtonShape::Round);
     let m = keypad_metrics(1000.0, &config);
     // Round: 5h + 4*(h/8) == window*0.62 → h*5.5 == 620 → h≈112.7
     let total = 5.0 * m.button_height + 4.0 * m.spacing;
@@ -58,10 +64,7 @@ fn round_metrics_solve_62_percent() {
 
 #[test]
 fn slightly_round_metrics_solve_62_percent() {
-    let config = Config {
-        button_shape: ButtonShape::SlightlyRound,
-        ..Config::default()
-    };
+    let config = shaped(ButtonShape::SlightlyRound);
     let m = keypad_metrics(1000.0, &config);
     // SlightlyRound: 5h + 4*(h/16) == window*0.62 → h*5.25 == 620.
     let total = 5.0 * m.button_height + 4.0 * m.spacing;
@@ -71,11 +74,25 @@ fn slightly_round_metrics_solve_62_percent() {
 }
 
 #[test]
+fn barely_round_metrics_solve_62_percent() {
+    let config = shaped(ButtonShape::BarelyRound);
+    let m = keypad_metrics(1000.0, &config);
+    // BarelyRound: 5h + 4*(h/40) == window*0.62 → h*5.1 == 620.
+    let total = 5.0 * m.button_height + 4.0 * m.spacing;
+    assert!((total - 620.0).abs() < 0.001);
+    assert!((m.radius - m.button_height * 0.1).abs() < 0.001);
+    assert!((m.spacing - m.radius * 0.25).abs() < 0.001);
+    // A tenth is rounder than nothing and less round than a quarter,
+    // which is the whole of what the new choice is for.
+    let square = keypad_metrics(1000.0, &shaped(ButtonShape::Square));
+    let quarter = keypad_metrics(1000.0, &shaped(ButtonShape::SlightlyRound));
+    assert!(m.radius > square.radius);
+    assert!(m.radius < quarter.radius);
+}
+
+#[test]
 fn metrics_grow_with_window() {
-    let config = Config {
-        button_shape: ButtonShape::Round,
-        ..Config::default()
-    };
+    let config = shaped(ButtonShape::Round);
     let small = keypad_metrics(800.0, &config);
     let large = keypad_metrics(1600.0, &config);
     assert!(large.button_height > small.button_height);
