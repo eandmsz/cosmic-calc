@@ -13,6 +13,8 @@
 
 7) The font size scaling is not accurate. This might be because it depends on the font itself, but we should always use the available horizontal and vertival space efficiently regardless of which font is used. Right now if I paste in a really long number e.g.: "99999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999" it will be smaller than it should be and only using about 80% of the horizontal space. Also, some fonts which have italic effect by default on the regular weight (e.g. Monte Carlo) will go out from the main display area on the right (the first character). It looks like the bottom of the font is correctly aligned but the top is not checked.
 
+8) Add a slider in the settings side panel which configures when we change to scientific notation. The range should be 2 - 99 (default 15). Of course this needs to saved in config.toml as well.
+
 TODO in future:
  - Implement cosmic frosted glass effect (blur) from the desktop environment
  - Implement neon glow effect for the border so it shines around its area a little bit
