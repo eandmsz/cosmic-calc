@@ -1,0 +1,244 @@
+Change this internet connectivty detection script the following way for v4.0:
+
+1) Instead of the constantly scrolling output, I would like to see a more or less static output which is easier to follow with the eye.
+Right now the output looks like this:
+"net-troubleshoot.sh 3.0 — Linux internet troubleshooting
+  Every step runs under its own timeout; the countdown ticks while it runs.
+
+
+== Routing ==
+
+✓ Default route (ipv4): enp6s0 via 192.168.1.1
+✓ Testing physical interface enp6s0 (ethernet)
+
+== Link layer (enp6s0) ==
+
+✓ Driver: r8169 (kernel module 7.1.10-200.fc44.x86_64, firmware rtl8125d-1_0.0.7 10/15/24, bus 0000:06:00.0)
+✓ Link carrier is up on enp6s0 (operstate: up)
+    interface MTU          1500
+    MAC                    10:ff:e0:85:dd:a2
+  Unrelated to this wired link, rfkill has these radios blocked:
+    hci0: Bluetooth
+    phy0: Wireless LAN
+  That is normal on a machine using ethernet and is not counted as a problem.
+✓ ethtool: link up, 2500Mb/s Full, autoneg on
+✓ Energy Efficient Ethernet is off on enp6s0 (802.3az cannot cause link drops here)
+
+== LAN (enp6s0) ==
+
+✓ IPv4 address: 192.168.1.93/24
+✓ Kernel picks 192.168.1.93 as the source address for the internet
+✓ No other host answers for 192.168.1.93 (no IP conflict)
+✓ LAN gateway: 192.168.1.1
+✓ Gateway is in the ARP table: ac:8b:a9:ab:ae:8f (REACHABLE)
+✓ arping to the gateway (192.168.1.1) answered (2.0s)
+✓ Ping to the gateway (192.168.1.1) works — 0% loss, avg 0.285 ms
+
+== Internet path ==
+
+    hop 1 192.168.1.1
+    hop 2 212.105.0.119
+    hop 3 213.204.130.40
+    hop 4 213.204.128.11
+
+== Internet path ==
+
+✓ Next hop beyond the gateway (ISP side): 212.105.0.119
+i Next hop (212.105.0.119) does not answer pings addressed to it — routine ICMP filtering, and it still forwards traffic normally
+✓ Ping to the public internet (1.1.1.1) works — 0% loss, avg 1.117 ms
+
+== Path MTU ==
+
+    path leaves via        enp6s0 (MTU 1500)
+✓ Path MTU to the internet is 1440 bytes — a router on the path reports it correctly, so PMTUD works
+  The 1500 byte interface MTU is not a mismatch to fix. It describes
+  what enp6s0 can put on the wire, and the LAN really does carry that (a
+  file copy to another machine on this switch is not limited by the WAN
+  path). Lowering it to 1440 would cap every local transfer as well, and
+  rule out jumbo frames, to change nothing about the internet path.
+  What the 1440 byte limit costs, and how it is already paid for:
+    - TCP: nothing, if the router clamps MSS ("Clamp MSS to PMTU"). The
+      MSS in every SYN is rewritten, so neither side ever emits an
+      oversized segment and the ICMP round trip never happens.
+    - Without MSS clamping: one oversized segment and one ICMP reply per
+      new connection, after which TCP caches the value per route.
+    - UDP/QUIC: does its own discovery regardless of the local MTU.
+  Verify clamping is in effect: a fresh HTTPS download should never stall.
+
+== IPv6 ==
+
+    unique-local           fdf8:7c68:99ae:9ace:561:284b:10c4:c81c/64
+    link-local             fe80::aa0f:144a:e8ac:649a/64
+i No IPv6 address or route — this is an IPv4-only network, which is fine
+  Nothing here is broken; the checks below simply do not apply.
+
+== TCP and TLS ==
+
+✓ TCP+TLS to 1.1.1.1:443 works — code=301 ip=1.1.1.1 tcp=0.001103s tls=0.008975s total=0.022248s
+
+== DNS ==
+
+✓ Configured DNS servers: 192.168.1.1
+    resolver mode          systemd-resolved stub (127.0.0.53)
+    /etc/resolv.conf       -> /run/systemd/resolve/stub-resolv.conf
+✓ DNS resolves google.com -> 172.217.19.238
+✓ DNS resolves apple.com -> 17.253.144.10
+✓ DNS server 192.168.1.1 answers directly in 103ms (172.217.19.238)
+✓ End-to-end HTTPS by name works — code=301 ip=172.217.19.238 tcp=0.003943s tls=0.017365s total=0.358822s
+  HTTP 301 is the expected answer here — google.com redirects to its www
+  host. Receiving it means the name resolved, TCP connected and TLS
+  completed, which is everything this step tests.
+
+== Portal and NetworkManager ==
+
+i One portal probe answered oddly (), but a second one was clean — this is not a captive portal
+  A single rewritten probe usually means a DNS filter (Pi-hole, AdGuard,
+  a corporate resolver) or that http://… is blocked where you are.
+  Since the other probe passed unaltered, plain HTTP is not being hijacked.
+✓ NetworkManager state: connected
+✓ NetworkManager connectivity check: full
+
+== Kernel network state ==
+
+    conntrack entries      295 of 262144 (0%)
+✓ Connection tracking table has room (295/262144, 0%)
+    ephemeral ports        32768-60999 (28232 available)
+    TCP sockets            10 established, 9 time-wait, 28 total
+✓ Ephemeral port pressure is low (9 in TIME_WAIT of 28232 ports)
+    TCP retransmits        596734 of 836409522 segments sent (0 per 1000)
+✓ TCP retransmission rate is low (0 per 1000 segments since boot)
+
+== NIC health and driver (enp6s0) ==
+
+✓ NIC errors/drops since boot are negligible: 50 of 2778070977 packets (0 per million), and none in the last 3s
+    rx errors/dropped      0 / 0
+    tx errors/dropped      0 / 50
+! Driver reports non-zero error counters (ethtool -S):
+    rx_errors                          2
+! The link went down 5 times this boot — it is flapping, not a one-off
+    20:04:53  r8169 0000:06:00.0 enp6s0: Link is Down
+    18:27:36  r8169 0000:06:00.0 enp6s0: Link is Down
+    18:27:39  r8169 0000:06:00.0 enp6s0: Link is Down
+    18:27:42  r8169 0000:06:00.0 enp6s0: Link is Down
+  most recent kernel messages naming this NIC:
+    18:27:42  r8169 0000:06:00.0 enp6s0: Link is Down
+    18:27:42  r8169 0000:06:00.0 enp6s0: Link is Up - 2.5Gbps/Full - flow control rx/tx
+    18:27:42  r8169 0000:06:00.0 enp6s0: Link is Up - 2.5Gbps/Full - flow control rx/tx
+    09:43:10  r8169 0000:06:00.0 enp6s0: Link is Up - 2.5Gbps/Full - flow control rx/tx
+    09:43:11  r8169 0000:06:00.0 enp6s0: Link is Up - 2.5Gbps/Full - flow control rx/tx
+
+== Summary ==
+
+      Section                        Result
+  ────────────────────────────────────────────────────────
+  ✓   Routing                        2 ok
+  ✓   Link layer (enp6s0)            4 ok
+  ✓   LAN (enp6s0)                   7 ok
+  ✓   Internet path                  2 ok
+  ✓   Path MTU                       1 ok
+  ✓   TCP and TLS                    1 ok
+  ✓   DNS                            5 ok
+  ✓   Portal and NetworkManager      2 ok
+  ✓   Kernel network state           3 ok
+  !   NIC health and driver (enp6s0) 1 ok, 2 warnings
+  ────────────────────────────────────────────────────────
+  ✓ 28 passed    ! 2 warnings    ✗ 0 failed
+
+  Needs attention
+    !  NIC health and driver (enp6…  Driver reports non-zero error counters (ethtool -S):
+    !  NIC health and driver (enp6…  The link went down 5 times this boot — it is flapping, not a one-off
+
+Nothing failed. The warnings above are worth a look but none of them breaks connectivity.
+"
+
+This is roughly how it should look: (with data e.g. IP address, interface name, measurements, etc. filled in on-the-go)
+Of course the green ticks and red crosses and blue "i" signs should be used and while the test is running we should have a modern Braille spinner
+
+" 
+Routing
+✓ Physical interface enp6s0 (ethernet)
+✓ Default IPv4 route: enp6s0 via 192.168.1.1
+✓ Default IPv6 route: none
+Link layer (enp6s0)
+✓ MAC address: 10:ff:e0:85:dd:a2
+✓ Driver: r8169 (kernel module 7.1.10-200.fc44.x86_64, firmware rtl8125d-1_0.0.7 10/15/24, bus 0000:06:00.0)
+✓ Link carrier operational state UP
+✓ Link speed 2500Mb/s Full, autoneg ON
+✓ Energy Efficient Ethernet (802.3az) is OFF
+LAN (enp6s0)
+✓ IPv4 address: 192.168.1.93/24
+✓ Kernel picks 192.168.1.93 as the source address for the internet
+✓ No other host answers for 192.168.1.93 (no IP conflict)
+✓ LAN gateway: 192.168.1.1
+✓ Gateway is in the ARP table: ac:8b:a9:ab:ae:8f (REACHABLE)
+✓ arping to the gateway (192.168.1.1) answered: 2.0s
+✓ Ping to the gateway (192.168.1.1) works: 0% loss, avg 0.285 ms
+Internet path
+✓ Link carrier (enp6s0) MTU: 1500
+✓ Next hop beyond the gateway (ISP side): 212.105.0.119
+i Next hop (212.105.0.119) does not answer pings but forwards traffic normally
+✓ Ping to the public internet (1.1.1.1) works: 0% loss, avg 1.117 ms
+✓ PMTUD works: path MTU to the internet is 1440 bytes, router on the path reports it correctly
+Domain Name System (DNS)
+✓ Configured DNS servers: 192.168.1.1
+✓ DNS resolves google.com -> 172.217.19.238
+✓ DNS resolves apple.com -> 17.253.144.10
+✓ DNS server 192.168.1.1 answers directly: 103ms (172.217.19.238)
+✓ TCP+TLS to 1.1.1.1:443 works: code=301 ip=1.1.1.1 tcp=0.001103s tls=0.008975s total=0.022248s
+✓ End-to-end HTTPS by name works: code=301 ip=172.217.19.238 tcp=0.003943s tls=0.017365s total=0.358822s
+Network Manager
+✓ NetworkManager state: connected
+✓ NetworkManager connectivity check: full
+Linux Kernel 7.1.10
+✓ Connection tracking table has room (295/262144, 0%)
+✓ Ephemeral ports have room 32768-60999 (28232 available)
+✓ TCP sockets (10 established, 9 time-wait, 28 total)
+✓ Ephemeral port pressure is low (9 in TIME_WAIT of 28232 ports)
+✓ TCP retransmission rate is low (596734/836409522, 0.07%)
+NIC health and driver (enp6s0)
+✓ NIC Rx errors & drops since boot are negligible (50/2778070977, <0.00001%)
+✓ NIC Tx errors & drops since boot are negligible (50/2778070977, <0.00001%)
+! Driver reports non-zero error counters: rx_errors 2
+! The link went down 5 times in the past 24 hours
+"
+
+ When this is finished, the extra recommendations and notes which could not fit in the table above can be printed out below:
+
+  "
+1) Unrelated to enp6s0 wired link: rfkill has these radios blocked:
+    hci0: Bluetooth
+    phy0: Wireless LAN
+
+2) The 1500 byte interface MTU is not a mismatch to fix. It describes
+  what enp6s0 can put on the wire, and the LAN really does carry that (a
+  file copy to another machine on this switch is not limited by the WAN
+  path). Lowering it to 1440 would cap every local transfer as well, and
+  rule out jumbo frames, to change nothing about the internet path.
+  What the 1440 byte limit costs, and how it is already paid for:
+    - TCP: nothing, if the router clamps MSS ("Clamp MSS to PMTU"). The
+      MSS in every SYN is rewritten, so neither side ever emits an
+      oversized segment and the ICMP round trip never happens.
+    - Without MSS clamping: one oversized segment and one ICMP reply per
+      new connection, after which TCP caches the value per route.
+    - UDP/QUIC: does its own discovery regardless of the local MTU.
+  Verify clamping is in effect: a fresh HTTPS download should never stall.
+
+3) DNS configuration
+    resolver mode          systemd-resolved stub (127.0.0.53)
+    /etc/resolv.conf       -> /run/systemd/resolve/stub-resolv.conf
+
+4) One portal probe answered oddly (), but a second one was clean — this is not a captive portal
+  A single rewritten probe usually means a DNS filter (Pi-hole, AdGuard,
+  a corporate resolver) or that http://… is blocked where you are.
+  Since the other probe passed unaltered, plain HTTP is not being hijacked.
+
+5) Link is flapping, not a one-off
+    2026-09-04 20:04:53  r8169 0000:06:00.0 enp6s0: Link is Down
+    2026-09-04 18:27:36  r8169 0000:06:00.0 enp6s0: Link is Down
+    2026-09-04 18:27:39  r8169 0000:06:00.0 enp6s0: Link is Down
+    2026-09-04 18:27:42  r8169 0000:06:00.0 enp6s0: Link is Down
+"
+
+Two more things:
+1) "ethtool -S" does not work for me, so recommend something else for "Driver reports non-zero error counters" because the "-S" option is not recognized
+2) Add date as well for the "Link is flapping, not a one-off" printout. Right now it only shows the time.
